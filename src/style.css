@@ -379,7 +379,6 @@ input, select, textarea { font-family: inherit; }
   min-height: 28px;
   user-select: none;
   -webkit-user-select: none;
-  touch-action: pan-y;
 }
 .lesson-tile:active { cursor: grabbing; }
 .lesson-tile:hover {
