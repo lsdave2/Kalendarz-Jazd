@@ -116,17 +116,40 @@ export function getData() {
 }
 
 export async function saveData() {
+  // Always notify local listeners first for UI responsiveness
   notifyListeners();
+  
+  // Always save to local storage as a reliable fallback
+  try {
+    localStorage.setItem('horsebook_data', JSON.stringify(_data));
+  } catch (e) {
+    console.error('[store] LocalStorage save failed', e);
+  }
+
   if (!_isAdmin) {
-    console.warn('[store] saveData skipped — no active admin session. Re-check your login.');
+    console.warn('[store] saveData skipped Supabase sync — no active admin session.');
     return;
   }
+
   try {
     const clonedObj = JSON.parse(JSON.stringify(_data));
-    const { error } = await supabase.from('app_state').upsert({ id: 1, state: clonedObj });
-    if (error) console.error('[store] Supabase upsert error:', error.message);
+    const { error } = await supabase
+      .from('app_state')
+      .upsert({ id: 1, state: clonedObj }, { onConflict: 'id' });
+    
+    if (error) {
+      console.error('[store] Supabase upsert error:', error.message);
+      window.dispatchEvent(new CustomEvent('store-error', { 
+        detail: { message: 'Sync failed: ' + error.message, type: 'error' } 
+      }));
+    } else {
+      console.log('[store] Supabase sync successful');
+    }
   } catch (e) {
     console.error('[store] Failed to save to Supabase', e);
+    window.dispatchEvent(new CustomEvent('store-error', { 
+      detail: { message: 'Sync connection error', type: 'error' } 
+    }));
   }
 }
 

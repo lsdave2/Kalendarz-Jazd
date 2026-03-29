@@ -1539,6 +1539,13 @@ function showToast(message, iconName = 'info') {
 subscribe(render);
 render();
 
+// Show toast for store errors (sync failures, etc.)
+window.addEventListener('store-error', (e) => {
+  if (e.detail && e.detail.message) {
+    showToast(e.detail.message, 'warning');
+  }
+});
+
 // Background Refresh (every 1 minute)
 // This ensures that as time passes, past lessons are processed for credits
 // and visual "past/today" indicators in the UI stay accurate.
