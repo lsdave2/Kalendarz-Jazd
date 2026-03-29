@@ -575,6 +575,7 @@ function makeDraggable(tileEl, lesson, dateStr) {
         isLongPress = true;
         // Don't set isDragging=true yet, only on move
         tileEl.classList.add('long-press-ready');
+        tileEl.style.touchAction = 'none'; // Lock browser scroll once we decide to drag
         if (navigator.vibrate) navigator.vibrate(50);
       }, 500);
     } else {
@@ -616,6 +617,7 @@ function makeDraggable(tileEl, lesson, dateStr) {
   const onEnd = () => {
     clearTimeout(longPressTimer);
     tileEl.classList.remove('long-press-ready');
+    tileEl.style.touchAction = ''; // Restore browser scroll
 
     if (isDragging) {
       const newStart = Math.max(0, Math.min(startMinute + offsetMinute, 20 * 60));
