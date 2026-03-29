@@ -18,6 +18,16 @@ let _isAdmin = false;
 let _isLoading = true;
 const _listeners = new Set();
 
+// Keep _isAdmin in sync with real Supabase session state at all times
+// (handles token refresh, expiry, login, logout)
+supabase.auth.onAuthStateChange((event, session) => {
+  const wasAdmin = _isAdmin;
+  _isAdmin = !!session;
+  if (wasAdmin !== _isAdmin) {
+    notifyListeners();
+  }
+});
+
 export function isAdmin() {
   return _isAdmin;
 }
@@ -107,12 +117,16 @@ export function getData() {
 
 export async function saveData() {
   notifyListeners();
-  if (!_isAdmin) return; // Prevent unauthorized saves at the logic level
+  if (!_isAdmin) {
+    console.warn('[store] saveData skipped — no active admin session. Re-check your login.');
+    return;
+  }
   try {
     const clonedObj = JSON.parse(JSON.stringify(_data));
-    await supabase.from('app_state').upsert({ id: 1, state: clonedObj });
+    const { error } = await supabase.from('app_state').upsert({ id: 1, state: clonedObj });
+    if (error) console.error('[store] Supabase upsert error:', error.message);
   } catch (e) {
-    console.error("Failed to save to Supabase", e);
+    console.error('[store] Failed to save to Supabase', e);
   }
 }
 
