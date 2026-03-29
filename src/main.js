@@ -559,51 +559,84 @@ function makeDraggable(tileEl, lesson, dateStr) {
   let startY = 0;
   let startMinute = lesson.startMinute;
   let isDragging = false;
+  let isLongPress = false;
   let offsetMinute = 0;
+  let longPressTimer = null;
 
-  const onStart = (clientY) => {
+  const onStart = (clientY, isTouch) => {
     startY = clientY;
     startMinute = lesson.startMinute;
     isDragging = false;
+    isLongPress = false;
+
+    if (isTouch) {
+      // For mobile: require long press to start dragging
+      longPressTimer = setTimeout(() => {
+        isLongPress = true;
+        // Don't set isDragging=true yet, only on move
+        tileEl.classList.add('long-press-ready');
+        if (navigator.vibrate) navigator.vibrate(50);
+      }, 500);
+    } else {
+      // For desktop: normal drag behavior
+      isLongPress = true;
+    }
   };
 
-  const onMove = (clientY) => {
+  const onMove = (clientY, isTouch, e = null) => {
     const dy = clientY - startY;
-    if (Math.abs(dy) > 8) isDragging = true;
+
+    if (isTouch && !isLongPress) {
+      // If user moves too much while waiting for long press, cancel it (scrolling)
+      if (Math.abs(dy) > 10) {
+        clearTimeout(longPressTimer);
+      }
+      return;
+    }
+
+    if (!isDragging && Math.abs(dy) > 5) {
+      isDragging = true;
+      if (isTouch && e) e.preventDefault();
+    }
+
     if (!isDragging) return;
 
+    if (isTouch && e && e.cancelable) e.preventDefault();
+
     tileEl.classList.add('dragging');
+    tileEl.classList.remove('long-press-ready');
+
     // Each pixel ~= 1 minute (80px = 60 min)
     const rawMinutes = dy * (60 / 80);
     offsetMinute = Math.round(rawMinutes / 15) * 15;
-    const newStart = Math.max(0, Math.min(startMinute + offsetMinute, 24 * 60 - lesson.durationMinutes));
+    const newStart = Math.max(0, Math.min(startMinute + offsetMinute, 20 * 60)); // Limit to day range
     tileEl.style.top = `${((newStart / 60) - 6) * 80}px`;
   };
 
   const onEnd = () => {
+    clearTimeout(longPressTimer);
+    tileEl.classList.remove('long-press-ready');
+
     if (isDragging) {
-      const newStart = Math.max(0, Math.min(startMinute + offsetMinute, 24 * 60 - lesson.durationMinutes));
-      // Round to 15 min
+      const newStart = Math.max(0, Math.min(startMinute + offsetMinute, 20 * 60));
       const snapped = Math.round(newStart / 15) * 15;
 
-      if (lesson._recurringInstance) {
-        // For recurring instances, create a one-off override (or just update the original)
+      if (snapped !== startMinute) {
         updateLesson(lesson.id, { startMinute: snapped });
-      } else {
-        updateLesson(lesson.id, { startMinute: snapped });
+        processPastLessonsForCredits();
+        render();
       }
-      processPastLessonsForCredits();
-      render();
     }
     tileEl.classList.remove('dragging');
     isDragging = false;
+    isLongPress = false;
   };
 
   // Mouse
   tileEl.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    onStart(e.clientY);
-    const moveHandler = (e2) => onMove(e2.clientY);
+    if (e.button !== 0) return; // Only left click
+    onStart(e.clientY, false);
+    const moveHandler = (e2) => onMove(e2.clientY, false);
     const upHandler = () => {
       document.removeEventListener('mousemove', moveHandler);
       document.removeEventListener('mouseup', upHandler);
@@ -615,13 +648,20 @@ function makeDraggable(tileEl, lesson, dateStr) {
 
   // Touch
   tileEl.addEventListener('touchstart', (e) => {
-    onStart(e.touches[0].clientY);
+    onStart(e.touches[0].clientY, true);
   }, { passive: true });
+
   tileEl.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    onMove(e.touches[0].clientY);
+    // We only preventDefault if we are actually dragging
+    onMove(e.touches[0].clientY, true, e);
   }, { passive: false });
-  tileEl.addEventListener('touchend', () => onEnd());
+
+  tileEl.addEventListener('touchend', (e) => {
+    onEnd();
+  });
+  tileEl.addEventListener('touchcancel', () => {
+    onEnd();
+  });
 }
 
 // ── Groups Panel ───────────────────────────────────────────────────────

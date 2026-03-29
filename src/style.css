@@ -427,6 +427,16 @@ input, select, textarea { font-family: inherit; }
   z-index: 50;
   transform: scale(1.03);
 }
+.lesson-tile.long-press-ready {
+  transform: scale(1.05);
+  box-shadow: 0 0 15px var(--accent-glow);
+  z-index: 45;
+  animation: pulse-ready 0.6s ease-in-out infinite alternate;
+}
+@keyframes pulse-ready {
+  from { border-color: var(--border); }
+  to { border-color: var(--accent); }
+}
 
 .tile-title {
   font-size: 0.78rem;
