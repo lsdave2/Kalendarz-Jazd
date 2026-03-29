@@ -1,0 +1,2 @@
+horses: Rubin, Czempion, Cera, Muminek, Kadet, Sakwa, Fason, Carewicz, Grot, Siwa, Figa
+instructors: Ania, Olga
