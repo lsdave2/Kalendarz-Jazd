@@ -530,8 +530,10 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
     meta.appendChild(el('span', { style: { color: 'var(--green)', display: 'flex', alignItems: 'center' } }, icon('check_circle'), t('past')));
   }
   if (pkg && pkg.active) {
+    const isZero = pkg.credits === 0;
+    const color = isZero ? 'var(--text-muted)' : (pkg.credits > 0 ? 'var(--green)' : 'var(--red)');
     const creditLabel = el('span', {
-      style: { color: 'var(--text-muted)' }
+      style: { color }
     }, `Package: [${pkg.credits}]`);
     meta.appendChild(creditLabel);
   }
