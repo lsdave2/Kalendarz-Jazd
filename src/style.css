@@ -860,16 +860,43 @@ select.form-input {
 .group-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 6px 12px;
   border-radius: 20px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition);
   border: 1px solid transparent;
 }
-.group-chip:hover { filter: brightness(1.2); }
+.group-chip.editable:hover { 
+  filter: brightness(1.1); 
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+.group-chip-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-chip-count {
+  opacity: 0.7;
+  font-weight: 500;
+}
+.group-chip-instructor {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid currentColor;
+  opacity: 0.8;
+  font-size: 0.68rem;
+}
+.group-chip-instructor .material-symbols-rounded {
+  font-size: 14px;
+}
 .group-chip .material-symbols-rounded { font-size: 14px; }
 .add-group-chip {
   background: var(--bg-elevated);
