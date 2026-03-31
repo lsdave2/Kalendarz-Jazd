@@ -5,7 +5,7 @@ import {
   loadData, getData, saveData, subscribe,
   addLesson, updateLesson, deleteLesson, getLessonsForDate,
   updatePackageCredits, togglePackageActive, deletePackage, getPackageByName, deductCredit, ensurePackageEntry, addPackageCredits,
-  createGroup, getGroup, updateGroup, deleteGroup, getAllGroups, toggleCancelLessonInstance, processPastLessonsForCredits,
+  createGroup, getGroup, deleteGroup, getAllGroups, toggleCancelLessonInstance, processPastLessonsForCredits,
   isAdmin, login, logout, isLoading
 } from './store.js';
 
@@ -456,11 +456,7 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
   const isPastLesson = lessonEnd < new Date();
 
   let statusClass = 'status-neutral';
-  if (isCancelled) {
-    statusClass = 'status-inactive'; // Visually de-emphasize
-  } else if (pkg && pkg.active) {
-    statusClass = pkg.credits > 0 ? 'status-positive' : pkg.credits < 0 ? 'status-negative' : 'status-neutral';
-  } else if (pkg && !pkg.active) {
+  if (isCancelled || (pkg && !pkg.active)) {
     statusClass = 'status-inactive';
   }
 
@@ -527,21 +523,16 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
   if (lesson.horse) {
     meta.appendChild(el('span', { className: 'tile-horse' }, icon('pets'), lesson.horse));
   }
-  
-  const displayInstructor = lesson.instructor || (group ? group.instructor : null);
-  if (displayInstructor) {
-    meta.appendChild(el('span', { 
-      className: 'tile-instructor',
-      style: !lesson.instructor ? { opacity: 0.8, fontStyle: 'italic' } : {}
-    }, icon('person'), displayInstructor));
+  if (lesson.instructor) {
+    meta.appendChild(el('span', { className: 'tile-instructor' }, icon('person'), lesson.instructor));
   }
   if (isPastLesson && !isCancelled) {
     meta.appendChild(el('span', { style: { color: 'var(--green)', display: 'flex', alignItems: 'center' } }, icon('check_circle'), t('past')));
   }
   if (pkg && pkg.active) {
     const creditLabel = el('span', {
-      style: { color: pkg.credits < 0 ? 'var(--red)' : pkg.credits > 0 ? 'var(--green)' : 'var(--text-muted)' }
-    }, `[${pkg.credits}]`);
+      style: { color: 'var(--text-muted)' }
+    }, `Package: [${pkg.credits}]`);
     meta.appendChild(creditLabel);
   }
   tile.appendChild(meta);
@@ -703,113 +694,88 @@ function buildGroupsPanel(dateStr) {
   for (const group of groups) {
     const groupLessons = lessons.filter(l => l.groupId === group.id);
     const chip = el('div', {
-      className: 'group-chip editable',
+      className: 'group-chip',
       style: { background: group.color + '22', color: group.color, borderColor: group.color + '44' },
-      onClick: () => { if (isAdmin()) openGroupModal(group); }
     },
       el('span', { className: 'tile-group-dot', style: { background: group.color } }),
-      el('span', { className: 'group-chip-name' }, group.name),
-      el('span', { className: 'group-chip-count' }, `(${groupLessons.length})`),
-      group.instructor ? el('span', { className: 'group-chip-instructor' }, icon('person'), group.instructor) : ''
+      `${group.name} (${groupLessons.length})`,
+      isAdmin() ? el('button', {
+        onClick: (e) => { e.stopPropagation(); deleteGroup(group.id); render(); },
+      }, icon('close')) : ''
     );
     chips.appendChild(chip);
   }
 
   // Add group inline input
   if (isAdmin()) {
-    const addBtn = el('button', {
+    let addingGroup = false;
+    const addChip = el('button', {
       className: 'group-chip add-group-chip',
       id: 'add-group-btn',
-      onClick: () => openGroupModal()
+      onClick: () => {
+        if (addingGroup) return;
+        addingGroup = true;
+        // Replace the button with an input
+        const inputWrap = el('div', {
+          className: 'group-chip add-group-chip',
+          style: { padding: '2px 4px', gap: '4px' }
+        });
+
+        const submitGroup = () => {
+          if (!addingGroup) return;
+          addingGroup = false;
+          const name = nameInput.value.trim();
+          if (name) {
+            createGroup(name);
+            render();
+          } else {
+            inputWrap.replaceWith(addChip);
+          }
+        };
+
+        const nameInput = el('input', {
+          className: 'form-input',
+          type: 'text',
+          placeholder: t('groupName'),
+          id: 'new-group-name-input',
+          style: {
+            width: '100px',
+            padding: '4px 8px',
+            fontSize: '0.72rem',
+            background: 'var(--bg-input)',
+            border: '1px solid var(--border-accent)',
+            borderRadius: '12px',
+          },
+          onKeydown: (e) => {
+            if (e.key === 'Enter') submitGroup();
+            if (e.key === 'Escape') {
+              addingGroup = false;
+              inputWrap.replaceWith(addChip);
+            }
+          },
+          onBlur: () => submitGroup()
+        });
+
+        const confirmBtn = el('button', {
+          style: { display: 'flex', alignItems: 'center' },
+          onMousedown: (e) => e.preventDefault(), // Prevent input blur from firing before click
+          onClick: (e) => {
+            e.stopPropagation();
+            submitGroup();
+          }
+        }, icon('check'));
+
+        inputWrap.appendChild(nameInput);
+        inputWrap.appendChild(confirmBtn);
+        addChip.replaceWith(inputWrap);
+        setTimeout(() => nameInput.focus(), 50);
+      }
     }, icon('add'), t('newGroup'));
-    chips.appendChild(addBtn);
+    chips.appendChild(addChip);
   }
 
   section.appendChild(chips);
   return section;
-}
-
-function openGroupModal(group = null) {
-  const isEdit = !!group;
-  const data = getData();
-
-  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
-    if (e.target === overlay) overlay.remove();
-  }});
-
-  const modal = el('div', { className: 'modal' });
-  modal.appendChild(el('div', { className: 'modal-handle' }));
-  modal.appendChild(el('h3', {}, isEdit ? t('editGroup') : t('newGroup')));
-
-  // Name
-  const nameGroup = el('div', { className: 'form-group' });
-  nameGroup.appendChild(el('label', {}, t('groupName')));
-  const nameInput = el('input', {
-    className: 'form-input',
-    type: 'text',
-    value: isEdit ? group.name : '',
-    placeholder: t('groupName'),
-    id: 'group-name-input'
-  });
-  nameGroup.appendChild(nameInput);
-  modal.appendChild(nameGroup);
-
-  // Default Instructor
-  const instrGroup = el('div', { className: 'form-group' });
-  instrGroup.appendChild(el('label', {}, t('groupInstructor')));
-  const instrSelect = el('select', { className: 'form-input', id: 'group-instructor-select' });
-  instrSelect.appendChild(el('option', { value: '' }, t('noInstructor')));
-  for (const i of data.instructors) {
-    const opt = el('option', { value: i }, i);
-    if (isEdit && group.instructor === i) opt.selected = true;
-    instrSelect.appendChild(opt);
-  }
-  instrGroup.appendChild(instrSelect);
-  modal.appendChild(instrGroup);
-
-  // Buttons
-  const btnGroup = el('div', { className: 'btn-group' });
-  
-  if (isEdit) {
-    btnGroup.appendChild(el('button', {
-      className: 'btn btn-danger btn-sm',
-      onClick: () => {
-        if (confirm(t('confirmDeleteGroup', { name: group.name }))) {
-          deleteGroup(group.id);
-          overlay.remove();
-          render();
-        }
-      }
-    }, icon('delete'), t('deleteKey')));
-  }
-
-  btnGroup.appendChild(el('button', {
-    className: 'btn btn-primary btn-sm',
-    style: { marginLeft: 'auto' },
-    onClick: () => {
-      const name = nameInput.value.trim();
-      if (!name) { nameInput.focus(); return; }
-      
-      const payload = { 
-        name, 
-        instructor: instrSelect.value || null 
-      };
-
-      if (isEdit) {
-        updateGroup(group.id, payload);
-      } else {
-        const newGroup = createGroup(name);
-        updateGroup(newGroup.id, payload);
-      }
-      overlay.remove();
-      render();
-    }
-  }, icon('check'), isEdit ? t('update') : t('create')));
-
-  modal.appendChild(btnGroup);
-  overlay.appendChild(modal);
-  document.body.appendChild(overlay);
-  setTimeout(() => nameInput.focus(), 300);
 }
 
 // ── Lesson Modal ───────────────────────────────────────────────────────
@@ -931,26 +897,9 @@ function openLessonModal(dateStr, lesson = null) {
   instrSelect.appendChild(el('option', { value: '' }, t('noInstructor')));
   for (const i of data.instructors) {
     const opt = el('option', { value: i }, i);
+    if (lesson && lesson.instructor === i) opt.selected = true;
     instrSelect.appendChild(opt);
   }
-  
-  const updateInstrIfGroupDefaults = () => {
-    if (lesson) return; // Only for new lessons
-    const gid = groupSelect.value ? parseInt(groupSelect.value) : null;
-    if (gid) {
-      const g = getGroup(gid);
-      if (g && g.instructor) {
-        instrSelect.value = g.instructor;
-      }
-    }
-  };
-
-  if (lesson) {
-    instrSelect.value = lesson.instructor || '';
-  } else {
-    updateInstrIfGroupDefaults();
-  }
-
   instrGroup.appendChild(instrSelect);
   hiRow.appendChild(instrGroup);
 
@@ -959,11 +908,7 @@ function openLessonModal(dateStr, lesson = null) {
   // Group
   const groupGroup = el('div', { className: 'form-group' });
   groupGroup.appendChild(el('label', {}, t('groupOptional')));
-  const groupSelect = el('select', { 
-    className: 'form-input', 
-    id: 'lesson-group-select',
-    onChange: updateInstrIfGroupDefaults
-  });
+  const groupSelect = el('select', { className: 'form-input', id: 'lesson-group-select' });
   groupSelect.appendChild(el('option', { value: '' }, t('noGroup')));
   for (const g of data.groups) {
     const opt = el('option', { value: String(g.id) }, g.name);

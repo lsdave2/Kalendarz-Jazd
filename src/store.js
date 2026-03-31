@@ -414,7 +414,7 @@ export function createGroup(name) {
   const d = getData();
   const id = generateGroupId();
   const colorIdx = (d.groups.length) % GROUP_COLORS.length;
-  const group = { id, name, color: GROUP_COLORS[colorIdx], instructor: null };
+  const group = { id, name, color: GROUP_COLORS[colorIdx] };
   d.groups.push(group);
   saveData();
   return group;
@@ -422,15 +422,6 @@ export function createGroup(name) {
 
 export function getGroup(id) {
   return getData().groups.find(g => g.id === id);
-}
-
-export function updateGroup(id, updates) {
-  const d = getData();
-  const idx = d.groups.findIndex(g => g.id === id);
-  if (idx >= 0) {
-    d.groups[idx] = { ...d.groups[idx], ...updates };
-    saveData();
-  }
 }
 
 export function deleteGroup(id) {
