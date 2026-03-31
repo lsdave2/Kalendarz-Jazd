@@ -1,5 +1,6 @@
 import { formatDate, parseDate } from './utils.js';
 import { supabase } from './supabase.js';
+import { t } from './i18n.js';
 
 // ── Reactive Store (Supabase-backed) ──────────────────────────────
 
@@ -140,7 +141,7 @@ export async function saveData() {
     if (error) {
       console.error('[store] Supabase upsert error:', error.message);
       window.dispatchEvent(new CustomEvent('store-error', { 
-        detail: { message: 'Sync failed: ' + error.message, type: 'error' } 
+        detail: { message: t('syncFailed', { error: error.message }), type: 'error' } 
       }));
     } else {
       console.log('[store] Supabase sync successful');
@@ -148,7 +149,7 @@ export async function saveData() {
   } catch (e) {
     console.error('[store] Failed to save to Supabase', e);
     window.dispatchEvent(new CustomEvent('store-error', { 
-      detail: { message: 'Sync connection error', type: 'error' } 
+      detail: { message: t('syncConnectionError'), type: 'error' } 
     }));
   }
 }

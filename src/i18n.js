@@ -80,7 +80,20 @@ export const translations = {
     day_0: 'Mon', day_1: 'Tue', day_2: 'Wed', day_3: 'Thu', day_4: 'Fri', day_5: 'Sat', day_6: 'Sun',
     // Full day names
     fullDay_0: 'Sunday', fullDay_1: 'Monday', fullDay_2: 'Tuesday', fullDay_3: 'Wednesday',
-    fullDay_4: 'Thursday', fullDay_5: 'Friday', fullDay_6: 'Saturday'
+    fullDay_4: 'Thursday', fullDay_5: 'Friday', fullDay_6: 'Saturday',
+    adminRole: 'Admin Role',
+    adminDesc: 'You have permission to edit the schedule.',
+    logout: 'Logout',
+    viewerRole: 'Viewer Role',
+    viewerDesc: 'You have read-only access. Log in to make changes.',
+    emailLabel: 'Email:',
+    passwordLabel: 'Password:',
+    loginSuccess: 'Logged in successfully',
+    loginFailed: 'Login failed',
+    loginAsAdmin: 'Login as Admin',
+    packageLabel: 'Package: [{count}]',
+    syncFailed: 'Sync failed: {error}',
+    syncConnectionError: 'Sync connection error'
   },
   pl: {
     appTitle: 'Stajnia Rotmistrz 15',
@@ -163,7 +176,20 @@ export const translations = {
     day_0: 'Pon', day_1: 'Wt', day_2: 'Śr', day_3: 'Czw', day_4: 'Pt', day_5: 'Sob', day_6: 'Ndz',
     // Full day names
     fullDay_0: 'Niedziela', fullDay_1: 'Poniedziałek', fullDay_2: 'Wtorek', fullDay_3: 'Środa',
-    fullDay_4: 'Czwartek', fullDay_5: 'Piątek', fullDay_6: 'Sobota'
+    fullDay_4: 'Czwartek', fullDay_5: 'Piątek', fullDay_6: 'Sobota',
+    adminRole: 'Administrator',
+    adminDesc: 'Masz uprawnienia do edycji grafiku.',
+    logout: 'Wyloguj się',
+    viewerRole: 'Widz',
+    viewerDesc: 'Masz dostęp tylko do odczytu. Zaloguj się, aby wprowadzać zmiany.',
+    emailLabel: 'Email:',
+    passwordLabel: 'Hasło:',
+    loginSuccess: 'Zalogowano pomyślnie',
+    loginFailed: 'Błąd logowania',
+    loginAsAdmin: 'Zaloguj się jako administrator',
+    packageLabel: 'Karnet: [{count}]',
+    syncFailed: 'Synchronizacja nieudana: {error}',
+    syncConnectionError: 'Błąd połączenia z bazą'
   }
 };
 

@@ -534,7 +534,7 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
     const color = isZero ? 'var(--text-muted)' : (pkg.credits > 0 ? 'var(--green)' : 'var(--red)');
     const creditLabel = el('span', {
       style: { color }
-    }, `Package: [${pkg.credits}]`);
+    }, t('packageLabel', { count: pkg.credits }));
     meta.appendChild(creditLabel);
   }
   tile.appendChild(meta);
@@ -1291,8 +1291,8 @@ function buildSettingsView() {
   // ── Auth Section
   const authSection = el('div', { className: 'settings-section' });
   if (isAdmin()) {
-    authSection.appendChild(el('h4', {}, 'Admin Role'));
-    authSection.appendChild(el('p', { style: { marginBottom: '16px', color: 'var(--text-secondary)' } }, 'You have permission to edit the schedule.'));
+    authSection.appendChild(el('h4', {}, t('adminRole')));
+    authSection.appendChild(el('p', { style: { marginBottom: '16px', color: 'var(--text-secondary)' } }, t('adminDesc')));
     authSection.appendChild(el('button', {
       className: 'btn btn-secondary',
       style: { width: '100%' },
@@ -1300,31 +1300,31 @@ function buildSettingsView() {
         await logout();
         render();
       }
-    }, 'Logout'));
+    }, t('logout')));
   } else {
-    authSection.appendChild(el('h4', {}, 'Viewer Role'));
-    authSection.appendChild(el('p', { style: { marginBottom: '16px', color: 'var(--text-secondary)' } }, 'You have read-only access. Log in to make changes.'));
+    authSection.appendChild(el('h4', {}, t('viewerRole')));
+    authSection.appendChild(el('p', { style: { marginBottom: '16px', color: 'var(--text-secondary)' } }, t('viewerDesc')));
     
     authSection.appendChild(el('button', {
       className: 'btn btn-primary',
       style: { width: '100%' },
       onClick: () => {
         // Simple login prompt
-        const email = prompt('Email:');
+        const email = prompt(t('emailLabel'));
         if (!email) return;
-        const password = prompt('Password:');
+        const password = prompt(t('passwordLabel'));
         if (!password) return;
         
         login(email, password).then(success => {
           if (success) {
-            showToast('Logged in successfully', 'check_circle');
+            showToast(t('loginSuccess'), 'check_circle');
             render();
           } else {
-            showToast('Login failed', 'error');
+            showToast(t('loginFailed'), 'error');
           }
         });
       }
-    }, icon('login'), 'Login as Admin'));
+    }, icon('login'), t('loginAsAdmin')));
   }
   container.appendChild(authSection);
 
