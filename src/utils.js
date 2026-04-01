@@ -14,6 +14,36 @@ export function parseDate(str) {
   return new Date(y, m - 1, d);
 }
 
+export function getWeekRange() {
+  const now = new Date();
+  const day = now.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diffToMonday);
+  return getDatesInRange(formatDate(monday), formatDate(new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000)));
+}
+
+export function getDatesInRange(fromStr, toStr) {
+  const start = parseDate(fromStr);
+  const end = parseDate(toStr);
+  if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) return [];
+  
+  start.setHours(0,0,0,0);
+  end.setHours(0,0,0,0);
+  
+  const dates = [];
+  let curr = new Date(start);
+
+  // Safety cap to prevent infinite loops (max 1 year range)
+  let safety = 0;
+  while (curr <= end && safety < 366) {
+    dates.push(formatDate(curr));
+    curr.setDate(curr.getDate() + 1);
+    safety++;
+  }
+  return dates;
+}
+
 export function getDaysInMonth(year, month) {
   return new Date(year, month + 1, 0).getDate();
 }
@@ -71,6 +101,12 @@ export function el(tag, attrs = {}, ...children) {
 
 export function icon(name, extraClass = '') {
   const span = document.createElement('span');
+  
+  if (name === 'horse' || name === 'horseshoe') {
+    span.className = `horse-icon ${extraClass}`.trim();
+    return span;
+  }
+
   span.className = `material-symbols-rounded ${extraClass}`.trim();
   span.textContent = name;
   return span;

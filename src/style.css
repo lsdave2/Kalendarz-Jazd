@@ -174,8 +174,8 @@ input, select, textarea { font-family: inherit; }
   width: 1.2em;
   height: 1.2em;
   background-color: currentColor;
-  -webkit-mask-image: url("/horse%20head%20icon.png");
-  mask-image: url("/horse%20head%20icon.png");
+  -webkit-mask-image: url("./assets/horse%20head%20icon.png");
+  mask-image: url("./assets/horse%20head%20icon.png");
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-position: center;
