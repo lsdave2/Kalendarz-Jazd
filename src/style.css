@@ -153,8 +153,35 @@ input, select, textarea { font-family: inherit; }
   background: var(--accent);
   border-radius: 0 0 3px 3px;
 }
-.nav-item .material-symbols-rounded {
+.nav-item .material-symbols-rounded,
+.nav-item .custom-icon,
+.nav-item .horse-icon {
   font-size: 22px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.custom-icon svg {
+  width: 1em;
+  height: 1em;
+}
+
+.horse-icon {
+  display: inline-flex;
+  width: 1.2em;
+  height: 1.2em;
+  background-color: currentColor;
+  -webkit-mask-image: url("/horse%20head%20icon.png");
+  mask-image: url("/horse%20head%20icon.png");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 
 /* ── Page Container ─────────────────────────────────────────────────── */
@@ -380,6 +407,9 @@ input, select, textarea { font-family: inherit; }
   user-select: none;
   -webkit-user-select: none;
 }
+.lesson-tile.has-past-badge {
+  padding-right: 24px;
+}
 .lesson-tile:active { cursor: grabbing; }
 .lesson-tile:hover {
   transform: scale(1.01);
@@ -419,6 +449,19 @@ input, select, textarea { font-family: inherit; }
 .lesson-tile.past {
   opacity: 0.6;
   filter: grayscale(0.5);
+}
+.tile-past-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--green);
+  pointer-events: none;
+}
+.tile-past-icon {
+  font-size: 16px;
 }
 .lesson-tile.dragging {
   opacity: 0.7;
@@ -460,6 +503,15 @@ input, select, textarea { font-family: inherit; }
 }
 .tile-meta .material-symbols-rounded {
   font-size: 13px;
+}
+.tile-crew {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+.tile-separator {
+  color: var(--text-muted);
 }
 .tile-horse {
   display: flex;
@@ -798,6 +850,7 @@ select.form-input {
 .package-action-btn:hover { background: var(--bg-elevated); }
 .package-action-btn .material-symbols-rounded { font-size: 18px; }
 
+
 /* Search bar */
 .search-bar {
   margin-bottom: 12px;
@@ -1015,3 +1068,42 @@ select.form-input {
   background: rgba(251, 191, 36, 0.2);
 }
 .deduct-btn .material-symbols-rounded { font-size: 16px; }
+
+/* ?? Report Summary ??????????????????????????????????????????????????? */
+.report-summary {
+  margin-top: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+.report-summary-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.report-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  font-size: 0.9rem;
+}
+.report-summary-label {
+  color: var(--text-secondary);
+}
+.report-summary-value {
+  font-weight: 600;
+}
+.report-summary-muted {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+.report-summary-label.total,
+.report-summary-value.total {
+  color: var(--accent);
+  font-weight: 700;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+

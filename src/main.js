@@ -1,6 +1,6 @@
 import './style.css';
 import { t, setLang, getLang } from './i18n.js';
-import { el, icon, formatDate, parseDate, getDaysInMonth, getFirstDayOfMonth, monthName, dayName, minutesToTime, isToday, isPast } from './utils.js';
+import { el, icon, formatDate, parseDate, getDaysInMonth, getFirstDayOfMonth, monthName, dayName, minutesToTime, isToday, isPast, getWeekRange, getDatesInRange } from './utils.js';
 import {
   loadData, getData, saveData, subscribe,
   addLesson, updateLesson, deleteLesson, getLessonsForDate,
@@ -15,6 +15,7 @@ let viewYear, viewMonth;
 let selectedDate = null;
 let editingLesson = null;
 let groupsCollapsed = getSettings().groupsCollapsed || false;
+let horseViewRange = null; // { from, to }
 
 // Init date
 const now = new Date();
@@ -53,6 +54,9 @@ function render() {
     case 'packages':
       page.appendChild(buildPackagesView());
       break;
+    case 'horses':
+      page.appendChild(buildHorsesView());
+      break;
     case 'settings':
       page.appendChild(buildSettingsView());
       break;
@@ -66,7 +70,7 @@ function render() {
 function buildHeader() {
   const titleText = currentTab === 'calendar'
     ? (selectedDate ? formatDateNice(selectedDate) : t('appTitle'))
-    : currentTab === 'packages' ? t('packages') : t('settings');
+    : currentTab === 'packages' ? t('packages') : currentTab === 'horses' ? t('horsesTab') : t('settings');
 
   const header = el('header', { className: 'app-header' },
     el('h1', {},
@@ -498,6 +502,14 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
       }
     }
   });
+  if (isPastLesson && !isCancelled) {
+    tile.classList.add('has-past-badge');
+    tile.appendChild(el('span', {
+      className: 'tile-past-badge',
+      title: t('past'),
+      'aria-label': t('past')
+    }, icon('check_circle', 'tile-past-icon')));
+  }
 
   // Store layout info for drag
   tile._layoutPos = pos;
@@ -520,14 +532,21 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
     icon('schedule'),
     `${minutesToTime(lesson.startMinute)} - ${minutesToTime(lesson.startMinute + lesson.durationMinutes)}`
   ));
+  const crew = el('span', { className: 'tile-crew' });
+  let hasCrew = false;
   if (lesson.horse) {
-    meta.appendChild(el('span', { className: 'tile-horse' }, icon('pets'), lesson.horse));
+    crew.appendChild(el('span', { className: 'tile-horse' }, icon('horse'), lesson.horse));
+    hasCrew = true;
   }
   if (lesson.instructor) {
-    meta.appendChild(el('span', { className: 'tile-instructor' }, icon('person'), lesson.instructor));
+    if (hasCrew) {
+      crew.appendChild(el('span', { className: 'tile-separator', 'aria-hidden': 'true' }, '•'));
+    }
+    crew.appendChild(el('span', { className: 'tile-instructor' }, icon('person'), lesson.instructor));
+    hasCrew = true;
   }
-  if (isPastLesson && !isCancelled) {
-    meta.appendChild(el('span', { style: { color: 'var(--green)', display: 'flex', alignItems: 'center' } }, icon('check_circle'), t('past')));
+  if (hasCrew) {
+    meta.appendChild(crew);
   }
   if (pkg && pkg.active) {
     const isZero = pkg.credits === 0;
@@ -1282,7 +1301,160 @@ function openCreditHistoryModal(pkg) {
   document.body.appendChild(overlay);
 }
 
-// ── Settings View ──────────────────────────────────────────────────────
+
+function formatCurrency(amount) {
+  if (Number.isNaN(amount)) return '0';
+  const fixed = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+  return `${fixed} z?`;
+}
+
+function computeInstructorPaymentReport({ instructor, from, to }) {
+  const dates = getDatesInRange(from, to);
+  let individualCount = 0;
+  const groupSessions = new Map();
+
+  for (const dateStr of dates) {
+    const lessons = getLessonsForDate(dateStr);
+    for (const lesson of lessons) {
+      if (lesson.instructor !== instructor) continue;
+      const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
+      if (isCancelled) continue;
+
+      if (lesson.groupId) {
+        const key = `${lesson.groupId}|${dateStr}|${lesson.startMinute}|${lesson.durationMinutes}|${lesson.instructor}`;
+        const entry = groupSessions.get(key) || { participants: 0 };
+        entry.participants += 1;
+        groupSessions.set(key, entry);
+      } else {
+        individualCount += 1;
+      }
+    }
+  }
+
+  const groupLessonsCount = groupSessions.size;
+  let groupParticipants = 0;
+  for (const entry of groupSessions.values()) {
+    groupParticipants += entry.participants;
+  }
+
+  return { individualCount, groupLessonsCount, groupParticipants };
+}
+
+function openInstructorPaymentModal() {
+  const data = getData();
+  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
+    if (e.target === overlay) overlay.remove();
+  }});
+
+  const modal = el('div', { className: 'modal' });
+  modal.appendChild(el('div', { className: 'modal-handle' }));
+  modal.appendChild(el('h3', {}, t('instructorPaymentReport')));
+
+  const instructorGroup = el('div', { className: 'form-group' });
+  instructorGroup.appendChild(el('label', {}, t('selectInstructor')));
+  const instructorSelect = el('select', { className: 'form-input', id: 'payment-instructor-select' });
+  instructorSelect.appendChild(el('option', { value: '' }, t('noInstructor')));
+  for (const instr of data.instructors || []) {
+    instructorSelect.appendChild(el('option', { value: instr }, instr));
+  }
+  instructorGroup.appendChild(instructorSelect);
+  modal.appendChild(instructorGroup);
+
+  const rangeRow = el('div', { className: 'form-row' });
+  const fromGroup = el('div', { className: 'form-group' });
+  fromGroup.appendChild(el('label', {}, t('dateFrom')));
+  const fromInput = el('input', { className: 'form-input', type: 'date' });
+  fromGroup.appendChild(fromInput);
+  rangeRow.appendChild(fromGroup);
+
+  const toGroup = el('div', { className: 'form-group' });
+  toGroup.appendChild(el('label', {}, t('dateTo')));
+  const toInput = el('input', { className: 'form-input', type: 'date' });
+  toGroup.appendChild(toInput);
+  rangeRow.appendChild(toGroup);
+  modal.appendChild(rangeRow);
+
+  const ratesRow = el('div', { className: 'form-row' });
+  const individualRateGroup = el('div', { className: 'form-group' });
+  individualRateGroup.appendChild(el('label', {}, t('individualRate')));
+  const individualRateInput = el('input', { className: 'form-input', type: 'number', min: '0', step: '1', value: '60' });
+  individualRateGroup.appendChild(individualRateInput);
+  ratesRow.appendChild(individualRateGroup);
+
+  const groupRateGroup = el('div', { className: 'form-group' });
+  groupRateGroup.appendChild(el('label', {}, t('groupRatePerPerson')));
+  const groupRateInput = el('input', { className: 'form-input', type: 'number', min: '0', step: '1', value: '30' });
+  groupRateGroup.appendChild(groupRateInput);
+  ratesRow.appendChild(groupRateGroup);
+  modal.appendChild(ratesRow);
+
+  const summary = el('div', { className: 'report-summary' },
+    el('div', { className: 'report-summary-muted' }, t('reportInstructions'))
+  );
+  modal.appendChild(summary);
+
+  const updateSummary = () => {
+    const instructor = instructorSelect.value;
+    const from = fromInput.value;
+    const to = toInput.value;
+    const individualRate = parseFloat(individualRateInput.value);
+    const groupRate = parseFloat(groupRateInput.value);
+
+    if (!instructor || !from || !to) {
+      summary.innerHTML = '';
+      summary.appendChild(el('div', { className: 'report-summary-muted' }, t('reportInstructions')));
+      return;
+    }
+
+    const report = computeInstructorPaymentReport({ instructor, from, to });
+    const individualPay = report.individualCount * (isNaN(individualRate) ? 0 : individualRate);
+    const groupPay = report.groupParticipants * (isNaN(groupRate) ? 0 : groupRate);
+    const totalPay = individualPay + groupPay;
+
+    summary.innerHTML = '';
+    summary.appendChild(el('div', { className: 'report-summary-title' }, t('reportSummary')));
+
+    const grid = el('div', { className: 'report-summary-grid' });
+    grid.appendChild(el('div', { className: 'report-summary-label' }, t('individualLessons')));
+    grid.appendChild(el('div', { className: 'report-summary-value' }, String(report.individualCount)));
+
+    grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupLessons')));
+    grid.appendChild(el('div', { className: 'report-summary-value' }, String(report.groupLessonsCount)));
+
+    grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupParticipants')));
+    grid.appendChild(el('div', { className: 'report-summary-value' }, String(report.groupParticipants)));
+
+    grid.appendChild(el('div', { className: 'report-summary-label' }, t('individualPay')));
+    grid.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(individualPay)));
+
+    grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupPay')));
+    grid.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(groupPay)));
+
+    grid.appendChild(el('div', { className: 'report-summary-label total' }, t('totalPay')));
+    grid.appendChild(el('div', { className: 'report-summary-value total' }, formatCurrency(totalPay)));
+
+    summary.appendChild(grid);
+  };
+
+  instructorSelect.addEventListener('change', updateSummary);
+  fromInput.addEventListener('change', updateSummary);
+  toInput.addEventListener('change', updateSummary);
+  individualRateInput.addEventListener('input', updateSummary);
+  groupRateInput.addEventListener('input', updateSummary);
+
+  const btnRow = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-secondary',
+    style: { width: '100%' },
+    onClick: () => overlay.remove()
+  }, t('close')));
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
+// Settings View
 function buildSettingsView() {
   const container = el('div');
   const data = getData();
@@ -1431,6 +1603,16 @@ function buildSettingsView() {
   }
   container.appendChild(instrSection);
 
+  const reportSection = el('div', { className: 'settings-section' });
+  reportSection.appendChild(el('h4', {}, t('reports')));
+  reportSection.appendChild(el('button', {
+    className: 'btn btn-primary btn-sm',
+    style: { width: '100%' },
+    onClick: () => openInstructorPaymentModal()
+  }, icon('payments'), t('generatePaymentReport')));
+  container.appendChild(reportSection);
+
+
   if (isAdmin()) {
     // Data management
     const dataSection = el('div', { className: 'settings-section' });
@@ -1487,12 +1669,18 @@ function buildSettingsView() {
 // ── Bottom Nav ─────────────────────────────────────────────────────────
 function buildBottomNav() {
   const nav = el('div', { className: 'bottom-nav' });
+  const admin = isAdmin();
 
   const tabs = [
     { id: 'calendar', icon: 'calendar_month', label: t('calendar') },
     { id: 'packages', icon: 'inventory_2', label: t('packages') },
-    { id: 'settings', icon: 'settings', label: t('settings') },
   ];
+
+  if (admin) {
+    tabs.push({ id: 'horses', icon: 'horse', label: t('horsesTab') });
+  }
+
+  tabs.push({ id: 'settings', icon: 'settings', label: t('settings') });
 
   for (const tab of tabs) {
     const item = el('button', {
@@ -1512,6 +1700,125 @@ function buildBottomNav() {
   }
 
   return nav;
+}
+
+// ── Horses View ────────────────────────────────────────────────────────
+function buildHorsesView() {
+  console.log('[horses] rendering Horses view');
+  const container = el('div', { id: 'horses-view-container' });
+  try {
+    const data = getData();
+    if (!data) throw new Error('No data available');
+    
+    // Range setup
+    if (!horseViewRange) {
+      console.log('[horses] initializing default week range');
+      const dates = getWeekRange();
+      if (!dates || dates.length < 7) throw new Error('Week range generation failed');
+      horseViewRange = { from: dates[0], to: dates[6] };
+    }
+
+  const rangeHeader = el('div', { 
+    style: { padding: '16px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border)', marginBottom: '4px' } 
+  });
+  
+  const fromInput = el('input', { type: 'date', className: 'form-input', value: horseViewRange.from || '', style: { width: 'auto', display: 'inline-block' } });
+  const toInput = el('input', { type: 'date', className: 'form-input', value: horseViewRange.to || '', style: { width: 'auto', display: 'inline-block' } });
+  const applyBtn = el('button', { 
+    className: 'btn btn-primary btn-sm',
+    onClick: () => {
+      if (fromInput.value && toInput.value) {
+        horseViewRange = { from: fromInput.value, to: toInput.value };
+      }
+      render();
+    }
+  }, t('apply'));
+
+  const inputsRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+    el('label', { style: { fontSize: '0.8rem' } }, t('dateFrom')),
+    fromInput,
+    el('label', { style: { fontSize: '0.8rem' } }, t('dateTo')),
+    toInput,
+    applyBtn
+  );
+  
+  rangeHeader.appendChild(inputsRow);
+  container.appendChild(rangeHeader);
+
+    // Group lessons by horse for this week
+    const dateList = getDatesInRange(horseViewRange.from, horseViewRange.to);
+    const workload = {};
+    const horses = data.horses || [];
+    horses.forEach(h => { workload[h] = 0; });
+
+    data.lessons.forEach(lesson => {
+      // Basic validation for lesson data
+      if (!lesson || !lesson.date || !lesson.title) return;
+      if (lesson.horse && workload.hasOwnProperty(lesson.horse)) {
+      // 1. Check all specific dates in the range
+      dateList.forEach(dateStr => {
+        // If it's the exact start date of the lesson
+        if (lesson.date === dateStr) {
+          const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
+          if (!isCancelled) workload[lesson.horse] += lesson.durationMinutes;
+          return;
+        }
+
+        // If it's a recurring lesson on the same day-of-week AND after the start date
+        if (lesson.recurring) {
+          const date = parseDate(dateStr);
+          const start = parseDate(lesson.date);
+          if (date > start && date.getDay() === start.getDay()) {
+            const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
+            if (!isCancelled) workload[lesson.horse] += lesson.durationMinutes;
+          }
+        }
+      });
+    }
+  });
+
+  const list = el('div', { className: 'horse-workload-list' });
+  
+  // Sort horses by workload (descending)
+    const sortedHorses = [...horses].sort((a, b) => (workload[b] || 0) - (workload[a] || 0));
+
+    if (sortedHorses.length === 0) {
+    list.appendChild(el('div', { style: { padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' } }, t('noHistory')));
+  } else {
+    for (const horse of sortedHorses) {
+      const mins = workload[horse] || 0;
+      const hours = Math.floor(mins / 60);
+      const remMins = mins % 60;
+
+      const row = el('div', { 
+        style: { 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          padding: '14px 16px',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-card)'
+        } 
+      });
+      
+      row.appendChild(el('div', { style: { fontWeight: '600' } }, horse));
+
+      const color = mins > 600 ? 'var(--red)' : 'var(--text-secondary)';
+      const timeText = hours > 0 ? `${hours}${t('h')} ${remMins}${t('m')}` : `${remMins}${t('m')}`;
+      row.appendChild(el('div', { 
+        style: { fontWeight: '700', color: color } 
+      }, timeText));
+      
+      list.appendChild(row);
+    }
+  }
+
+  container.appendChild(list);
+  } catch (e) {
+    console.error('[horses] error building view:', e);
+    container.appendChild(el('div', { style: { padding: '24px', color: 'var(--red)' } }, 'View Error: ' + e.message));
+  }
+  return container;
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────
