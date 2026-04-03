@@ -7,8 +7,8 @@ import { t } from './i18n.js';
 const defaultData = () => ({
   horses: ['Rubin', 'Czempion', 'Cera', 'Muminek', 'Kadet', 'Sakwa', 'Fason', 'Carewicz', 'Grot', 'Siwa', 'Figa'],
   instructors: ['Ania', 'Olga'],
-  lessons: [],          // { id, title, date, startMinute, durationMinutes, horse, instructor, recurring, groupId }
-  packages: [],         // { id, name, credits, active }
+  lessons: [],          // { id, title, date, startMinute, durationMinutes, horse, instructor, recurring, groupId, lessonType, participants, instanceOverrides }
+  packages: [],         // { id, name, credits, active, hasPackageLessons, history }
   groups: [],           // { id, name, color }
   nextId: 1,
   nextGroupId: 1,
@@ -98,6 +98,11 @@ export async function loadData() {
     for (const k of Object.keys(def)) {
       if (_data[k] === undefined) _data[k] = def[k];
     }
+    if (Array.isArray(_data.packages)) {
+      _data.packages = _data.packages
+        .map(normalizePackageEntry)
+        .filter(Boolean);
+    }
   } catch (e) {
     console.error("Failed to sync from Supabase", e);
   }
@@ -110,6 +115,118 @@ export async function loadData() {
 
 function notifyListeners() {
   _listeners.forEach(fn => fn(_data));
+}
+
+function normalizePackageEntry(pkg) {
+  if (!pkg || typeof pkg !== 'object') return null;
+  const name = (pkg.name || '').trim();
+  if (!name) return null;
+  const credits = Number.isFinite(pkg.credits) ? pkg.credits : (parseInt(pkg.credits, 10) || 0);
+  const hasHistory = Array.isArray(pkg.history) && pkg.history.length > 0;
+  return {
+    ...pkg,
+    id: pkg.id ?? generateId(),
+    name,
+    credits,
+    active: pkg.active !== false,
+    history: Array.isArray(pkg.history) ? pkg.history : [],
+    hasPackageLessons: pkg.hasPackageLessons === true || hasHistory || credits !== 0,
+  };
+}
+
+function ensurePackageEntryState(name, { hasPackageLessons = false } = {}) {
+  const d = getData();
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+
+  let pkg = d.packages.find(p => p.name.toLowerCase() === trimmed.toLowerCase());
+  if (!pkg) {
+    d.packages.push({
+      id: generateId(),
+      name: trimmed,
+      credits: 0,
+      active: true,
+      history: [],
+      hasPackageLessons: !!hasPackageLessons
+    });
+    return true;
+  }
+
+  let changed = false;
+  if (pkg.name !== trimmed) {
+    pkg.name = trimmed;
+    changed = true;
+  }
+  if (!Array.isArray(pkg.history)) {
+    pkg.history = [];
+    changed = true;
+  }
+  if (pkg.active === undefined) {
+    pkg.active = true;
+    changed = true;
+  }
+  if (pkg.hasPackageLessons !== true && hasPackageLessons) {
+    pkg.hasPackageLessons = true;
+    changed = true;
+  }
+  return changed;
+}
+
+function syncPackageEntriesFromLessons() {
+  const d = getData();
+  let changed = false;
+
+  if (!Array.isArray(d.packages)) {
+    d.packages = [];
+    changed = true;
+  }
+
+  const normalizedPackages = [];
+  for (const rawPkg of d.packages) {
+    const normalized = normalizePackageEntry(rawPkg);
+    if (!normalized) {
+      changed = true;
+      continue;
+    }
+    if (
+      normalized.id !== rawPkg.id ||
+      normalized.name !== rawPkg.name ||
+      normalized.credits !== rawPkg.credits ||
+      normalized.active !== rawPkg.active ||
+      normalized.hasPackageLessons !== rawPkg.hasPackageLessons ||
+      !Array.isArray(rawPkg.history)
+    ) {
+      changed = true;
+    }
+    normalizedPackages.push(normalized);
+  }
+  d.packages = normalizedPackages;
+
+  const registerClient = (name, hasPackageLessons) => {
+    if (ensurePackageEntryState(name, { hasPackageLessons })) {
+      changed = true;
+    }
+  };
+
+  for (const lesson of d.lessons || []) {
+    if (Array.isArray(lesson.participants) && lesson.participants.length > 0) {
+      for (const participant of lesson.participants) {
+        const participantName = (participant?.packageName || participant?.name || '').trim();
+        if (!participantName) continue;
+        registerClient(participantName, participant?.packageMode !== false);
+      }
+      continue;
+    }
+
+    const title = (lesson?.title || '').trim();
+    if (!title) continue;
+    const hasPackageLessons = lesson.packageMode !== undefined
+      ? lesson.packageMode !== false
+      : !!getPackageByName(title);
+    registerClient(title, hasPackageLessons);
+  }
+
+  return changed;
 }
 
 export function getData() {
@@ -171,30 +288,131 @@ export function generateGroupId() {
   return d.nextGroupId++;
 }
 
-// ── Lesson CRUD ────────────────────────────────────────────────────────
+function normalizeLesson(lesson) {
+  const normalizeParticipants = (participants) => {
+    if (!Array.isArray(participants)) return [];
+    return participants
+      .map(participant => {
+        const name = (participant?.name || '').trim();
+        const horse = participant?.horse || null;
+        const packageName = (participant?.packageName || name).trim();
+        const packageMode = participant?.packageMode !== false;
+        if (!name) return null;
+        return { name, horse, packageName, packageMode };
+      })
+      .filter(Boolean);
+  };
 
-export function addLesson(lesson) {
-  const d = getData();
-  const id = generateId();
-  const newLesson = { 
-    id, 
+  const normalized = {
     cancelledDates: [],
     deductedDates: [],
-    ...lesson 
+    lessonType: 'individual',
+    instanceOverrides: {},
+    ...lesson
   };
+
+  if (!Array.isArray(normalized.cancelledDates)) normalized.cancelledDates = [];
+  if (!Array.isArray(normalized.deductedDates)) normalized.deductedDates = [];
+  if (normalized.packageMode === undefined) {
+    const legacyPackage =
+      !!(normalized.title && getPackageByName(normalized.title)) ||
+      normalized.participants?.length > 0;
+    normalized.packageMode = legacyPackage;
+  } else {
+    normalized.packageMode = normalized.packageMode !== false;
+  }
+
+  if (Array.isArray(normalized.participants)) {
+    normalized.participants = normalizeParticipants(normalized.participants);
+  } else {
+    normalized.participants = [];
+  }
+
+  if (!normalized.lessonType) {
+    normalized.lessonType = normalized.participants.length > 0 ? 'group' : 'individual';
+  }
+
+  if (normalized.instanceOverrides && typeof normalized.instanceOverrides === 'object') {
+    const normalizedOverrides = {};
+    for (const [dateStr, override] of Object.entries(normalized.instanceOverrides)) {
+      if (!override || typeof override !== 'object') continue;
+      const cleanOverride = { ...override };
+      if (Array.isArray(cleanOverride.participants)) {
+        cleanOverride.participants = normalizeParticipants(cleanOverride.participants);
+      }
+      normalizedOverrides[dateStr] = cleanOverride;
+    }
+    normalized.instanceOverrides = normalizedOverrides;
+  } else {
+    normalized.instanceOverrides = {};
+  }
+
+  return normalized;
+}
+
+// ── Lesson CRUD ────────────────────────────────────────────────────────
+
+export function addLesson(lesson, { save = true } = {}) {
+  const d = getData();
+  const id = generateId();
+  const newLesson = normalizeLesson({
+    id,
+    ...lesson
+  });
   d.lessons.push(newLesson);
 
-  saveData();
+  if (save) saveData();
   return newLesson;
 }
 
-export function updateLesson(id, updates) {
+export function updateLesson(id, updates, { save = true } = {}) {
   const d = getData();
   const idx = d.lessons.findIndex(l => l.id === id);
   if (idx >= 0) {
-    d.lessons[idx] = { ...d.lessons[idx], ...updates };
-    saveData();
+    d.lessons[idx] = normalizeLesson({ ...d.lessons[idx], ...updates });
+    if (save) saveData();
   }
+}
+
+export function updateLessonInstance(id, dateStr, updates, { save = true } = {}) {
+  const d = getData();
+  const idx = d.lessons.findIndex(l => l.id === id);
+  if (idx < 0) return;
+
+  const lesson = d.lessons[idx];
+  if (!lesson.instanceOverrides || typeof lesson.instanceOverrides !== 'object') {
+    lesson.instanceOverrides = {};
+  }
+
+  const override = {};
+  for (const [key, value] of Object.entries(updates || {})) {
+    if (['id', 'cancelledDates', 'deductedDates', 'instanceOverrides', '_recurringInstance', '_instanceDate'].includes(key)) continue;
+    if (JSON.stringify(lesson[key]) !== JSON.stringify(value)) {
+      override[key] = value;
+    }
+  }
+
+  if (Object.keys(override).length === 0) {
+    delete lesson.instanceOverrides[dateStr];
+  } else {
+    const existing = lesson.instanceOverrides[dateStr] || {};
+    const merged = { ...existing, ...override };
+    if (Array.isArray(merged.participants)) {
+      merged.participants = merged.participants
+        .map(participant => {
+          const name = (participant?.name || '').trim();
+          const horse = participant?.horse || null;
+          const packageName = (participant?.packageName || name).trim();
+          const packageMode = participant?.packageMode !== false;
+          if (!name) return null;
+          return { name, horse, packageName, packageMode };
+        })
+        .filter(Boolean);
+    }
+    lesson.instanceOverrides[dateStr] = merged;
+  }
+
+  if (save) saveData();
 }
 
 export function deleteLesson(id) {
@@ -209,9 +427,23 @@ export function getLessonsForDate(dateStr) {
   const targetDate = new Date(dateStr);
   const targetDay = targetDate.getDay();
 
+  const getInstanceLesson = (lesson, instanceDate) => {
+    const override = lesson.instanceOverrides?.[instanceDate];
+    if (!override) {
+      return { ...lesson, _recurringInstance: !!lesson.recurring, _instanceDate: instanceDate };
+    }
+
+    return {
+      ...lesson,
+      ...override,
+      _recurringInstance: !!lesson.recurring,
+      _instanceDate: instanceDate,
+    };
+  };
+
   for (const lesson of d.lessons) {
     if (lesson.date === dateStr) {
-      results.push(lesson);
+      results.push(getInstanceLesson(lesson, dateStr));
     } else if (lesson.recurring) {
       const lessonDate = new Date(lesson.date);
       if (lessonDate.getDay() === targetDay && lessonDate <= targetDate) {
@@ -219,7 +451,7 @@ export function getLessonsForDate(dateStr) {
         const diffMs = targetDate - lessonDate;
         const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
         if (diffDays >= 0 && diffDays % 7 === 0) {
-          results.push({ ...lesson, _recurringInstance: true, _instanceDate: dateStr });
+          results.push(getInstanceLesson(lesson, dateStr));
         }
       }
     }
@@ -246,27 +478,87 @@ export function toggleCancelLessonInstance(id, dateStr) {
 
 export function processPastLessonsForCredits() {
   if (!_data) return;
+  const packageSyncChanged = syncPackageEntriesFromLessons();
   const now = new Date();
-  let changed = false;
+  let changed = packageSyncChanged;
+
+  const getInstanceLesson = (lesson, instanceDate) => {
+    const override = lesson.instanceOverrides?.[instanceDate];
+    return override ? { ...lesson, ...override } : lesson;
+  };
 
   for (const lesson of _data.lessons) {
     if (!lesson.deductedDates) lesson.deductedDates = [];
     if (!lesson.cancelledDates) lesson.cancelledDates = [];
 
-    const pkg = _data.packages.find(p => p.name.toLowerCase() === lesson.title.toLowerCase());
-    if (!pkg || !pkg.active) continue;
-
-    const startDate = parseDate(lesson.date);
-
-    const checkInstance = (dStr, startMinute, durationMinutes) => {
+    const checkInstance = (dStr, instanceLesson) => {
+      const startMinute = instanceLesson.startMinute;
+      const durationMinutes = instanceLesson.durationMinutes;
       const instanceEnd = parseDate(dStr);
       instanceEnd.setMinutes(instanceEnd.getMinutes() + startMinute + durationMinutes);
       
       const isPast = instanceEnd < now;
       const isCancelled = lesson.cancelledDates.includes(dStr);
-      const isDeducted = lesson.deductedDates.includes(dStr);
 
-      if (isPast && !isCancelled && !isDeducted) {
+      if (Array.isArray(instanceLesson.participants) && instanceLesson.participants.length > 0) {
+        const isDeducted = lesson.deductedDates.includes(dStr);
+        const uniqueNames = [...new Set(
+          instanceLesson.participants
+            .filter(participant => participant?.packageMode !== false)
+            .map(p => (p?.packageName || p?.name || '').trim())
+            .filter(Boolean)
+        )];
+        if (uniqueNames.length === 0) return;
+        if (isPast && !isCancelled && !isDeducted) {
+          for (const name of uniqueNames) {
+            const pkg = _data.packages.find(p => p.name.toLowerCase() === name.toLowerCase());
+            if (!pkg || !pkg.active) continue;
+            if (!pkg.history) pkg.history = [];
+            const before = pkg.credits;
+            pkg.credits -= 1;
+            pkg.history.push({
+              date: new Date().toISOString(),
+              amount: -1,
+              before,
+              after: pkg.credits,
+              reason: 'lesson',
+              lessonDate: dStr,
+              lessonStartMinute: startMinute
+            });
+          }
+          lesson.deductedDates.push(dStr);
+          changed = true;
+        } else if ((!isPast || isCancelled) && isDeducted) {
+          for (const name of uniqueNames) {
+            const pkg = _data.packages.find(p => p.name.toLowerCase() === name.toLowerCase());
+            if (!pkg || !pkg.active) continue;
+            if (!pkg.history) pkg.history = [];
+            const before = pkg.credits;
+            pkg.credits += 1;
+            pkg.history.push({
+              date: new Date().toISOString(),
+              amount: 1,
+              before,
+              after: pkg.credits,
+              reason: 'lesson_cancel',
+              lessonDate: dStr,
+              lessonStartMinute: startMinute
+            });
+          }
+          lesson.deductedDates = lesson.deductedDates.filter(d => d !== dStr);
+          changed = true;
+        }
+        return;
+      }
+
+      if (instanceLesson.packageMode === false) {
+        return;
+      }
+
+      const pkg = _data.packages.find(p => p.name.toLowerCase() === lesson.title.toLowerCase());
+      if (!pkg || !pkg.active) return;
+
+      if (isPast && !isCancelled && !lesson.deductedDates.includes(dStr)) {
         if (!pkg.history) pkg.history = [];
         const before = pkg.credits;
         pkg.credits -= 1;
@@ -281,7 +573,7 @@ export function processPastLessonsForCredits() {
         });
         lesson.deductedDates.push(dStr);
         changed = true;
-      } else if ((!isPast || isCancelled) && isDeducted) {
+      } else if ((!isPast || isCancelled) && lesson.deductedDates.includes(dStr)) {
         if (!pkg.history) pkg.history = [];
         const before = pkg.credits;
         pkg.credits += 1;
@@ -300,7 +592,7 @@ export function processPastLessonsForCredits() {
     };
 
     if (!lesson.recurring) {
-      checkInstance(lesson.date, lesson.startMinute, lesson.durationMinutes);
+      checkInstance(lesson.date, lesson);
     } else {
       let currentInstance = parseDate(lesson.date);
       const boundDate = new Date();
@@ -308,10 +600,11 @@ export function processPastLessonsForCredits() {
 
       while (currentInstance < boundDate) {
         const dStr = formatDate(currentInstance);
-        checkInstance(dStr, lesson.startMinute, lesson.durationMinutes);
+        const instanceLesson = getInstanceLesson(lesson, dStr);
+        checkInstance(dStr, instanceLesson);
         
         const instanceEnd = new Date(currentInstance);
-        instanceEnd.setMinutes(instanceEnd.getMinutes() + lesson.startMinute + lesson.durationMinutes);
+        instanceEnd.setMinutes(instanceEnd.getMinutes() + instanceLesson.startMinute + instanceLesson.durationMinutes);
         if (instanceEnd >= now) break; 
 
         currentInstance.setDate(currentInstance.getDate() + 7);
@@ -326,15 +619,9 @@ export function processPastLessonsForCredits() {
 
 // ── Package Management ─────────────────────────────────────────────────
 
-export function ensurePackageEntry(name) {
-  const d = getData();
-  const trimmed = name.trim();
-  if (!trimmed) return;
-  const exists = d.packages.find(p => p.name.toLowerCase() === trimmed.toLowerCase());
-  if (!exists) {
-    d.packages.push({ id: generateId(), name: trimmed, credits: 0, active: true, history: [] });
-    saveData();
-  }
+export function ensurePackageEntry(name, { save = true, hasPackageLessons = false } = {}) {
+  const changed = ensurePackageEntryState(name, { hasPackageLessons });
+  if (changed && save) saveData();
 }
 
 export function updatePackageCredits(id, credits) {
@@ -342,6 +629,7 @@ export function updatePackageCredits(id, credits) {
   const pkg = d.packages.find(p => p.id === id);
   if (pkg) {
     pkg.credits = credits;
+    pkg.hasPackageLessons = true;
     saveData();
   }
 }
@@ -351,6 +639,7 @@ export function addPackageCredits(id, amount) {
   const pkg = d.packages.find(p => p.id === id);
   if (pkg) {
     if (!pkg.history) pkg.history = [];
+    pkg.hasPackageLessons = true;
     const before = pkg.credits;
     const after = before + amount;
     pkg.credits = after;
@@ -389,6 +678,7 @@ export function deductCredit(name, dateStr, startMinute) {
   const pkg = d.packages.find(p => p.name.toLowerCase() === name.trim().toLowerCase());
   if (pkg && pkg.active) {
     if (!pkg.history) pkg.history = [];
+    pkg.hasPackageLessons = true;
     const before = pkg.credits;
     pkg.credits -= 1;
     pkg.history.push({
@@ -411,14 +701,32 @@ const GROUP_COLORS = [
   '#10b981', '#06b6d4', '#f97316', '#14b8a6',
 ];
 
-export function createGroup(name) {
+export function createGroup(name, color = null, { save = true } = {}) {
   const d = getData();
   const id = generateGroupId();
   const colorIdx = (d.groups.length) % GROUP_COLORS.length;
-  const group = { id, name, color: GROUP_COLORS[colorIdx] };
+  const group = {
+    id,
+    name: name.trim(),
+    color: color || GROUP_COLORS[colorIdx]
+  };
   d.groups.push(group);
-  saveData();
+  if (save) saveData();
   return group;
+}
+
+export function updateGroup(id, updates, { save = true } = {}) {
+  const d = getData();
+  const idx = d.groups.findIndex(g => g.id === id);
+  if (idx >= 0) {
+    d.groups[idx] = {
+      ...d.groups[idx],
+      ...updates,
+      name: updates.name ? updates.name.trim() : d.groups[idx].name,
+      color: updates.color || d.groups[idx].color,
+    };
+    if (save) saveData();
+  }
 }
 
 export function getGroup(id) {

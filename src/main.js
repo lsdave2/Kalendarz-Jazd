@@ -6,6 +6,7 @@ import {
   addLesson, updateLesson, deleteLesson, getLessonsForDate,
   updatePackageCredits, togglePackageActive, deletePackage, getPackageByName, deductCredit, ensurePackageEntry, addPackageCredits,
   createGroup, getGroup, deleteGroup, getAllGroups, toggleCancelLessonInstance, processPastLessonsForCredits,
+  updateGroup,
   isAdmin, login, logout, isLoading
 } from './store.js';
 
@@ -14,8 +15,27 @@ let currentTab = 'calendar';
 let viewYear, viewMonth;
 let selectedDate = null;
 let editingLesson = null;
-let groupsCollapsed = getSettings().groupsCollapsed || false;
+let groupsCollapsed = getSettings().groupsCollapsed ?? true;
 let horseViewRange = null; // { from, to }
+
+const DEFAULT_DAY_SCHEDULE_START_HOUR = 8;
+const DEFAULT_DAY_SCHEDULE_END_HOUR = 21;
+const DAY_SCHEDULE_SLOT_HEIGHT = 120;
+const DAY_SCHEDULE_LABEL_WIDTH = 48;
+const DAY_SCHEDULE_CONTENT_RIGHT = 8;
+
+function isTabVisible(tabId) {
+  if (tabId === 'packages') return isAdmin();
+  if (tabId === 'horses') return isAdmin();
+  return true;
+}
+
+function ensureVisibleTab() {
+  if (!isTabVisible(currentTab)) {
+    currentTab = 'calendar';
+    selectedDate = null;
+  }
+}
 
 // Init date
 const now = new Date();
@@ -33,10 +53,37 @@ function saveSettings(settings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
+function clampHour(value, min, max, fallback) {
+  const hour = Number.parseInt(value, 10);
+  if (Number.isNaN(hour)) return fallback;
+  return Math.max(min, Math.min(max, hour));
+}
+
+function getDayScheduleHours() {
+  let startHour = clampHour(getSettings().dayScheduleStartHour, 0, 23, DEFAULT_DAY_SCHEDULE_START_HOUR);
+  let endHour = clampHour(getSettings().dayScheduleEndHour, 1, 24, DEFAULT_DAY_SCHEDULE_END_HOUR);
+
+  if (endHour <= startHour) {
+    if (startHour >= 23) {
+      startHour = 22;
+      endHour = 23;
+    } else {
+      endHour = startHour + 1;
+    }
+  }
+
+  return { startHour, endHour };
+}
+
+function formatHourOption(hour) {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
 // ── Render Engine ──────────────────────────────────────────────────────
 const app = document.getElementById('app');
 
 function render() {
+  ensureVisibleTab();
   document.title = t('appTitle');
   app.innerHTML = '';
   app.appendChild(buildHeader());
@@ -179,17 +226,22 @@ function buildDayView(dateStr) {
   );
   container.appendChild(header);
 
-  // Groups section
-  const groups = buildGroupsPanel(dateStr);
-  container.appendChild(groups);
+  // Groups section is admin-only
+  if (isAdmin()) {
+    const groups = buildGroupsPanel(dateStr);
+    container.appendChild(groups);
+  }
 
   // Schedule
   const schedule = el('div', { className: 'day-schedule', id: 'day-schedule' });
   const lessons = getLessonsForDate(dateStr);
 
-  // Render hours 6..21
-  const START_HOUR = 6;
-  const END_HOUR = 21;
+  const { startHour: START_HOUR, endHour: END_HOUR } = getDayScheduleHours();
+  const visibleLessons = lessons.filter(lesson => (
+    lesson.startMinute >= START_HOUR * 60 &&
+    lesson.startMinute < (END_HOUR + 1) * 60
+  ));
+  schedule.style.minHeight = `${(END_HOUR - START_HOUR + 1) * DAY_SCHEDULE_SLOT_HEIGHT}px`;
 
   for (let h = START_HOUR; h <= END_HOUR; h++) {
     const row = el('div', { className: 'hour-row' });
@@ -197,25 +249,29 @@ function buildDayView(dateStr) {
     row.appendChild(el('div', { className: 'hour-content' }));
     schedule.appendChild(row);
 
+    const hourLine = el('div', { className: 'hour-line' });
+    hourLine.style.top = `${(h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT}px`;
+    schedule.appendChild(hourLine);
+
     // Quarter lines
     for (let q = 1; q <= 3; q++) {
       const line = el('div', { className: 'quarter-line' });
-      line.style.top = `${(h - START_HOUR) * 80 + q * 20}px`;
+      line.style.top = `${(h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT + q * (DAY_SCHEDULE_SLOT_HEIGHT / 4)}px`;
       schedule.appendChild(line);
     }
   }
 
   // Compute layout for overlapping tiles
-  const layout = computeOverlapLayout(lessons);
+  const layout = computeOverlapLayout(visibleLessons);
 
   // Render group containers first (behind tiles)
-  const groupContainers = buildGroupContainers(lessons, layout, START_HOUR);
+  const groupContainers = buildGroupContainers(visibleLessons, layout, START_HOUR);
   for (const gc of groupContainers) {
     schedule.appendChild(gc);
   }
 
   // Place lesson tiles with computed positions
-  for (const lesson of lessons) {
+  for (const lesson of visibleLessons) {
     const pos = layout.get(lesson.id);
     const tile = buildLessonTile(lesson, dateStr, START_HOUR, pos);
     schedule.appendChild(tile);
@@ -234,7 +290,7 @@ function buildDayView(dateStr) {
       const nowMinutes = now.getHours() * 60 + now.getMinutes();
       if (nowMinutes < START_HOUR * 60 || nowMinutes > END_HOUR * 60) return;
 
-      const top = ((nowMinutes / 60) - START_HOUR) * 80;
+      const top = ((nowMinutes / 60) - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT;
       const line = el('div', { className: 'time-indicator' });
       line.style.top = `${top}px`;
 
@@ -394,12 +450,12 @@ function buildGroupContainers(lessons, layoutMap, startHour) {
         }
       }
 
-      const top = ((minStart / 60) - startHour) * 80;
-      const height = ((maxEnd - minStart) / 60) * 80;
+      const top = ((minStart / 60) - startHour) * DAY_SCHEDULE_SLOT_HEIGHT;
+      const height = ((maxEnd - minStart) / 60) * DAY_SCHEDULE_SLOT_HEIGHT;
 
       // Calculate left/right based on column positions
-      const contentLeft = 52; // matches .lesson-tile left
-      const contentRight = 8;
+      const contentLeft = DAY_SCHEDULE_LABEL_WIDTH;
+      const contentRight = DAY_SCHEDULE_CONTENT_RIGHT;
       const availableWidth = `calc(100% - ${contentLeft + contentRight}px)`;
       const colWidthCalc = `calc(${availableWidth} / ${totalCols})`;
       const leftCalc = `calc(${contentLeft}px + ${colWidthCalc} * ${minCol})`;
@@ -450,8 +506,10 @@ function buildGroupContainers(lessons, layoutMap, startHour) {
 }
 
 function buildLessonTile(lesson, dateStr, startHour, pos) {
-  const pkg = getPackageByName(lesson.title);
+  const isGroupLesson = isGroupLessonRecord(lesson);
+  const pkg = isGroupLesson ? null : getPackageByName(lesson.title);
   const group = lesson.groupId ? getGroup(lesson.groupId) : null;
+  const participants = getLessonParticipants(lesson);
   const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
 
   // Check if it happened in the past
@@ -468,14 +526,14 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
   if (isPastLesson) extraClasses.push('past');
   if (isCancelled) extraClasses.push('cancelled');
 
-  const top = ((lesson.startMinute / 60) - startHour) * 80;
-  const height = Math.max((lesson.durationMinutes / 60) * 80, 24);
+  const top = ((lesson.startMinute / 60) - startHour) * DAY_SCHEDULE_SLOT_HEIGHT;
+  const height = Math.max((lesson.durationMinutes / 60) * DAY_SCHEDULE_SLOT_HEIGHT, 24);
 
   // Compute left/width from column layout
   const col = pos ? pos.col : 0;
   const totalCols = pos ? pos.totalCols : 1;
-  const contentLeft = 52;
-  const contentRight = 8;
+  const contentLeft = DAY_SCHEDULE_LABEL_WIDTH;
+  const contentRight = DAY_SCHEDULE_CONTENT_RIGHT;
 
   let leftStyle, widthStyle;
   if (totalCols > 1) {
@@ -487,7 +545,7 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
   }
 
   const tile = el('div', {
-    className: `lesson-tile ${statusClass} ${group ? 'grouped' : ''} ${extraClasses.join(' ')}`.trim(),
+    className: `lesson-tile ${statusClass} ${group ? 'grouped' : ''} ${isGroupLesson ? 'group-session' : ''} ${extraClasses.join(' ')}`.trim(),
     style: {
       top: `${top}px`,
       height: `${height}px`,
@@ -495,6 +553,9 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
       width: widthStyle,
       right: 'auto',
       borderLeftColor: group ? group.color : undefined,
+      borderColor: group ? `${group.color}66` : undefined,
+      background: group ? `linear-gradient(135deg, ${group.color}26, ${group.color}0c)` : undefined,
+      overflow: 'hidden',
     },
     onClick: (e) => {
       if (!e.target.closest('.dragging') && isAdmin()) {
@@ -502,53 +563,74 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
       }
     }
   });
-  if (isPastLesson && !isCancelled) {
-    tile.classList.add('has-past-badge');
-    tile.appendChild(el('span', {
-      className: 'tile-past-badge',
-      title: t('past'),
-      'aria-label': t('past')
-    }, icon('check_circle', 'tile-past-icon')));
-  }
-
   // Store layout info for drag
   tile._layoutPos = pos;
 
-  // Title
+  const instructorBadge = lesson.instructor
+    ? el('span', { className: 'tile-instructor tile-instructor-badge' }, icon('person'), lesson.instructor)
+    : null;
+
+  const meta = el('div', { className: 'tile-meta' });
+  const showPackageCredits = isAdmin();
   const titleRow = el('div', { className: 'tile-title' });
+
   if (group) {
     const dot = el('span', { className: 'tile-group-dot', style: { background: group.color } });
     titleRow.appendChild(dot);
   }
-  titleRow.appendChild(document.createTextNode(lesson.title));
-  if (lesson.recurring) {
+
+  const titleText = el('span', { className: 'tile-title-text' }, getLessonDisplayName(lesson));
+  titleRow.appendChild(titleText);
+
+  if (!isGroupLesson && lesson.recurring) {
     titleRow.appendChild(icon('repeat', 'recurring-icon'));
   }
+
+  if (instructorBadge) {
+    titleRow.appendChild(instructorBadge);
+  }
+
   tile.appendChild(titleRow);
 
-  // Meta
-  const meta = el('div', { className: 'tile-meta' });
-  meta.appendChild(el('span', { className: 'tile-time' },
-    icon('schedule'),
-    `${minutesToTime(lesson.startMinute)} - ${minutesToTime(lesson.startMinute + lesson.durationMinutes)}`
-  ));
-  const crew = el('span', { className: 'tile-crew' });
-  let hasCrew = false;
-  if (lesson.horse) {
-    crew.appendChild(el('span', { className: 'tile-horse' }, icon('horse'), lesson.horse));
-    hasCrew = true;
-  }
-  if (lesson.instructor) {
-    if (hasCrew) {
-      crew.appendChild(el('span', { className: 'tile-separator', 'aria-hidden': 'true' }, '•'));
+  if (isGroupLesson) {
+    const participantsWrap = el('div', { className: 'tile-participants' });
+    for (const participant of participants) {
+      const participantRow = el('div', { className: 'tile-participant' });
+      participantRow.appendChild(el('span', { className: 'tile-participant-name' }, participant.name));
+
+      if (participant.horse) {
+        participantRow.appendChild(el('span', { className: 'tile-participant-horse' }, icon('horse'), participant.horse));
+      }
+
+      const participantPkg = participant.packageMode !== false
+        ? getPackageByName(participant.packageName || participant.name)
+        : null;
+      if (showPackageCredits && participantPkg) {
+        const isZero = participantPkg.credits === 0;
+        const color = !participantPkg.active
+          ? 'var(--text-muted)'
+          : (isZero ? 'var(--text-muted)' : (participantPkg.credits > 0 ? 'var(--green)' : 'var(--red)'));
+        participantRow.appendChild(el('span', {
+          className: 'tile-participant-package',
+          style: { color }
+        }, t('packageLabel', { count: participantPkg.credits })));
+      }
+
+      participantsWrap.appendChild(participantRow);
     }
-    crew.appendChild(el('span', { className: 'tile-instructor' }, icon('person'), lesson.instructor));
-    hasCrew = true;
+    meta.appendChild(participantsWrap);
+  } else {
+    const crew = el('span', { className: 'tile-crew' });
+    let hasCrew = false;
+    if (lesson.horse) {
+      crew.appendChild(el('span', { className: 'tile-horse' }, icon('horse'), lesson.horse));
+      hasCrew = true;
+    }
+    if (hasCrew) {
+      meta.appendChild(crew);
+    }
   }
-  if (hasCrew) {
-    meta.appendChild(crew);
-  }
-  if (pkg && pkg.active) {
+  if (showPackageCredits && !isGroupLesson && lesson.packageMode !== false && pkg && pkg.active) {
     const isZero = pkg.credits === 0;
     const color = isZero ? 'var(--text-muted)' : (pkg.credits > 0 ? 'var(--green)' : 'var(--red)');
     const creditLabel = el('span', {
@@ -573,6 +655,7 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
 
 // ── Drag & Drop ────────────────────────────────────────────────────────
 function makeDraggable(tileEl, lesson, dateStr) {
+  const { startHour, endHour } = getDayScheduleHours();
   let startY = 0;
   let startMinute = lesson.startMinute;
   let isDragging = false;
@@ -623,11 +706,11 @@ function makeDraggable(tileEl, lesson, dateStr) {
     tileEl.classList.add('dragging');
     tileEl.classList.remove('long-press-ready');
 
-    // Each pixel ~= 1 minute (80px = 60 min)
-    const rawMinutes = dy * (60 / 80);
+    // Each pixel ~= 1 minute, scaled to the current hour height.
+    const rawMinutes = dy * (60 / DAY_SCHEDULE_SLOT_HEIGHT);
     offsetMinute = Math.round(rawMinutes / 15) * 15;
-    const newStart = Math.max(0, Math.min(startMinute + offsetMinute, 20 * 60)); // Limit to day range
-    tileEl.style.top = `${((newStart / 60) - 6) * 80}px`;
+    const newStart = Math.max(0, Math.min(startMinute + offsetMinute, (endHour - 1) * 60)); // Limit to day range
+    tileEl.style.top = `${((newStart / 60) - startHour) * DAY_SCHEDULE_SLOT_HEIGHT}px`;
   };
 
   const onEnd = () => {
@@ -635,7 +718,7 @@ function makeDraggable(tileEl, lesson, dateStr) {
     tileEl.classList.remove('long-press-ready');
 
     if (isDragging) {
-      const newStart = Math.max(0, Math.min(startMinute + offsetMinute, 20 * 60));
+      const newStart = Math.max(0, Math.min(startMinute + offsetMinute, (endHour - 1) * 60));
       const snapped = Math.round(newStart / 15) * 15;
 
       if (snapped !== startMinute) {
@@ -687,6 +770,53 @@ function makeDraggable(tileEl, lesson, dateStr) {
 
 function isTouchDevice() {
   return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+}
+
+function isGroupLessonRecord(lesson) {
+  return !!lesson && Array.isArray(lesson.participants) && lesson.participants.length > 0;
+}
+
+function getLessonParticipants(lesson) {
+  if (!isGroupLessonRecord(lesson)) return [];
+  return lesson.participants
+    .map(participant => {
+      const name = (participant?.name || '').trim();
+      const horse = participant?.horse || null;
+      const packageName = (participant?.packageName || name).trim();
+      const packageMode = participant?.packageMode !== false;
+      if (!name) return null;
+      return { name, horse, packageName, packageMode };
+    })
+    .filter(Boolean);
+}
+
+function getKnownClientNames(data) {
+  const names = [];
+  for (const pkg of data.packages || []) {
+    if (pkg?.name) names.push(pkg.name);
+  }
+  return [...new Set(names.map(name => name.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function getLessonDisplayName(lesson) {
+  if (!lesson) return '';
+  if (isGroupLessonRecord(lesson)) {
+    const group = lesson.groupId ? getGroup(lesson.groupId) : null;
+    return group?.name || lesson.groupName || lesson.title || t('groupLesson');
+  }
+  return lesson.title || '';
+}
+
+function getDefaultGroupName() {
+  const data = getData();
+  let maxGroupNumber = 0;
+  for (const group of data.groups || []) {
+    const name = (group?.name || '').trim();
+    const match = name.match(/^Group\s+(\d+)$/i);
+    if (!match) continue;
+    maxGroupNumber = Math.max(maxGroupNumber, parseInt(match[1], 10));
+  }
+  return `Group ${maxGroupNumber + 1}`;
 }
 
 // ── Groups Panel ───────────────────────────────────────────────────────
@@ -803,117 +933,62 @@ function buildGroupsPanel(dateStr) {
 function openLessonModal(dateStr, lesson = null) {
   editingLesson = lesson;
   const isEdit = !!lesson;
+  const isGroupEdit = isGroupLessonRecord(lesson);
+  const data = getData();
+  const clientNames = getKnownClientNames(data);
+  const initialType = isEdit && isGroupEdit ? 'group' : 'individual';
 
   const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
     if (e.target === overlay) overlay.remove();
   }});
 
-  const modal = el('div', { className: 'modal' });
+  const modal = el('div', { className: 'modal', tabIndex: -1 });
   modal.appendChild(el('div', { className: 'modal-handle' }));
   modal.appendChild(el('h3', {}, isEdit ? t('editLesson') : t('newLesson')));
 
-  const data = getData();
+  const content = el('div');
+  modal.appendChild(content);
 
-  // Title
-  const titleGroup = el('div', { className: 'form-group' });
-  titleGroup.appendChild(el('label', {}, t('clientName')));
-  const titleInput = el('input', {
-    className: 'form-input',
-    type: 'text',
-    placeholder: t('enterClientName'),
-    value: lesson ? lesson.title : '',
-    id: 'lesson-title-input'
-  });
-  titleGroup.appendChild(titleInput);
+  const modeRow = el('div', { className: 'lesson-type-switch' });
+  const individualModeBtn = el('button', { className: 'lesson-type-btn', type: 'button' }, t('individualLesson'));
+  const groupModeBtn = el('button', { className: 'lesson-type-btn', type: 'button' }, t('groupLesson'));
+  modeRow.appendChild(individualModeBtn);
+  modeRow.appendChild(groupModeBtn);
+  content.appendChild(modeRow);
 
-  // Suggestions row
-  const suggestionsRow = el('div', { className: 'suggestions-row', id: 'client-suggestions' });
-  titleGroup.appendChild(suggestionsRow);
+  const formHost = el('div');
+  content.appendChild(formHost);
 
-  const updateSuggestions = (val) => {
-    suggestionsRow.innerHTML = '';
-    const query = val.toLowerCase().trim();
-    if (!query) {
-      suggestionsRow.style.display = 'none';
-      return;
-    }
-    
-    // Get unique existing client names from both packages AND all past/future lessons
-    const namesFromPackages = data.packages.map(p => p.name);
-    const namesFromLessons = data.lessons.map(l => l.title);
-    const allUniqueNames = [...new Set([...namesFromPackages, ...namesFromLessons])];
+  const commonSection = el('div');
+  const individualSection = el('div');
+  const groupSection = el('div');
 
-    const matches = allUniqueNames.filter(name => 
-      name.toLowerCase().includes(query) && name.toLowerCase() !== query
-    ).sort().slice(0, 5); // Sort alphabetically and limit to 5 suggestions
+  const knownClientsDatalist = el('datalist', { id: 'lesson-client-list' });
+  for (const name of clientNames) {
+    knownClientsDatalist.appendChild(el('option', { value: name }));
+  }
+  modal.appendChild(knownClientsDatalist);
 
-    if (matches.length > 0) {
-      suggestionsRow.style.display = 'flex';
-      matches.forEach(name => {
-        const chip = el('button', {
-          className: 'suggestion-chip',
-          onClick: () => {
-            titleInput.value = name;
-            updateSuggestions('');
-          }
-        }, name);
-        suggestionsRow.appendChild(chip);
-      });
-    } else {
-      suggestionsRow.style.display = 'none';
-    }
-  };
+  let currentType = initialType;
 
-  titleInput.addEventListener('input', (e) => updateSuggestions(e.target.value));
+  const startMinuteDefault = lesson ? lesson.startMinute : 10 * 60;
+  const durationDefault = lesson ? lesson.durationMinutes : 60;
+  const recurringDefault = !!(lesson && lesson.recurring);
 
-  modal.appendChild(titleGroup);
-
-  // Time row
-  const timeRow = el('div', { className: 'form-row' });
-
-  const startGroup = el('div', { className: 'form-group' });
-  startGroup.appendChild(el('label', {}, t('startTime')));
   const startSelect = el('select', { className: 'form-input', id: 'lesson-start-select' });
   for (let m = 6 * 60; m < 22 * 60; m += 15) {
     const opt = el('option', { value: String(m) }, minutesToTime(m));
-    if (lesson && lesson.startMinute === m) opt.selected = true;
-    else if (!lesson && m === 10 * 60) opt.selected = true;
+    if (startMinuteDefault === m) opt.selected = true;
     startSelect.appendChild(opt);
   }
-  startGroup.appendChild(startSelect);
-  timeRow.appendChild(startGroup);
 
-  const durGroup = el('div', { className: 'form-group' });
-  durGroup.appendChild(el('label', {}, t('duration')));
   const durSelect = el('select', { className: 'form-input', id: 'lesson-duration-select' });
   for (const dur of [30, 45, 60, 90, 120]) {
     const opt = el('option', { value: String(dur) }, `${dur} ${t('min')}`);
-    if (lesson && lesson.durationMinutes === dur) opt.selected = true;
-    else if (!lesson && dur === 60) opt.selected = true;
+    if (durationDefault === dur) opt.selected = true;
     durSelect.appendChild(opt);
   }
-  durGroup.appendChild(durSelect);
-  timeRow.appendChild(durGroup);
 
-  modal.appendChild(timeRow);
-
-  // Horse & Instructor row
-  const hiRow = el('div', { className: 'form-row' });
-
-  const horseGroup = el('div', { className: 'form-group' });
-  horseGroup.appendChild(el('label', {}, t('horse')));
-  const horseSelect = el('select', { className: 'form-input', id: 'lesson-horse-select' });
-  horseSelect.appendChild(el('option', { value: '' }, t('noHorse')));
-  for (const h of data.horses) {
-    const opt = el('option', { value: h }, h);
-    if (lesson && lesson.horse === h) opt.selected = true;
-    horseSelect.appendChild(opt);
-  }
-  horseGroup.appendChild(horseSelect);
-  hiRow.appendChild(horseGroup);
-
-  const instrGroup = el('div', { className: 'form-group' });
-  instrGroup.appendChild(el('label', {}, t('instructor')));
   const instrSelect = el('select', { className: 'form-input', id: 'lesson-instructor-select' });
   instrSelect.appendChild(el('option', { value: '' }, t('noInstructor')));
   for (const i of data.instructors) {
@@ -921,49 +996,438 @@ function openLessonModal(dateStr, lesson = null) {
     if (lesson && lesson.instructor === i) opt.selected = true;
     instrSelect.appendChild(opt);
   }
-  instrGroup.appendChild(instrSelect);
-  hiRow.appendChild(instrGroup);
 
-  modal.appendChild(hiRow);
-
-  // Group
-  const groupGroup = el('div', { className: 'form-group' });
-  groupGroup.appendChild(el('label', {}, t('groupOptional')));
-  const groupSelect = el('select', { className: 'form-input', id: 'lesson-group-select' });
-  groupSelect.appendChild(el('option', { value: '' }, t('noGroup')));
-  for (const g of data.groups) {
-    const opt = el('option', { value: String(g.id) }, g.name);
-    if (lesson && lesson.groupId === g.id) opt.selected = true;
-    groupSelect.appendChild(opt);
-  }
-  groupGroup.appendChild(groupSelect);
-  modal.appendChild(groupGroup);
-
-  // Recurring toggle
-  const recurRow = el('div', { className: 'toggle-row' });
-  recurRow.appendChild(el('span', {}, t('repeatWeekly')));
   const recurToggle = el('div', {
-    className: `toggle ${lesson && lesson.recurring ? 'active' : ''}`,
+    className: `toggle ${recurringDefault ? 'active' : ''}`,
     id: 'lesson-recurring-toggle',
     onClick: () => recurToggle.classList.toggle('active')
   });
-  recurRow.appendChild(recurToggle);
-  modal.appendChild(recurRow);
 
-  // Add to Packages toggle
-  const pkgExists = lesson ? !!getPackageByName(lesson.title) : false;
-  const pkgRow = el('div', { className: 'toggle-row' });
-  pkgRow.appendChild(el('span', {}, t('enablePackages')));
-  const pkgToggle = el('div', {
-    className: `toggle ${pkgExists ? 'active' : ''}`,
-    id: 'lesson-package-toggle',
-    onClick: () => pkgToggle.classList.toggle('active')
+  const titleInput = el('input', {
+    className: 'form-input',
+    type: 'text',
+    placeholder: t('enterClientName'),
+    value: lesson && !isGroupEdit ? lesson.title : '',
+    id: 'lesson-title-input',
+    list: 'lesson-client-list'
   });
-  pkgRow.appendChild(pkgToggle);
-  modal.appendChild(pkgRow);
+
+  const horseSelect = el('select', { className: 'form-input', id: 'lesson-horse-select' });
+  horseSelect.appendChild(el('option', { value: '' }, t('selectHorse')));
+  for (const h of data.horses) {
+    const opt = el('option', { value: h }, h);
+    if (lesson && lesson.horse === h) opt.selected = true;
+    horseSelect.appendChild(opt);
+  }
+
+  const packageModeDefault = lesson
+    ? (lesson.packageMode !== undefined
+      ? lesson.packageMode
+      : (isGroupEdit || (Array.isArray(lesson.participants) && lesson.participants.length > 0)
+        ? true
+        : !!(lesson.title && getPackageByName(lesson.title))))
+    : false;
+  const packageModeToggle = el('div', {
+    className: `toggle ${packageModeDefault ? 'active' : ''}`,
+    id: 'lesson-package-toggle',
+    onClick: () => packageModeToggle.classList.toggle('active')
+  });
+
+  const groupNameInput = el('input', {
+    className: 'form-input',
+    type: 'text',
+    placeholder: t('groupName'),
+    value: (() => {
+      if (isGroupEdit) return getLessonDisplayName(lesson);
+      if (lesson && !isGroupEdit) return lesson.title || '';
+      return '';
+    })(),
+    list: 'lesson-client-list'
+  });
+
+  const groupColorEnabled = {
+    value: !!isGroupEdit
+  };
+  const groupColorInput = el('input', {
+    className: 'form-input',
+    type: 'color',
+    value: (() => {
+      if (isGroupEdit) {
+        const group = lesson?.groupId ? getGroup(lesson.groupId) : null;
+        return group?.color || '#6366f1';
+      }
+      return '#6366f1';
+    })(),
+    style: {
+      width: '72px',
+      height: '44px',
+      padding: '4px',
+    }
+  });
+  groupColorInput.disabled = !groupColorEnabled.value;
+
+  const groupColorToggle = el('div', {
+    className: `toggle ${groupColorEnabled.value ? 'active' : ''}`,
+    onClick: () => {
+      groupColorEnabled.value = !groupColorEnabled.value;
+      groupColorToggle.classList.toggle('active', groupColorEnabled.value);
+      groupColorInput.disabled = !groupColorEnabled.value;
+      groupColorModeLabel.textContent = groupColorEnabled.value ? t('customColor') : t('autoColor');
+    }
+  });
+  const groupColorModeLabel = el('span', {}, groupColorEnabled.value ? t('customColor') : t('autoColor'));
+
+  const participantList = el('div', { className: 'group-participants' });
+  const participantRows = [];
+  const horseWidthCanvas = document.createElement('canvas');
+  const horseWidthContext = horseWidthCanvas.getContext('2d');
+  const measureHorseSelectWidth = () => {
+    const selectedHorseNames = participantRows
+      .map(({ horseSelect }) => (horseSelect?.value || '').trim())
+      .filter(Boolean);
+    const longestSelected = selectedHorseNames.reduce((max, name) => Math.max(max, name.length), 0);
+    let widthPx = 160;
+    if (horseWidthContext && longestSelected > 0) {
+      const sampleSelect = participantRows.find(({ horseSelect }) => horseSelect)?.horseSelect;
+      const computedStyle = sampleSelect ? window.getComputedStyle(sampleSelect) : null;
+      const font = computedStyle?.font || `${computedStyle?.fontWeight || '400'} ${computedStyle?.fontSize || '14px'} ${computedStyle?.fontFamily || 'sans-serif'}`;
+      horseWidthContext.font = font;
+      widthPx = Math.ceil(horseWidthContext.measureText(longestSelected).width + 56);
+    }
+    participantList.style.setProperty('--participant-horse-width', `${Math.max(widthPx, 140)}px`);
+  };
+
+  const addParticipantRow = (participant = {}) => {
+    const row = el('div', { className: 'participant-row' });
+    const topRow = el('div', { className: 'participant-row-main' });
+    const nameInput = el('input', {
+      className: 'form-input',
+      type: 'text',
+      placeholder: t('enterClientName'),
+      value: participant.name || '',
+      list: 'lesson-client-list'
+    });
+    const rowHorseSelect = el('select', {
+      className: 'form-input participant-horse-select',
+      style: {
+        width: 'var(--participant-horse-width, 160px)',
+        minWidth: 'var(--participant-horse-width, 160px)',
+        flex: '0 0 var(--participant-horse-width, 160px)'
+      }
+    });
+    rowHorseSelect.appendChild(el('option', { value: '' }, t('noHorse')));
+    for (const h of data.horses) {
+      const opt = el('option', { value: h }, h);
+      if (participant.horse === h) opt.selected = true;
+      rowHorseSelect.appendChild(opt);
+    }
+    rowHorseSelect.addEventListener('change', measureHorseSelectWidth);
+
+    const removeBtn = el('button', {
+      className: 'btn btn-secondary btn-sm participant-remove-btn',
+      type: 'button',
+      onClick: () => {
+        if (participantRows.length <= 1) return;
+        const index = participantRows.findIndex(entry => entry.row === row);
+        if (index >= 0) participantRows.splice(index, 1);
+        row.remove();
+        measureHorseSelectWidth();
+      }
+    }, icon('close'));
+
+    topRow.appendChild(nameInput);
+    topRow.appendChild(rowHorseSelect);
+    topRow.appendChild(removeBtn);
+
+    const packageMode = { value: participant.packageMode !== false };
+    const packageToggle = el('div', {
+      className: `toggle ${packageMode.value ? 'active' : ''}`,
+      title: t('packageLessonMode'),
+      onClick: () => {
+        packageMode.value = !packageMode.value;
+        packageToggle.classList.toggle('active', packageMode.value);
+      }
+    });
+    const packageControl = el('div', { className: 'participant-package-control' },
+      el('span', { className: 'participant-package-label' }, t('packageShort')),
+      packageToggle
+    );
+
+    row.appendChild(topRow);
+    row.appendChild(packageControl);
+    participantRows.push({ row, nameInput, horseSelect: rowHorseSelect, packageMode });
+    participantList.appendChild(row);
+    measureHorseSelectWidth();
+  };
+
+  const initialGroupParticipants = isGroupEdit && Array.isArray(lesson?.participants) && lesson.participants.length > 0
+    ? lesson.participants
+    : (lesson && !isGroupEdit ? [{ name: lesson.title || '', horse: lesson.horse || '' }] : [{ name: '', horse: '' }]);
+  for (const participant of initialGroupParticipants) {
+    addParticipantRow(participant);
+  }
+  measureHorseSelectWidth();
+
+  const addParticipantButton = el('button', {
+    className: 'btn btn-secondary btn-sm',
+    type: 'button',
+    onClick: () => addParticipantRow()
+  }, icon('add'), t('addParticipant'));
+
+  const renderForm = () => {
+    formHost.innerHTML = '';
+
+    individualSection.innerHTML = '';
+    groupSection.innerHTML = '';
+    commonSection.innerHTML = '';
+
+    const modeLabelRow = el('div', { className: 'form-group' },
+      el('label', {}, t('lessonType')),
+      el('div', { className: 'lesson-type-label' }, currentType === 'group' ? t('groupLesson') : t('individualLesson'))
+    );
+    commonSection.appendChild(modeLabelRow);
+
+    const scheduleRow = el('div', { className: 'form-row' });
+    const startGroup = el('div', { className: 'form-group' }, el('label', {}, t('startTime')), startSelect);
+    const durGroup = el('div', { className: 'form-group' }, el('label', {}, t('duration')), durSelect);
+    scheduleRow.appendChild(startGroup);
+    scheduleRow.appendChild(durGroup);
+    commonSection.appendChild(scheduleRow);
+
+    const instrGroup = el('div', { className: 'form-group' }, el('label', {}, t('instructor')), instrSelect);
+    commonSection.appendChild(instrGroup);
+
+    const recurRow = el('div', { className: 'toggle-row' });
+    recurRow.appendChild(el('span', {}, t('repeatWeekly')));
+    recurRow.appendChild(recurToggle);
+    commonSection.appendChild(recurRow);
+
+    individualSection.appendChild(el('div', { className: 'form-group' }, el('label', {}, t('clientName')), titleInput));
+    individualSection.appendChild(el('div', { className: 'form-group' }, el('label', {}, t('horse')), horseSelect));
+    const packageRow = el('div', { className: 'toggle-row' });
+    packageRow.appendChild(el('span', {}, t('packageLessonMode')));
+    packageRow.appendChild(packageModeToggle);
+    individualSection.appendChild(packageRow);
+
+    const groupNameBlock = el('div', { className: 'form-group' });
+    groupNameBlock.appendChild(el('label', {}, t('groupNameLabel')));
+    groupNameBlock.appendChild(groupNameInput);
+    groupSection.appendChild(groupNameBlock);
+
+    const groupColorBlock = el('div', { className: 'form-group' });
+    groupColorBlock.appendChild(el('label', {}, t('groupColor')));
+    const groupColorRow = el('div', { className: 'group-color-row' });
+    const groupColorToggleRow = el('div', { className: 'toggle-row group-color-toggle-row' },
+      groupColorModeLabel,
+      groupColorToggle
+    );
+    groupColorRow.appendChild(groupColorToggleRow);
+    groupColorRow.appendChild(groupColorInput);
+    groupColorBlock.appendChild(groupColorRow);
+    groupSection.appendChild(groupColorBlock);
+
+    const participantBlock = el('div', { className: 'form-group' });
+    participantBlock.appendChild(el('label', {}, t('groupClients')));
+    participantBlock.appendChild(participantList);
+    participantBlock.appendChild(addParticipantButton);
+    groupSection.appendChild(participantBlock);
+
+    formHost.appendChild(commonSection);
+    formHost.appendChild(individualSection);
+    formHost.appendChild(groupSection);
+
+    individualSection.classList.toggle('is-hidden', currentType !== 'individual');
+    groupSection.classList.toggle('is-hidden', currentType !== 'group');
+    individualModeBtn.classList.toggle('active', currentType === 'individual');
+    groupModeBtn.classList.toggle('active', currentType === 'group');
+  };
+
+  const setMode = (mode) => {
+    currentType = mode;
+    renderForm();
+  };
+
+  individualModeBtn.addEventListener('click', () => setMode('individual'));
+  groupModeBtn.addEventListener('click', () => setMode('group'));
+
+  renderForm();
 
   // Buttons
   const btnGroup = el('div', { className: 'btn-group' });
+  const baseLesson = isEdit ? (data.lessons.find(l => l.id === lesson.id) || lesson) : null;
+  const isRecurringInstance = !!(isEdit && lesson._recurringInstance && lesson.recurring);
+
+  const getLessonPayload = () => {
+    const startMinute = parseInt(startSelect.value);
+    const durationMinutes = parseInt(durSelect.value);
+    const instructor = instrSelect.value || null;
+    const recurring = recurToggle.classList.contains('active');
+    const packageMode = packageModeToggle.classList.contains('active');
+
+    if (currentType === 'individual') {
+      const title = titleInput.value.trim();
+      if (!title) {
+        titleInput.focus();
+        return null;
+      }
+
+      return {
+        lessonData: {
+          lessonType: 'individual',
+          title,
+          date: dateStr,
+          startMinute,
+          durationMinutes,
+          horse: horseSelect.value || null,
+          instructor,
+          packageMode,
+          groupId: null,
+          groupName: null,
+          groupColor: null,
+          participants: [],
+          recurring,
+        },
+        title,
+      };
+    }
+
+    const groupName = groupNameInput.value.trim() || getDefaultGroupName();
+    if (!groupNameInput.value.trim()) {
+      groupNameInput.value = groupName;
+    }
+
+    const participants = participantRows.map(({ nameInput, horseSelect, packageMode }) => ({
+      name: nameInput.value.trim(),
+      horse: horseSelect.value || null,
+      packageMode: packageMode.value,
+    })).filter(participant => participant.name);
+
+    if (participants.length === 0) {
+      participantRows[0]?.nameInput.focus();
+      return null;
+    }
+
+    return {
+      lessonData: {
+        lessonType: 'group',
+        title: groupName,
+        groupName,
+        groupId: null,
+        groupColor: null,
+        date: dateStr,
+        startMinute,
+        durationMinutes,
+        instructor,
+        packageMode: true,
+        participants,
+        recurring,
+        horse: null,
+      },
+      groupName,
+      participants,
+    };
+  };
+
+  const saveLesson = (scope = 'series') => {
+    const payload = getLessonPayload();
+    if (!payload) return null;
+
+    const lessonData = payload.lessonData;
+    let mutated = false;
+
+    if (currentType === 'individual') {
+      if (scope === 'instance' && isRecurringInstance) {
+        updateLessonInstance(baseLesson.id, lesson._instanceDate, lessonData, { save: false });
+      } else if (isEdit) {
+        updateLesson(lesson.id, lessonData, { save: false });
+      } else {
+        addLesson(lessonData, { save: false });
+      }
+      mutated = true;
+
+      if (lessonData.title) {
+        ensurePackageEntry(lessonData.title, {
+          save: false,
+          hasPackageLessons: lessonData.packageMode
+        });
+        mutated = true;
+      }
+      if (mutated) saveData();
+      return isEdit ? 'updated' : 'created';
+    }
+
+    const manualColor = groupColorEnabled.value ? groupColorInput.value : null;
+    const currentSeriesGroup = baseLesson?.groupId ? getGroup(baseLesson.groupId) : null;
+
+    if (scope === 'instance' && isRecurringInstance) {
+      const instanceGroup = currentSeriesGroup || (baseLesson?.groupId ? getGroup(baseLesson.groupId) : null);
+      const instanceGroupId = instanceGroup?.id || baseLesson?.groupId || null;
+      const instanceGroupName = instanceGroup?.name || lessonData.groupName;
+      const instanceGroupColor = instanceGroup?.color || baseLesson?.groupColor || null;
+      const instanceLessonData = {
+        ...lessonData,
+        title: instanceGroupName,
+        groupName: instanceGroupName,
+        groupId: instanceGroupId,
+        groupColor: instanceGroupColor,
+      };
+      updateLessonInstance(baseLesson.id, lesson._instanceDate, instanceLessonData, { save: false });
+      for (const participant of payload.participants || []) {
+        ensurePackageEntry(participant.name, {
+          save: false,
+          hasPackageLessons: participant.packageMode !== false
+        });
+      }
+      saveData();
+      return 'updated';
+    }
+
+    let group = null;
+    if (isEdit && lesson.groupId) {
+      group = getGroup(lesson.groupId);
+    }
+    if (!group) {
+      group = data.groups.find(g => g.name.toLowerCase() === payload.groupName.toLowerCase()) || null;
+    }
+
+    if (group) {
+      updateGroup(group.id, {
+        name: payload.groupName,
+        ...(manualColor ? { color: manualColor } : {})
+      }, { save: false });
+      group = getGroup(group.id);
+    } else {
+      group = createGroup(payload.groupName, manualColor, { save: false });
+    }
+    mutated = true;
+
+    const seriesLessonData = {
+      ...lessonData,
+      title: group.name,
+      groupName: payload.groupName,
+      groupId: group.id,
+      groupColor: group.color,
+    };
+
+    if (isEdit) {
+      updateLesson(lesson.id, seriesLessonData, { save: false });
+    } else {
+      addLesson(seriesLessonData, { save: false });
+    }
+    mutated = true;
+
+    for (const participant of payload.participants || []) {
+      ensurePackageEntry(participant.name, {
+        save: false,
+        hasPackageLessons: participant.packageMode !== false
+      });
+      mutated = true;
+    }
+
+    if (mutated) saveData();
+
+    return isEdit ? 'updated' : 'created';
+  };
 
   if (isEdit) {
     btnGroup.appendChild(el('button', {
@@ -981,7 +1445,7 @@ function openLessonModal(dateStr, lesson = null) {
       className: 'btn btn-secondary btn-sm',
       onClick: () => {
         toggleCancelLessonInstance(lesson.id, dateStr);
-        processPastLessonsForCredits(); // Process credits immediately
+        processPastLessonsForCredits();
         overlay.remove();
         showToast(isCancelled ? t('lessonRestored') : t('lessonCancelled'), isCancelled ? 'restore' : 'cancel');
         render();
@@ -989,56 +1453,137 @@ function openLessonModal(dateStr, lesson = null) {
     }, icon(isCancelled ? 'restore' : 'cancel'), isCancelled ? t('restore') : t('cancel')));
   }
 
+  if (isRecurringInstance) {
+    btnGroup.appendChild(el('button', {
+      className: 'btn btn-secondary btn-sm',
+      onClick: () => {
+        const result = saveLesson('series');
+        if (!result) return;
+        showToast(result === 'created' ? t('lessonCreated') : t('lessonUpdated'), 'check_circle');
+        overlay.remove();
+        render();
+      }
+    }, icon('layers'), t('saveSeries')));
+  }
+
   btnGroup.appendChild(el('button', {
     className: 'btn btn-primary btn-sm',
     style: { marginLeft: 'auto' },
     onClick: () => {
-      const title = titleInput.value.trim();
-      if (!title) { titleInput.focus(); return; }
-
-      const lessonData = {
-        title,
-        date: dateStr,
-        startMinute: parseInt(startSelect.value),
-        durationMinutes: parseInt(durSelect.value),
-        horse: horseSelect.value || null,
-        instructor: instrSelect.value || null,
-        groupId: groupSelect.value ? parseInt(groupSelect.value) : null,
-        recurring: recurToggle.classList.contains('active'),
-      };
-
-      if (isEdit) {
-        updateLesson(lesson.id, lessonData);
-        showToast(t('lessonUpdated'), 'check_circle');
-      } else {
-        addLesson(lessonData);
-        showToast(t('lessonCreated'), 'check_circle');
-      }
-
-      // Add to packages if toggled
-      if (pkgToggle.classList.contains('active')) {
-        ensurePackageEntry(title);
-      }
-
+      const result = saveLesson(isRecurringInstance ? 'instance' : 'series');
+      if (!result) return;
+      showToast(result === 'created' ? t('lessonCreated') : t('lessonUpdated'), 'check_circle');
       overlay.remove();
       render();
     }
-  }, icon('check'), isEdit ? t('update') : t('create')));
+  }, icon('check'), isRecurringInstance ? t('saveOccurrence') : (isEdit ? t('update') : t('create'))));
 
   modal.appendChild(btnGroup);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
-  // Focus title
-  setTimeout(() => titleInput.focus(), 300);
+  setTimeout(() => modal.focus(), 300);
 }
 
 // ── Packages View ──────────────────────────────────────────────────────
+function buildPackageCard(pkg) {
+  const card = el('div', {
+    className: 'package-card',
+    style: { cursor: 'pointer' },
+    'data-name': pkg.name.toLowerCase(),
+    onClick: () => openCreditHistoryModal(pkg)
+  });
+
+  const info = el('div', { className: 'package-info' });
+  info.appendChild(el('div', { className: 'package-name' }, pkg.name));
+  if (!pkg.hasPackageLessons) {
+    info.appendChild(el('div', { className: 'package-status' }, t('noPackageLessons')));
+  }
+  card.appendChild(info);
+
+  const credits = el('div', { className: 'package-credits', style: { display: 'flex', gap: '8px', alignItems: 'center' } });
+  const creditClass = pkg.credits > 0 ? 'positive' : pkg.credits < 0 ? 'negative' : 'zero';
+  const badge = el('div', {
+    className: `credit-badge ${creditClass}`,
+    onClick: (e) => e.stopPropagation()
+  }, String(pkg.credits));
+  credits.appendChild(badge);
+
+  if (isAdmin()) {
+    credits.appendChild(el('button', {
+      className: 'btn btn-primary btn-sm',
+      onClick: (e) => {
+        e.stopPropagation();
+        openAddCreditsModal(pkg);
+      }
+    }, icon('add'), t('addCredits')));
+  }
+
+  card.appendChild(credits);
+
+  if (isAdmin()) {
+    const actions = el('div', { className: 'package-actions' });
+    actions.appendChild(el('button', {
+      className: 'package-action-btn',
+      title: t('deleteClient'),
+      onClick: (e) => {
+        e.stopPropagation();
+        const overlay = el('div', { className: 'modal-overlay' });
+        const dialog = el('div', { className: 'modal', style: { maxWidth: '300px', margin: 'auto' } });
+        dialog.appendChild(el('h3', { style: { marginTop: '10px' } }, t('deletePackageTitle')));
+        dialog.appendChild(el('p', { style: { marginBottom: '20px', color: 'var(--text-secondary)' } }, t('deletePackageConfirm', { name: pkg.name })));
+
+        const btnRow = el('div', { className: 'btn-group' });
+        btnRow.appendChild(el('button', {
+          className: 'btn btn-secondary',
+          onClick: () => overlay.remove()
+        }, t('cancel')));
+        btnRow.appendChild(el('button', {
+          className: 'btn btn-danger',
+          style: { marginLeft: 'auto' },
+          onClick: () => {
+            deletePackage(pkg.id);
+            overlay.remove();
+            showToast(t('packageDeleted'), 'delete');
+            render();
+          }
+        }, icon('delete'), t('deleteKey')));
+
+        dialog.appendChild(btnRow);
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+      }
+    }, icon('delete')));
+    card.appendChild(actions);
+  }
+
+  return card;
+}
+
+function buildPackageSection(title, packages, emptyText) {
+  const section = el('div', { className: 'package-section' });
+  section.appendChild(el('div', { className: 'package-section-header' },
+    el('h3', {}, title),
+    el('span', { className: 'package-section-count' }, String(packages.length))
+  ));
+
+  const list = el('div', { className: 'package-list' });
+  if (packages.length === 0) {
+    list.appendChild(el('div', { className: 'package-section-empty' }, emptyText));
+  } else {
+    for (const pkg of packages) {
+      list.appendChild(buildPackageCard(pkg));
+    }
+  }
+
+  section.appendChild(list);
+  return section;
+}
+
 function buildPackagesView() {
   const container = el('div');
   const data = getData();
 
-  // Search
   const searchBar = el('div', { className: 'search-bar' });
   searchBar.appendChild(icon('search'));
   const searchInput = el('input', {
@@ -1077,7 +1622,7 @@ function buildPackagesView() {
           showToast(t('clientAlreadyExists'), 'warning');
           return;
         }
-        d.packages.push({ id: d.nextId++, name, credits: 0, active: true });
+        ensurePackageEntry(name, { save: false, hasPackageLessons: false });
         saveData();
         render();
       }
@@ -1085,95 +1630,13 @@ function buildPackagesView() {
     container.appendChild(addRow);
   }
 
-  if (data.packages.length === 0) {
-    container.appendChild(el('div', { className: 'empty-state' },
-      icon('inventory_2'),
-      el('p', {}, t('noClientsYet'))
-    ));
-    return container;
-  }
+  const sorted = [...(data.packages || [])].sort((a, b) => a.name.localeCompare(b.name));
+  const packageClients = sorted.filter(pkg => pkg.hasPackageLessons);
+  const noPackageClients = sorted.filter(pkg => !pkg.hasPackageLessons);
 
-  const sorted = [...data.packages].sort((a, b) => {
-    return a.name.localeCompare(b.name);
-  });
+  container.appendChild(buildPackageSection(t('packageClients'), packageClients, t('noPackageClientsYet')));
+  container.appendChild(buildPackageSection(t('noPackageLessons'), noPackageClients, t('noPackageLessonsYet')));
 
-  const list = el('div', { className: 'package-list' });
-
-  for (const pkg of sorted) {
-    const card = el('div', {
-      className: 'package-card',
-      style: { cursor: 'pointer' },
-      'data-name': pkg.name.toLowerCase(),
-      onClick: () => openCreditHistoryModal(pkg)
-    });
-
-    // Info
-    const info = el('div', { className: 'package-info' });
-    info.appendChild(el('div', { className: 'package-name' }, pkg.name));
-    card.appendChild(info);
-
-    // Credits control
-    const credits = el('div', { className: 'package-credits', style: { display: 'flex', gap: '8px', alignItems: 'center' } });
-
-    const creditClass = pkg.credits > 0 ? 'positive' : pkg.credits < 0 ? 'negative' : 'zero';
-    const badge = el('div', {
-      className: `credit-badge ${creditClass}`,
-      onClick: (e) => e.stopPropagation()
-    }, String(pkg.credits));
-    credits.appendChild(badge);
-
-    if (isAdmin()) {
-      credits.appendChild(el('button', {
-        className: 'btn btn-primary btn-sm',
-        onClick: (e) => {
-          e.stopPropagation();
-          openAddCreditsModal(pkg);
-        }
-      }, icon('add'), t('addCredits')));
-    }
-
-    card.appendChild(credits);
-
-    if (isAdmin()) {
-      const actions = el('div', { className: 'package-actions' });
-      actions.appendChild(el('button', {
-        className: 'package-action-btn',
-        title: t('deleteClient'),
-        onClick: (e) => {
-          e.stopPropagation();
-          // Custom confirm modal
-          const overlay = el('div', { className: 'modal-overlay' });
-          const dialog = el('div', { className: 'modal', style: { maxWidth: '300px', margin: 'auto' } });
-          dialog.appendChild(el('h3', { style: { marginTop: '10px' } }, t('deletePackageTitle')));
-          dialog.appendChild(el('p', { style: { marginBottom: '20px', color: 'var(--text-secondary)' } }, t('deletePackageConfirm', { name: pkg.name })));
-          
-          const btnRow = el('div', { className: 'btn-group' });
-          btnRow.appendChild(el('button', {
-            className: 'btn btn-secondary',
-            onClick: () => overlay.remove()
-          }, t('cancel')));
-          btnRow.appendChild(el('button', {
-            className: 'btn btn-danger',
-            style: { marginLeft: 'auto' },
-            onClick: () => {
-              deletePackage(pkg.id);
-              overlay.remove();
-              showToast(t('packageDeleted'), 'delete');
-              render();
-            }
-          }, icon('delete'), t('deleteKey')));
-          
-          dialog.appendChild(btnRow);
-          overlay.appendChild(dialog);
-          document.body.appendChild(overlay);
-        }
-      }, icon('delete')));
-      card.appendChild(actions);
-    }
-    list.appendChild(card);
-  }
-
-  container.appendChild(list);
   return container;
 }
 
@@ -1268,9 +1731,7 @@ function openCreditHistoryModal(pkg) {
           timeStr = ` ${minutesToTime(record.lessonStartMinute)}`;
         }
         desc = ` (${t('lessonOn')} ${formatDateNice(record.lessonDate)}${timeStr})`;
-      }
-      
-      leftObj.appendChild(el('div', { style: textStyle }, `${t('before')}: ${record.before}  →  ${t('after')}: ${record.after}${desc}`));
+      }      leftObj.appendChild(el('div', { style: textStyle }, `${t('before')}: ${record.before} → ${t('after')}: ${record.after}${desc}`));
       
       const rightObj = el('div', { 
         style: { 
@@ -1303,14 +1764,27 @@ function openCreditHistoryModal(pkg) {
 
 
 function formatCurrency(amount) {
-  if (Number.isNaN(amount)) return '0';
+  if (Number.isNaN(amount)) return '0 z\u0142';
   const fixed = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
-  return `${fixed} z?`;
+  return `${fixed} z\u0142`;
+}
+
+function formatDuration(minutes) {
+  if (!Number.isFinite(minutes) || minutes <= 0) return `0 ${t('m')}`;
+  const wholeHours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const parts = [];
+
+  if (wholeHours > 0) parts.push(`${wholeHours}${t('h')}`);
+  if (remainingMinutes > 0) parts.push(`${remainingMinutes}${t('m')}`);
+
+  return parts.length > 0 ? parts.join(' ') : `0 ${t('m')}`;
 }
 
 function computeInstructorPaymentReport({ instructor, from, to }) {
   const dates = getDatesInRange(from, to);
   let individualCount = 0;
+  let individualDurationMinutes = 0;
   const groupSessions = new Map();
 
   for (const dateStr of dates) {
@@ -1320,13 +1794,19 @@ function computeInstructorPaymentReport({ instructor, from, to }) {
       const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
       if (isCancelled) continue;
 
-      if (lesson.groupId) {
+      if (isGroupLessonRecord(lesson)) {
+        const key = `${lesson.groupId || lesson.title || 'group'}|${dateStr}|${lesson.startMinute}|${lesson.durationMinutes}|${lesson.instructor}`;
+        const entry = groupSessions.get(key) || { participants: 0 };
+        entry.participants += getLessonParticipants(lesson).length;
+        groupSessions.set(key, entry);
+      } else if (lesson.groupId) {
         const key = `${lesson.groupId}|${dateStr}|${lesson.startMinute}|${lesson.durationMinutes}|${lesson.instructor}`;
         const entry = groupSessions.get(key) || { participants: 0 };
         entry.participants += 1;
         groupSessions.set(key, entry);
       } else {
         individualCount += 1;
+        individualDurationMinutes += lesson.durationMinutes || 0;
       }
     }
   }
@@ -1337,7 +1817,7 @@ function computeInstructorPaymentReport({ instructor, from, to }) {
     groupParticipants += entry.participants;
   }
 
-  return { individualCount, groupLessonsCount, groupParticipants };
+  return { individualCount, individualDurationMinutes, groupLessonsCount, groupParticipants };
 }
 
 function openInstructorPaymentModal() {
@@ -1369,7 +1849,7 @@ function openInstructorPaymentModal() {
 
   const toGroup = el('div', { className: 'form-group' });
   toGroup.appendChild(el('label', {}, t('dateTo')));
-  const toInput = el('input', { className: 'form-input', type: 'date' });
+  const toInput = el('input', { className: 'form-input', type: 'date', value: formatDate(new Date()) });
   toGroup.appendChild(toInput);
   rangeRow.appendChild(toGroup);
   modal.appendChild(rangeRow);
@@ -1407,7 +1887,7 @@ function openInstructorPaymentModal() {
     }
 
     const report = computeInstructorPaymentReport({ instructor, from, to });
-    const individualPay = report.individualCount * (isNaN(individualRate) ? 0 : individualRate);
+    const individualPay = (report.individualDurationMinutes / 60) * (isNaN(individualRate) ? 0 : individualRate);
     const groupPay = report.groupParticipants * (isNaN(groupRate) ? 0 : groupRate);
     const totalPay = individualPay + groupPay;
 
@@ -1417,6 +1897,9 @@ function openInstructorPaymentModal() {
     const grid = el('div', { className: 'report-summary-grid' });
     grid.appendChild(el('div', { className: 'report-summary-label' }, t('individualLessons')));
     grid.appendChild(el('div', { className: 'report-summary-value' }, String(report.individualCount)));
+
+    grid.appendChild(el('div', { className: 'report-summary-label' }, t('individualDuration')));
+    grid.appendChild(el('div', { className: 'report-summary-value' }, formatDuration(report.individualDurationMinutes)));
 
     grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupLessons')));
     grid.appendChild(el('div', { className: 'report-summary-value' }, String(report.groupLessonsCount)));
@@ -1454,6 +1937,58 @@ function openInstructorPaymentModal() {
   document.body.appendChild(overlay);
 }
 
+function buildDayScheduleSettings() {
+  const { startHour, endHour } = getDayScheduleHours();
+  const row = el('div', { className: 'settings-hours-row' });
+
+  const startWrap = el('label', { className: 'settings-field' });
+  startWrap.appendChild(el('span', { className: 'settings-field-label' }, t('dayCalendarStart')));
+  const startSelect = el('select', { className: 'form-input', id: 'setting-day-start-select' });
+  for (let hour = 0; hour <= 23; hour++) {
+    const opt = el('option', { value: String(hour) }, formatHourOption(hour));
+    if (hour === startHour) opt.selected = true;
+    startSelect.appendChild(opt);
+  }
+  startWrap.appendChild(startSelect);
+
+  const endWrap = el('label', { className: 'settings-field' });
+  endWrap.appendChild(el('span', { className: 'settings-field-label' }, t('dayCalendarEnd')));
+  const endSelect = el('select', { className: 'form-input', id: 'setting-day-end-select' });
+  for (let hour = 1; hour <= 24; hour++) {
+    const opt = el('option', { value: String(hour) }, formatHourOption(hour % 24));
+    if (hour === endHour) opt.selected = true;
+    endSelect.appendChild(opt);
+  }
+  endWrap.appendChild(endSelect);
+
+  const persistHours = () => {
+    let nextStart = Number.parseInt(startSelect.value, 10);
+    let nextEnd = Number.parseInt(endSelect.value, 10);
+
+    if (nextEnd <= nextStart) {
+      if (document.activeElement === startSelect) {
+        nextEnd = Math.min(24, nextStart + 1);
+        endSelect.value = String(nextEnd);
+      } else {
+        nextStart = Math.max(0, nextEnd - 1);
+        startSelect.value = String(nextStart);
+      }
+    }
+
+    const newSettings = getSettings();
+    newSettings.dayScheduleStartHour = nextStart;
+    newSettings.dayScheduleEndHour = nextEnd;
+    saveSettings(newSettings);
+  };
+
+  startSelect.addEventListener('change', persistHours);
+  endSelect.addEventListener('change', persistHours);
+
+  row.appendChild(startWrap);
+  row.appendChild(endWrap);
+  return row;
+}
+
 // Settings View
 function buildSettingsView() {
   const container = el('div');
@@ -1474,9 +2009,6 @@ function buildSettingsView() {
       }
     }, t('logout')));
   } else {
-    authSection.appendChild(el('h4', {}, t('viewerRole')));
-    authSection.appendChild(el('p', { style: { marginBottom: '16px', color: 'var(--text-secondary)' } }, t('viewerDesc')));
-    
     authSection.appendChild(el('button', {
       className: 'btn btn-primary',
       style: { width: '100%' },
@@ -1500,58 +2032,59 @@ function buildSettingsView() {
   }
   container.appendChild(authSection);
 
-  // ── Display section
-  const displaySection = el('div', { className: 'settings-section' });
-  displaySection.appendChild(el('h4', {}, t('language')));
-
-  // Language Switcher
-  const langRow = el('div', { className: 'add-item-row', style: { marginBottom: '16px' } });
-  const langSelect = el('select', { className: 'form-input', id: 'setting-lang-select' });
-  const langs = [{ code: 'en', name: 'English' }, { code: 'pl', name: 'Polski' }];
-  for (const l of langs) {
-    const opt = el('option', { value: l.code }, l.name);
-    if (getLang() === l.code) opt.selected = true;
-    langSelect.appendChild(opt);
-  }
-  langSelect.onchange = (e) => setLang(e.target.value);
-  langRow.appendChild(langSelect);
-  displaySection.appendChild(langRow);
-
-  displaySection.appendChild(el('h4', {}, t('display')));
-
-  const timeLineRow = el('div', { className: 'toggle-row' });
-  timeLineRow.appendChild(el('span', {}, t('showTimeLine')));
-  const timeLineToggle = el('div', {
-    className: `toggle ${settings.showTimeLine !== false ? 'active' : ''}`,
-    id: 'setting-timeline-toggle',
-    onClick: () => {
-      timeLineToggle.classList.toggle('active');
-      const newSettings = getSettings();
-      newSettings.showTimeLine = timeLineToggle.classList.contains('active');
-      saveSettings(newSettings);
-    }
-  });
-  timeLineRow.appendChild(timeLineToggle);
-  displaySection.appendChild(timeLineRow);
-  container.appendChild(displaySection);
-
-  // Horses
-  const horsesSection = el('div', { className: 'settings-section' });
-  horsesSection.appendChild(el('h4', {}, t('horses')));
-  const horsesList = el('div', { className: 'settings-list' });
-  for (const h of data.horses) {
-    const chip = el('div', { className: 'settings-chip' },
-      h,
-      isAdmin() ? el('button', { className: 'remove-chip', onClick: () => {
-        data.horses = data.horses.filter(x => x !== h);
-        saveData(); render();
-      }}, icon('close')) : ''
-    );
-    horsesList.appendChild(chip);
-  }
-  horsesSection.appendChild(horsesList);
-
   if (isAdmin()) {
+    // ── Display section
+    const displaySection = el('div', { className: 'settings-section' });
+    displaySection.appendChild(el('h4', {}, t('language')));
+
+    // Language Switcher
+    const langRow = el('div', { className: 'add-item-row', style: { marginBottom: '16px' } });
+    const langSelect = el('select', { className: 'form-input', id: 'setting-lang-select' });
+    const langs = [{ code: 'en', name: 'English' }, { code: 'pl', name: 'Polski' }];
+    for (const l of langs) {
+      const opt = el('option', { value: l.code }, l.name);
+      if (getLang() === l.code) opt.selected = true;
+      langSelect.appendChild(opt);
+    }
+    langSelect.onchange = (e) => setLang(e.target.value);
+    langRow.appendChild(langSelect);
+    displaySection.appendChild(langRow);
+
+    displaySection.appendChild(el('h4', {}, t('display')));
+
+    const timeLineRow = el('div', { className: 'toggle-row' });
+    timeLineRow.appendChild(el('span', {}, t('showTimeLine')));
+    const timeLineToggle = el('div', {
+      className: `toggle ${settings.showTimeLine !== false ? 'active' : ''}`,
+      id: 'setting-timeline-toggle',
+      onClick: () => {
+        timeLineToggle.classList.toggle('active');
+        const newSettings = getSettings();
+        newSettings.showTimeLine = timeLineToggle.classList.contains('active');
+        saveSettings(newSettings);
+      }
+    });
+    timeLineRow.appendChild(timeLineToggle);
+    displaySection.appendChild(timeLineRow);
+    displaySection.appendChild(buildDayScheduleSettings());
+    container.appendChild(displaySection);
+
+    // Horses
+    const horsesSection = el('div', { className: 'settings-section' });
+    horsesSection.appendChild(el('h4', {}, t('horses')));
+    const horsesList = el('div', { className: 'settings-list' });
+    for (const h of data.horses) {
+      const chip = el('div', { className: 'settings-chip' },
+        h,
+        isAdmin() ? el('button', { className: 'remove-chip', onClick: () => {
+          data.horses = data.horses.filter(x => x !== h);
+          saveData(); render();
+        }}, icon('close')) : ''
+      );
+      horsesList.appendChild(chip);
+    }
+    horsesSection.appendChild(horsesList);
+
     const addHorseRow = el('div', { className: 'add-item-row' });
     const horseInput = el('input', { className: 'form-input', type: 'text', placeholder: t('addHorse'), id: 'add-horse-input' });
     addHorseRow.appendChild(horseInput);
@@ -1566,26 +2099,24 @@ function buildSettingsView() {
       }
     }, icon('add')));
     horsesSection.appendChild(addHorseRow);
-  }
-  container.appendChild(horsesSection);
+    container.appendChild(horsesSection);
 
-  // Instructors
-  const instrSection = el('div', { className: 'settings-section' });
-  instrSection.appendChild(el('h4', {}, t('instructors')));
-  const instrList = el('div', { className: 'settings-list' });
-  for (const i of data.instructors) {
-    const chip = el('div', { className: 'settings-chip' },
-      i,
-      isAdmin() ? el('button', { className: 'remove-chip', onClick: () => {
-        data.instructors = data.instructors.filter(x => x !== i);
-        saveData(); render();
-      }}, icon('close')) : ''
-    );
-    instrList.appendChild(chip);
-  }
-  instrSection.appendChild(instrList);
+    // Instructors
+    const instrSection = el('div', { className: 'settings-section' });
+    instrSection.appendChild(el('h4', {}, t('instructors')));
+    const instrList = el('div', { className: 'settings-list' });
+    for (const i of data.instructors) {
+      const chip = el('div', { className: 'settings-chip' },
+        i,
+        isAdmin() ? el('button', { className: 'remove-chip', onClick: () => {
+          data.instructors = data.instructors.filter(x => x !== i);
+          saveData(); render();
+        }}, icon('close')) : ''
+      );
+      instrList.appendChild(chip);
+    }
+    instrSection.appendChild(instrList);
 
-  if (isAdmin()) {
     const addInstrRow = el('div', { className: 'add-item-row' });
     const instrInput = el('input', { className: 'form-input', type: 'text', placeholder: t('addInstructor'), id: 'add-instructor-input' });
     addInstrRow.appendChild(instrInput);
@@ -1600,20 +2131,17 @@ function buildSettingsView() {
       }
     }, icon('add')));
     instrSection.appendChild(addInstrRow);
-  }
-  container.appendChild(instrSection);
+    container.appendChild(instrSection);
 
-  const reportSection = el('div', { className: 'settings-section' });
-  reportSection.appendChild(el('h4', {}, t('reports')));
-  reportSection.appendChild(el('button', {
-    className: 'btn btn-primary btn-sm',
-    style: { width: '100%' },
-    onClick: () => openInstructorPaymentModal()
-  }, icon('payments'), t('generatePaymentReport')));
-  container.appendChild(reportSection);
+    const reportSection = el('div', { className: 'settings-section' });
+    reportSection.appendChild(el('h4', {}, t('reports')));
+    reportSection.appendChild(el('button', {
+      className: 'btn btn-primary btn-sm',
+      style: { width: '100%' },
+      onClick: () => openInstructorPaymentModal()
+    }, icon('payments'), t('generatePaymentReport')));
+    container.appendChild(reportSection);
 
-
-  if (isAdmin()) {
     // Data management
     const dataSection = el('div', { className: 'settings-section' });
     dataSection.appendChild(el('h4', {}, t('data')));
@@ -1662,7 +2190,28 @@ function buildSettingsView() {
       }
     }, icon('upload'), t('importBackup')));
     container.appendChild(dataSection);
+    return container;
   }
+
+  // ── Minimal non-admin settings
+  const displaySection = el('div', { className: 'settings-section' });
+  displaySection.appendChild(el('h4', {}, t('language')));
+
+  // Language Switcher
+  const langRow = el('div', { className: 'add-item-row', style: { marginBottom: '16px' } });
+  const langSelect = el('select', { className: 'form-input', id: 'setting-lang-select' });
+  const langs = [{ code: 'en', name: 'English' }, { code: 'pl', name: 'Polski' }];
+  for (const l of langs) {
+    const opt = el('option', { value: l.code }, l.name);
+    if (getLang() === l.code) opt.selected = true;
+    langSelect.appendChild(opt);
+  }
+  langSelect.onchange = (e) => setLang(e.target.value);
+  langRow.appendChild(langSelect);
+  displaySection.appendChild(langRow);
+  displaySection.appendChild(el('h4', {}, t('display')));
+  displaySection.appendChild(buildDayScheduleSettings());
+  container.appendChild(displaySection);
   return container;
 }
 
@@ -1673,10 +2222,10 @@ function buildBottomNav() {
 
   const tabs = [
     { id: 'calendar', icon: 'calendar_month', label: t('calendar') },
-    { id: 'packages', icon: 'inventory_2', label: t('packages') },
   ];
 
   if (admin) {
+    tabs.push({ id: 'packages', icon: 'inventory_2', label: t('packages') });
     tabs.push({ id: 'horses', icon: 'horse', label: t('horsesTab') });
   }
 
@@ -1754,27 +2303,32 @@ function buildHorsesView() {
     data.lessons.forEach(lesson => {
       // Basic validation for lesson data
       if (!lesson || !lesson.date || !lesson.title) return;
-      if (lesson.horse && workload.hasOwnProperty(lesson.horse)) {
+      const participantHorses = isGroupLessonRecord(lesson)
+        ? getLessonParticipants(lesson).map(participant => participant.horse).filter(Boolean)
+        : (lesson.horse ? [lesson.horse] : []);
+
+      if (participantHorses.length === 0) return;
+
       // 1. Check all specific dates in the range
       dateList.forEach(dateStr => {
-        // If it's the exact start date of the lesson
-        if (lesson.date === dateStr) {
-          const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
-          if (!isCancelled) workload[lesson.horse] += lesson.durationMinutes;
-          return;
-        }
-
-        // If it's a recurring lesson on the same day-of-week AND after the start date
-        if (lesson.recurring) {
+        const lessonDate = lesson.date === dateStr;
+        const recurringMatch = lesson.recurring && (() => {
           const date = parseDate(dateStr);
           const start = parseDate(lesson.date);
-          if (date > start && date.getDay() === start.getDay()) {
-            const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
-            if (!isCancelled) workload[lesson.horse] += lesson.durationMinutes;
+          return date > start && date.getDay() === start.getDay();
+        })();
+
+        if (!lessonDate && !recurringMatch) return;
+
+        const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
+        if (isCancelled) return;
+
+        for (const horse of participantHorses) {
+          if (workload.hasOwnProperty(horse)) {
+            workload[horse] += lesson.durationMinutes;
           }
         }
       });
-    }
   });
 
   const list = el('div', { className: 'horse-workload-list' });

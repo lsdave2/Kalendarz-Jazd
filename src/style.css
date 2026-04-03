@@ -329,14 +329,13 @@ input, select, textarea { font-family: inherit; }
 
 .day-schedule {
   position: relative;
-  min-height: 800px;
+  min-height: 1200px;
 }
 
 .hour-row {
   display: flex;
   align-items: flex-start;
-  border-top: 1px solid var(--border);
-  min-height: 80px;
+  min-height: 120px;
   position: relative;
 }
 .hour-label {
@@ -351,23 +350,31 @@ input, select, textarea { font-family: inherit; }
 .hour-content {
   flex: 1;
   position: relative;
-  min-height: 80px;
+  min-height: 120px;
 }
 
 /* Quarter line markers */
+.hour-line,
 .quarter-line {
   position: absolute;
   left: 48px;
   right: 0;
   height: 1px;
   background: var(--border);
+}
+
+.hour-line {
+  opacity: 1;
+}
+
+.quarter-line {
   opacity: 0.4;
 }
 
 /* Current time line */
 .time-indicator {
   position: absolute;
-  left: 40px;
+  left: 48px;
   right: 0;
   height: 1px;
   background: var(--red);
@@ -407,9 +414,6 @@ input, select, textarea { font-family: inherit; }
   user-select: none;
   -webkit-user-select: none;
 }
-.lesson-tile.has-past-badge {
-  padding-right: 24px;
-}
 .lesson-tile:active { cursor: grabbing; }
 .lesson-tile:hover {
   transform: scale(1.01);
@@ -420,6 +424,10 @@ input, select, textarea { font-family: inherit; }
 .lesson-tile .tile-meta {
   flex-direction: column;
   gap: 1px;
+}
+.lesson-tile.group-session .tile-meta {
+  gap: 3px;
+  align-items: flex-start;
 }
 .lesson-tile .tile-title {
   overflow: hidden;
@@ -450,19 +458,6 @@ input, select, textarea { font-family: inherit; }
   opacity: 0.6;
   filter: grayscale(0.5);
 }
-.tile-past-badge {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--green);
-  pointer-events: none;
-}
-.tile-past-icon {
-  font-size: 16px;
-}
 .lesson-tile.dragging {
   opacity: 0.7;
   box-shadow: var(--shadow-lg);
@@ -488,10 +483,18 @@ input, select, textarea { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+.tile-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tile-title .recurring-icon {
   font-size: 14px;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 .tile-meta {
   font-size: 0.65rem;
@@ -523,6 +526,25 @@ input, select, textarea { font-family: inherit; }
   align-items: center;
   gap: 2px;
 }
+.tile-instructor-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.58rem;
+  padding: 0;
+  margin: 0;
+  margin-left: auto;
+  white-space: nowrap;
+  line-height: 1;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  flex-shrink: 0;
+}
+.tile-instructor-badge .material-symbols-rounded {
+  font-size: 11px;
+}
 .tile-time {
   display: flex;
   align-items: center;
@@ -533,6 +555,35 @@ input, select, textarea { font-family: inherit; }
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+.tile-participants {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+.tile-participant {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+  line-height: 1.2;
+}
+.tile-participant-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.tile-participant-horse {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.tile-participant-package {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 700;
 }
 
 /* ── Add Lesson FAB ─────────────────────────────────────────────────── */
@@ -610,6 +661,37 @@ input, select, textarea { font-family: inherit; }
   letter-spacing: -0.01em;
 }
 
+.lesson-type-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.lesson-type-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-weight: 600;
+  transition: background var(--transition), color var(--transition), box-shadow var(--transition);
+}
+.lesson-type-btn.active {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 8px 24px var(--accent-glow);
+}
+.lesson-type-label {
+  display: inline-flex;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.is-hidden {
+  display: none !important;
+}
+
 /* ── Form Controls ──────────────────────────────────────────────────── */
 .form-group {
   margin-bottom: 16px;
@@ -652,6 +734,64 @@ select.form-input {
   gap: 12px;
 }
 .form-row .form-group { flex: 1; }
+
+.group-color-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.group-color-toggle-row {
+  flex: 1;
+  margin-bottom: 0;
+}
+.group-participants {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.participant-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+.participant-row-main {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.participant-row .form-input {
+  flex: 1;
+  min-width: 0;
+}
+.participant-horse-select {
+  flex: 0 0 var(--participant-horse-width, 160px) !important;
+}
+.participant-remove-btn {
+  flex-shrink: 0;
+  min-width: 40px;
+  padding-inline: 0;
+}
+.participant-package-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.participant-package-label {
+  font-size: 0.62rem;
+  line-height: 1;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 
 .toggle-row {
   display: flex;
@@ -761,6 +901,35 @@ select.form-input {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.package-section {
+  margin-top: 14px;
+}
+.package-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.package-section-header h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+.package-section-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.package-section-empty {
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  background: var(--bg-card);
 }
 .package-card {
   background: var(--bg-card);
@@ -1031,6 +1200,25 @@ select.form-input {
 }
 .add-item-row input {
   flex: 1;
+}
+
+.settings-hours-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-field-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 /* ── Credit Edit Input ──────────────────────────────────────────────── */
