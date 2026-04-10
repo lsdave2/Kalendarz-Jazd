@@ -220,6 +220,19 @@ function navMonth(direction) {
   render();
 }
 
+function navDay(direction) {
+  if (!selectedDate) return;
+  const d = parseDate(selectedDate);
+  d.setDate(d.getDate() + direction);
+  const newDate = formatDate(d);
+  
+  const d2 = parseDate(newDate);
+  viewMonth = d2.getMonth();
+  viewYear = d2.getFullYear();
+  selectedDate = newDate;
+  render();
+}
+
 // ── Day View ───────────────────────────────────────────────────────────
 function buildDayView(dateStr) {
   const container = el('div');
@@ -343,6 +356,43 @@ function buildDayView(dateStr) {
     }, icon('add'));
     container.appendChild(fab);
   }
+
+  // --- Swipe Navigation Logic ---
+  let touchStartX = null;
+  let touchStartY = null;
+
+  container.addEventListener('touchstart', (e) => {
+    // Only detect swipe if there's exactly one touch and we are not interacting with inner elements like tiles
+    if (e.touches.length === 1 && (!e.target.closest || !e.target.closest('.lesson-tile, .fab'))) {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }
+  }, { passive: true });
+
+  container.addEventListener('touchend', (e) => {
+    if (touchStartX === null || touchStartY === null) return;
+    
+    let touchEndX = e.changedTouches[0].clientX;
+    let touchEndY = e.changedTouches[0].clientY;
+
+    let deltaX = touchStartX - touchEndX;
+    let deltaY = Math.abs(touchStartY - touchEndY);
+
+    // Threshold for swipe: > 50px horizontally and < 50px vertically
+    if (Math.abs(deltaX) > 50 && deltaY < 50) {
+      if (deltaX > 0) {
+        // Swiped left - advance day forward
+        navDay(1);
+      } else {
+        // Swiped right - go back one day
+        navDay(-1);
+      }
+    }
+
+    touchStartX = null;
+    touchStartY = null;
+  });
+  // ------------------------------
 
   return container;
 }
@@ -866,7 +916,8 @@ function openLessonModal(dateStr, lesson = null) {
 
   const addParticipantRow = (participant = {}) => {
     const row = el('div', { className: 'participant-row' });
-    const topRow = el('div', { className: 'participant-row-main' });
+    
+    // Name input (Line 1)
     const nameInput = el('input', {
       className: 'form-input participant-name-input',
       type: 'text',
@@ -874,6 +925,11 @@ function openLessonModal(dateStr, lesson = null) {
       value: participant.name || '',
       list: 'lesson-client-list'
     });
+    const topRow = el('div', { className: 'participant-row-top' }, nameInput);
+
+    // Controls (Line 2)
+    const bottomRow = el('div', { className: 'participant-row-bottom' });
+
     const rowHorseSelect = el('select', {
       className: 'form-input participant-horse-select'
     });
@@ -895,10 +951,6 @@ function openLessonModal(dateStr, lesson = null) {
       }
     }, icon('close'));
 
-    topRow.appendChild(nameInput);
-    topRow.appendChild(rowHorseSelect);
-    topRow.appendChild(removeBtn);
-
     const packageMode = { value: participant.packageMode !== false };
     const packageToggle = el('div', {
       className: `toggle ${packageMode.value ? 'active' : ''}`,
@@ -908,13 +960,19 @@ function openLessonModal(dateStr, lesson = null) {
         packageToggle.classList.toggle('active', packageMode.value);
       }
     });
+
     const packageControl = el('div', { className: 'participant-package-control' },
       el('span', { className: 'participant-package-label' }, t('packageShort')),
       packageToggle
     );
 
+    bottomRow.appendChild(rowHorseSelect);
+    bottomRow.appendChild(removeBtn);
+    bottomRow.appendChild(packageControl);
+
     row.appendChild(topRow);
-    row.appendChild(packageControl);
+    row.appendChild(bottomRow);
+
     participantRows.push({ row, nameInput, horseSelect: rowHorseSelect, packageMode });
     participantList.appendChild(row);
   };
@@ -939,11 +997,6 @@ function openLessonModal(dateStr, lesson = null) {
     groupSection.innerHTML = '';
     commonSection.innerHTML = '';
 
-    const modeLabelRow = el('div', { className: 'form-group' },
-      el('label', {}, t('lessonType')),
-      el('div', { className: 'lesson-type-label' }, currentType === 'group' ? t('groupLesson') : t('individualLesson'))
-    );
-    commonSection.appendChild(modeLabelRow);
 
     const scheduleRow = el('div', { className: 'form-row' });
     const startGroup = el('div', { className: 'form-group' }, el('label', {}, t('startTime')), startSelect);

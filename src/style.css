@@ -425,7 +425,7 @@ input, select, textarea { font-family: inherit; }
   left: 48px;
   right: 0;
   height: 1px;
-  background: var(--border);
+  background: var(--border-hover);
 }
 
 .hour-line {
@@ -433,7 +433,7 @@ input, select, textarea { font-family: inherit; }
 }
 
 .quarter-line {
-  opacity: 0.4;
+  opacity: 0.5;
 }
 
 /* Current time line */
@@ -677,26 +677,15 @@ input, select, textarea { font-family: inherit; }
   }
 
   .participant-row {
-    padding: 8px;
+    padding: 10px;
+    gap: 8px;
+  }
+  .participant-row-bottom {
     gap: 6px;
   }
-
-  .participant-row-main {
-    align-items: stretch;
-  }
-
-  .participant-row .participant-name-input {
-    flex: 1 1 100% !important;
-  }
-
-  .participant-horse-select {
-    flex: 1 1 110px !important;
-    width: auto;
-    min-width: 110px;
-  }
-
   .participant-remove-btn {
-    min-width: 34px;
+    width: 36px;
+    height: 36px;
   }
 }
 
@@ -891,49 +880,54 @@ select.form-input {
 }
 .participant-row {
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  padding: 10px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-card);
+  transition: all var(--transition);
 }
-.participant-row-main {
+.participant-row:focus-within {
+  border-color: var(--border-hover);
+}
+.participant-row-top {
+  width: 100%;
+}
+.participant-row-bottom {
   display: flex;
-  flex: 1;
-  gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
-  min-width: 0;
+  gap: 10px;
+  width: 100%;
 }
 .participant-row .participant-name-input {
-  flex: 1 1 220px !important;
-  min-width: 0;
-}
-.participant-row .form-input {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  font-weight: 600;
 }
 .participant-horse-select {
-  flex: 0 0 140px !important;
-  width: 140px;
-  min-width: 140px;
+  flex: 1;
+  min-width: 0;
 }
 .participant-remove-btn {
   flex-shrink: 0;
-  min-width: 40px;
-  padding-inline: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .participant-package-control {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
 }
 .participant-package-label {
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   line-height: 1;
   color: var(--text-muted);
   text-transform: uppercase;
