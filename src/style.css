@@ -516,9 +516,6 @@ input, select, textarea { font-family: inherit; }
   background: linear-gradient(135deg, rgba(148, 163, 184, 0.1), rgba(148, 163, 184, 0.04));
   border-color: rgba(148, 163, 184, 0.15);
 }
-.lesson-tile.grouped {
-  border-left: 3px solid;
-}
 .lesson-tile.past {
   opacity: 0.6;
   filter: grayscale(0.5);
@@ -679,13 +676,23 @@ input, select, textarea { font-family: inherit; }
     right: 16px;
   }
 
-  .group-participants {
-    --participant-horse-max-width: 118px;
-  }
-
   .participant-row {
     padding: 8px;
     gap: 6px;
+  }
+
+  .participant-row-main {
+    align-items: stretch;
+  }
+
+  .participant-row .participant-name-input {
+    flex: 1 1 100% !important;
+  }
+
+  .participant-horse-select {
+    flex: 1 1 110px !important;
+    width: auto;
+    min-width: 110px;
   }
 
   .participant-remove-btn {
@@ -878,7 +885,6 @@ select.form-input {
   margin-bottom: 0;
 }
 .group-participants {
-  --participant-horse-max-width: 180px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -898,6 +904,11 @@ select.form-input {
   flex: 1;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.participant-row .participant-name-input {
+  flex: 1 1 220px !important;
   min-width: 0;
 }
 .participant-row .form-input {
@@ -905,7 +916,9 @@ select.form-input {
   min-width: 0;
 }
 .participant-horse-select {
-  flex: 0 0 clamp(92px, var(--participant-horse-width, 160px), var(--participant-horse-max-width, 180px)) !important;
+  flex: 0 0 140px !important;
+  width: 140px;
+  min-width: 140px;
 }
 .participant-remove-btn {
   flex-shrink: 0;

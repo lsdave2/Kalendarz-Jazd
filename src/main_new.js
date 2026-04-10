@@ -292,6 +292,7 @@ function buildDayView(dateStr) {
   // Compute layout for overlapping tiles
   const layout = computeOverlapLayout(visibleLessons);
 
+
   // Place lesson tiles with computed positions
   for (const lesson of visibleLessons) {
     const pos = layout.get(lesson.id);
@@ -856,19 +857,41 @@ function openLessonModal(dateStr, lesson = null) {
 
   const participantList = el('div', { className: 'group-participants' });
   const participantRows = [];
+  const horseWidthCanvas = document.createElement('canvas');
+  const horseWidthContext = horseWidthCanvas.getContext('2d');
+  const measureHorseSelectWidth = () => {
+    const selectedHorseNames = participantRows
+      .map(({ horseSelect }) => (horseSelect?.value || '').trim())
+      .filter(Boolean);
+    const longestSelected = selectedHorseNames.reduce((max, name) => Math.max(max, name.length), 0);
+    let widthPx = 160;
+    if (horseWidthContext && longestSelected > 0) {
+      const sampleSelect = participantRows.find(({ horseSelect }) => horseSelect)?.horseSelect;
+      const computedStyle = sampleSelect ? window.getComputedStyle(sampleSelect) : null;
+      const font = computedStyle?.font || `${computedStyle?.fontWeight || '400'} ${computedStyle?.fontSize || '14px'} ${computedStyle?.fontFamily || 'sans-serif'}`;
+      horseWidthContext.font = font;
+      widthPx = Math.ceil(horseWidthContext.measureText(longestSelected).width + 56);
+    }
+    participantList.style.setProperty('--participant-horse-width', `${Math.max(widthPx, 140)}px`);
+  };
 
   const addParticipantRow = (participant = {}) => {
     const row = el('div', { className: 'participant-row' });
     const topRow = el('div', { className: 'participant-row-main' });
     const nameInput = el('input', {
-      className: 'form-input participant-name-input',
+      className: 'form-input',
       type: 'text',
       placeholder: t('enterClientName'),
       value: participant.name || '',
       list: 'lesson-client-list'
     });
     const rowHorseSelect = el('select', {
-      className: 'form-input participant-horse-select'
+      className: 'form-input participant-horse-select',
+      style: {
+        width: 'clamp(92px, var(--participant-horse-width, 160px), var(--participant-horse-max-width, 180px))',
+        minWidth: 'clamp(92px, var(--participant-horse-width, 160px), var(--participant-horse-max-width, 180px))',
+        flex: '0 0 clamp(92px, var(--participant-horse-width, 160px), var(--participant-horse-max-width, 180px))'
+      }
     });
     rowHorseSelect.appendChild(el('option', { value: '' }, t('noHorse')));
     for (const h of data.horses) {
@@ -876,6 +899,7 @@ function openLessonModal(dateStr, lesson = null) {
       if (participant.horse === h) opt.selected = true;
       rowHorseSelect.appendChild(opt);
     }
+    rowHorseSelect.addEventListener('change', measureHorseSelectWidth);
 
     const removeBtn = el('button', {
       className: 'btn btn-secondary btn-sm participant-remove-btn',
@@ -885,6 +909,7 @@ function openLessonModal(dateStr, lesson = null) {
         const index = participantRows.findIndex(entry => entry.row === row);
         if (index >= 0) participantRows.splice(index, 1);
         row.remove();
+        measureHorseSelectWidth();
       }
     }, icon('close'));
 
@@ -910,6 +935,7 @@ function openLessonModal(dateStr, lesson = null) {
     row.appendChild(packageControl);
     participantRows.push({ row, nameInput, horseSelect: rowHorseSelect, packageMode });
     participantList.appendChild(row);
+    measureHorseSelectWidth();
   };
 
   const initialGroupParticipants = isGroupEdit && Array.isArray(lesson?.participants) && lesson.participants.length > 0
@@ -918,6 +944,7 @@ function openLessonModal(dateStr, lesson = null) {
   for (const participant of initialGroupParticipants) {
     addParticipantRow(participant);
   }
+  measureHorseSelectWidth();
 
   const addParticipantButton = el('button', {
     className: 'btn btn-secondary btn-sm',
@@ -2130,3 +2157,4 @@ setInterval(() => {
   }
   render();
 }, 60000);
+

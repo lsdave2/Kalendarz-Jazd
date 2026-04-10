@@ -42,7 +42,7 @@ export function isLoading() {
 supabase.channel('public:app_state')
   .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state' }, payload => {
     if (payload.new && payload.new.state) {
-      _data = payload.new.state;
+      _data = normalizeAppState(payload.new.state);
       notifyListeners();
     }
   })
@@ -85,27 +85,14 @@ export async function loadData() {
           const parsed = JSON.parse(rawLocal);
           // Only use local if it actually has lessons or packages to avoid overwriting remote DB with empty defaults
           if (parsed.lessons?.length > 0 || parsed.packages?.length > 0) {
-            _data = parsed;
+            _data = normalizeAppState(parsed);
             if (_isAdmin) saveData(); // migrate up
           }
         } catch (e) {}
       }
     } else {
       // Remote has data, prefer remote
-      _data = data.state;
-    }
-    
-    const def = defaultData();
-    for (const k of Object.keys(def)) {
-      if (_data[k] === undefined) _data[k] = def[k];
-    }
-    if (!Array.isArray(_data.closedDates)) {
-      _data.closedDates = [];
-    }
-    if (Array.isArray(_data.packages)) {
-      _data.packages = _data.packages
-        .map(normalizePackageEntry)
-        .filter(Boolean);
+      _data = normalizeAppState(data.state);
     }
   } catch (e) {
     console.error("Failed to sync from Supabase", e);
@@ -136,6 +123,38 @@ function normalizePackageEntry(pkg) {
     history: Array.isArray(pkg.history) ? pkg.history : [],
     hasPackageLessons: pkg.hasPackageLessons === true || hasHistory || credits !== 0,
   };
+}
+
+function normalizeAppState(state) {
+  const def = defaultData();
+  const normalizedState = {
+    ...def,
+    ...(state && typeof state === 'object' ? state : {})
+  };
+
+  if (!Array.isArray(normalizedState.closedDates)) {
+    normalizedState.closedDates = [];
+  }
+
+  normalizedState.lessons = Array.isArray(normalizedState.lessons)
+    ? normalizedState.lessons.map(normalizeLesson).filter(Boolean)
+    : [];
+
+  normalizedState.packages = Array.isArray(normalizedState.packages)
+    ? normalizedState.packages.map(normalizePackageEntry).filter(Boolean)
+    : [];
+
+  normalizedState.groups = Array.isArray(normalizedState.groups)
+    ? normalizedState.groups
+      .filter(group => group && typeof group === 'object')
+      .map(group => ({
+        ...group,
+        name: (group.name || '').trim()
+      }))
+      .filter(group => group.name)
+    : [];
+
+  return normalizedState;
 }
 
 function ensurePackageEntryState(name, { hasPackageLessons = false } = {}) {
@@ -338,6 +357,11 @@ function normalizeLesson(lesson) {
     normalized.participants = [];
   }
 
+  // Legacy group links should no longer couple lessons together.
+  normalized.groupId = null;
+  normalized.groupName = (normalized.groupName || normalized.title || '').trim() || null;
+  normalized.groupColor = normalized.groupColor || null;
+
   if (!normalized.lessonType) {
     normalized.lessonType = normalized.participants.length > 0 ? 'group' : 'individual';
   }
@@ -352,6 +376,9 @@ function normalizeLesson(lesson) {
       if (Array.isArray(cleanOverride.participants)) {
         cleanOverride.participants = normalizeParticipants(cleanOverride.participants);
       }
+      cleanOverride.groupId = null;
+      cleanOverride.groupName = (cleanOverride.groupName || cleanOverride.title || '').trim() || null;
+      cleanOverride.groupColor = cleanOverride.groupColor || null;
       normalizedOverrides[dateStr] = cleanOverride;
     }
     normalized.instanceOverrides = normalizedOverrides;
@@ -726,10 +753,18 @@ export function deductCredit(name, dateStr, startMinute) {
 
 // ── Group Management ───────────────────────────────────────────────────
 
-const GROUP_COLORS = [
+export const GROUP_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#f59e0b',
   '#10b981', '#06b6d4', '#f97316', '#14b8a6',
 ];
+
+export function getAutoGroupColor() {
+  const d = getData();
+  const groupLessonCount = (d.lessons || [])
+    .filter(lesson => Array.isArray(lesson?.participants) && lesson.participants.length > 0)
+    .length;
+  return GROUP_COLORS[groupLessonCount % GROUP_COLORS.length];
+}
 
 export function createGroup(name, color = null, { save = true } = {}) {
   const d = getData();
