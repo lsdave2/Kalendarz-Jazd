@@ -10,6 +10,7 @@ const defaultData = () => ({
   lessons: [],          // { id, title, date, startMinute, durationMinutes, horse, instructor, recurring, groupId, lessonType, participants, instanceOverrides }
   packages: [],         // { id, name, credits, active, hasPackageLessons, history }
   groups: [],           // { id, name, color }
+  closedDates: [],      // ['YYYY-MM-DD']
   nextId: 1,
   nextGroupId: 1,
 });
@@ -97,6 +98,9 @@ export async function loadData() {
     const def = defaultData();
     for (const k of Object.keys(def)) {
       if (_data[k] === undefined) _data[k] = def[k];
+    }
+    if (!Array.isArray(_data.closedDates)) {
+      _data.closedDates = [];
     }
     if (Array.isArray(_data.packages)) {
       _data.packages = _data.packages
@@ -303,6 +307,12 @@ function normalizeLesson(lesson) {
       .filter(Boolean);
   };
 
+  const normalizeDateString = (value) => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+  };
+
   const normalized = {
     cancelledDates: [],
     deductedDates: [],
@@ -331,6 +341,8 @@ function normalizeLesson(lesson) {
   if (!normalized.lessonType) {
     normalized.lessonType = normalized.participants.length > 0 ? 'group' : 'individual';
   }
+
+  normalized.recurringUntil = normalizeDateString(normalized.recurringUntil);
 
   if (normalized.instanceOverrides && typeof normalized.instanceOverrides === 'object') {
     const normalizedOverrides = {};
@@ -386,7 +398,17 @@ export function updateLessonInstance(id, dateStr, updates, { save = true } = {})
 
   const override = {};
   for (const [key, value] of Object.entries(updates || {})) {
-    if (['id', 'cancelledDates', 'deductedDates', 'instanceOverrides', '_recurringInstance', '_instanceDate'].includes(key)) continue;
+    if ([
+      'id',
+      'date',
+      'recurring',
+      'recurringUntil',
+      'cancelledDates',
+      'deductedDates',
+      'instanceOverrides',
+      '_recurringInstance',
+      '_instanceDate'
+    ].includes(key)) continue;
     if (JSON.stringify(lesson[key]) !== JSON.stringify(value)) {
       override[key] = value;
     }
@@ -442,6 +464,9 @@ export function getLessonsForDate(dateStr) {
   };
 
   for (const lesson of d.lessons) {
+    if (lesson.recurring && lesson.recurringUntil && dateStr > lesson.recurringUntil) {
+      continue;
+    }
     if (lesson.date === dateStr) {
       results.push(getInstanceLesson(lesson, dateStr));
     } else if (lesson.recurring) {
@@ -594,11 +619,16 @@ export function processPastLessonsForCredits() {
     if (!lesson.recurring) {
       checkInstance(lesson.date, lesson);
     } else {
+      if (lesson.recurringUntil && lesson.date > lesson.recurringUntil) {
+        continue;
+      }
       let currentInstance = parseDate(lesson.date);
       const boundDate = new Date();
       boundDate.setDate(boundDate.getDate() + 7);
+      const recurringUntil = lesson.recurringUntil ? parseDate(lesson.recurringUntil) : null;
 
       while (currentInstance < boundDate) {
+        if (recurringUntil && currentInstance > recurringUntil) break;
         const dStr = formatDate(currentInstance);
         const instanceLesson = getInstanceLesson(lesson, dStr);
         checkInstance(dStr, instanceLesson);
@@ -745,4 +775,22 @@ export function deleteGroup(id) {
 
 export function getAllGroups() {
   return getData().groups;
+}
+
+export function isDateClosed(dateStr) {
+  const d = getData();
+  return Array.isArray(d.closedDates) && d.closedDates.includes(dateStr);
+}
+
+export function toggleClosedDate(dateStr) {
+  const d = getData();
+  if (!Array.isArray(d.closedDates)) d.closedDates = [];
+
+  if (d.closedDates.includes(dateStr)) {
+    d.closedDates = d.closedDates.filter(dStr => dStr !== dateStr);
+  } else {
+    d.closedDates.push(dateStr);
+  }
+
+  saveData();
 }

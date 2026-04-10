@@ -4,10 +4,12 @@ import { el, icon, formatDate, parseDate, getDaysInMonth, getFirstDayOfMonth, mo
 import {
   loadData, getData, saveData, subscribe,
   addLesson, updateLesson, deleteLesson, getLessonsForDate,
+  updateLessonInstance,
   updatePackageCredits, togglePackageActive, deletePackage, getPackageByName, deductCredit, ensurePackageEntry, addPackageCredits,
   createGroup, getGroup, deleteGroup, getAllGroups, toggleCancelLessonInstance, processPastLessonsForCredits,
   updateGroup,
-  isAdmin, login, logout, isLoading
+  isAdmin, login, logout, isLoading,
+  isDateClosed, toggleClosedDate
 } from './store.js';
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -15,7 +17,6 @@ let currentTab = 'calendar';
 let viewYear, viewMonth;
 let selectedDate = null;
 let editingLesson = null;
-let groupsCollapsed = getSettings().groupsCollapsed ?? true;
 let horseViewRange = null; // { from, to }
 
 const DEFAULT_DAY_SCHEDULE_START_HOUR = 8;
@@ -86,7 +87,9 @@ function render() {
   ensureVisibleTab();
   document.title = t('appTitle');
   app.innerHTML = '';
-  app.appendChild(buildHeader());
+  if (!(currentTab === 'calendar' && selectedDate)) {
+    app.appendChild(buildHeader());
+  }
 
   const page = el('div', { className: 'page' });
 
@@ -179,14 +182,23 @@ function buildMonthView() {
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = formatDate(new Date(viewYear, viewMonth, d));
     const lessons = getLessonsForDate(dateStr);
+    const closed = isDateClosed(dateStr);
     const classes = ['calendar-day'];
     if (isToday(dateStr)) classes.push('today');
     if (isPast(dateStr)) classes.push('past');
     if (lessons.length > 0) classes.push('has-lessons');
+    if (closed) classes.push('closed');
 
     const dayCell = el('div', {
       className: classes.join(' '),
-      onClick: () => { selectedDate = dateStr; render(); }
+      onClick: () => {
+        if (closed && !isAdmin()) {
+          showToast(t('dayClosedToast'), 'lock');
+          return;
+        }
+        selectedDate = dateStr;
+        render();
+      }
     }, String(d));
 
     if (lessons.length > 0) {
@@ -213,24 +225,41 @@ function buildDayView(dateStr) {
   const container = el('div');
   const date = parseDate(dateStr);
   const dayNames = [t('fullDay_0'), t('fullDay_1'), t('fullDay_2'), t('fullDay_3'), t('fullDay_4'), t('fullDay_5'), t('fullDay_6')];
+  const closed = isDateClosed(dateStr);
 
   // Header
-  const header = el('div', { className: 'day-header' },
+  const headerMain = el('div', { className: 'day-header-main' },
     el('button', { className: 'back-btn', onClick: () => { selectedDate = null; render(); } },
       icon('arrow_back')
     ),
-    el('div', {},
+    el('div', { className: 'day-header-text' },
       el('h2', {}, `${date.getDate()} ${monthName(date.getMonth())} ${date.getFullYear()}`),
       el('span', { className: 'day-subtitle' }, dayNames[date.getDay()])
     )
   );
-  container.appendChild(header);
 
-  // Groups section is admin-only
+  const headerActions = el('div', { className: 'day-header-actions' });
+  const closedBadge = el('span', {
+    className: `closed-badge ${closed ? 'active' : ''}`
+  }, t('closed'));
+  headerActions.appendChild(closedBadge);
+
   if (isAdmin()) {
-    const groups = buildGroupsPanel(dateStr);
-    container.appendChild(groups);
+    const closedToggle = el('div', {
+      className: `toggle ${closed ? 'active' : ''}`,
+      title: closed ? t('markDayOpen') : t('markDayClosed'),
+      onClick: () => {
+        toggleClosedDate(dateStr);
+        render();
+      }
+    });
+    headerActions.appendChild(closedToggle);
+  } else if (!closed) {
+    headerActions.style.display = 'none';
   }
+
+  const header = el('div', { className: 'day-header' }, headerMain, headerActions);
+  container.appendChild(header);
 
   // Schedule
   const schedule = el('div', { className: 'day-schedule', id: 'day-schedule' });
@@ -772,6 +801,22 @@ function isTouchDevice() {
   return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 }
 
+function promptAdminLogin() {
+  const email = prompt(t('emailLabel'));
+  if (!email) return;
+  const password = prompt(t('passwordLabel'));
+  if (!password) return;
+
+  login(email, password).then(success => {
+    if (success) {
+      showToast(t('loginSuccess'), 'check_circle');
+      render();
+    } else {
+      showToast(t('loginFailed'), 'error');
+    }
+  });
+}
+
 function isGroupLessonRecord(lesson) {
   return !!lesson && Array.isArray(lesson.participants) && lesson.participants.length > 0;
 }
@@ -820,25 +865,10 @@ function getDefaultGroupName() {
 }
 
 // ── Groups Panel ───────────────────────────────────────────────────────
-function buildGroupsPanel(dateStr) {
+function buildGroupsPanel(lessons = getData().lessons || []) {
   const groups = getAllGroups();
-  const lessons = getLessonsForDate(dateStr);
-  const section = el('div', { className: `groups-section ${groupsCollapsed ? 'collapsed' : ''}` });
-  
-  const h4 = el('div', { 
-    className: 'groups-header',
-    onClick: () => {
-      groupsCollapsed = !groupsCollapsed;
-      const s = getSettings();
-      s.groupsCollapsed = groupsCollapsed;
-      saveSettings(s);
-      render();
-    }
-  }, 
-    el('h4', {}, t('lessonGroups')),
-    icon(groupsCollapsed ? 'expand_more' : 'expand_less')
-  );
-  section.appendChild(h4);
+  const section = el('div', { className: 'settings-section groups-section' });
+  section.appendChild(el('h4', {}, t('lessonGroups')));
 
   const chips = el('div', { className: 'group-chips' });
 
@@ -969,11 +999,27 @@ function openLessonModal(dateStr, lesson = null) {
   }
   modal.appendChild(knownClientsDatalist);
 
+  const knownGroupsDatalist = el('datalist', { id: 'lesson-group-list' });
+  const knownGroupNames = [...new Map(
+    getAllGroups()
+      .map(group => (group?.name || '').trim())
+      .filter(Boolean)
+      .map(name => [name.toLowerCase(), name])
+  ).values()].sort((a, b) => a.localeCompare(b));
+  for (const name of knownGroupNames) {
+    knownGroupsDatalist.appendChild(el('option', { value: name }));
+  }
+  modal.appendChild(knownGroupsDatalist);
+
   let currentType = initialType;
 
   const startMinuteDefault = lesson ? lesson.startMinute : 10 * 60;
   const durationDefault = lesson ? lesson.durationMinutes : 60;
-  const recurringDefault = !!(lesson && lesson.recurring);
+  const recurringDefault = !!(
+    lesson &&
+    lesson.recurring &&
+    (!lesson.recurringUntil || lesson._instanceDate !== lesson.recurringUntil)
+  );
 
   const startSelect = el('select', { className: 'form-input', id: 'lesson-start-select' });
   for (let m = 6 * 60; m < 22 * 60; m += 15) {
@@ -1042,7 +1088,61 @@ function openLessonModal(dateStr, lesson = null) {
       if (lesson && !isGroupEdit) return lesson.title || '';
       return '';
     })(),
-    list: 'lesson-client-list'
+    list: 'lesson-group-list'
+  });
+  const groupNameSuggestions = el('div', { className: 'group-name-suggestions' });
+  const groupNamePicker = el('div', { className: 'group-name-picker is-hidden' }, groupNameSuggestions);
+
+  const renderGroupNameSuggestions = () => {
+    groupNameSuggestions.innerHTML = '';
+    const query = groupNameInput.value.trim().toLowerCase();
+    const groups = getAllGroups()
+      .map(group => ({ ...group, name: (group?.name || '').trim() }))
+      .filter(group => group.name)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .filter(group => !query || group.name.toLowerCase().includes(query));
+
+    if (groups.length === 0) {
+      groupNameSuggestions.appendChild(el('div', { className: 'group-name-empty' }, 'No groups in memory'));
+      return;
+    }
+
+    for (const group of groups) {
+      groupNameSuggestions.appendChild(el('button', {
+        className: 'group-name-option',
+        type: 'button',
+        onMouseDown: (e) => {
+          e.preventDefault();
+          groupNameInput.value = group.name;
+          groupNamePicker.classList.add('is-hidden');
+          groupNameInput.focus();
+        }
+      },
+      el('span', {
+        className: 'group-name-swatch',
+        style: { backgroundColor: group.color || '#6366f1' }
+      }),
+      el('span', { className: 'group-name-text' }, group.name)));
+    }
+  };
+
+  const openGroupNamePicker = () => {
+    renderGroupNameSuggestions();
+    groupNamePicker.classList.remove('is-hidden');
+  };
+
+  const closeGroupNamePicker = () => {
+    groupNamePicker.classList.add('is-hidden');
+  };
+
+  groupNameInput.addEventListener('focus', openGroupNamePicker);
+  groupNameInput.addEventListener('click', openGroupNamePicker);
+  groupNameInput.addEventListener('input', renderGroupNameSuggestions);
+  groupNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeGroupNamePicker();
+  });
+  groupNameInput.addEventListener('blur', () => {
+    window.setTimeout(closeGroupNamePicker, 120);
   });
 
   const groupColorEnabled = {
@@ -1110,9 +1210,9 @@ function openLessonModal(dateStr, lesson = null) {
     const rowHorseSelect = el('select', {
       className: 'form-input participant-horse-select',
       style: {
-        width: 'var(--participant-horse-width, 160px)',
-        minWidth: 'var(--participant-horse-width, 160px)',
-        flex: '0 0 var(--participant-horse-width, 160px)'
+        width: 'clamp(92px, var(--participant-horse-width, 160px), var(--participant-horse-max-width, 180px))',
+        minWidth: 'clamp(92px, var(--participant-horse-width, 160px), var(--participant-horse-max-width, 180px))',
+        flex: '0 0 clamp(92px, var(--participant-horse-width, 160px), var(--participant-horse-max-width, 180px))'
       }
     });
     rowHorseSelect.appendChild(el('option', { value: '' }, t('noHorse')));
@@ -1209,9 +1309,10 @@ function openLessonModal(dateStr, lesson = null) {
     packageRow.appendChild(packageModeToggle);
     individualSection.appendChild(packageRow);
 
-    const groupNameBlock = el('div', { className: 'form-group' });
+    const groupNameBlock = el('div', { className: 'form-group group-name-field' });
     groupNameBlock.appendChild(el('label', {}, t('groupNameLabel')));
     groupNameBlock.appendChild(groupNameInput);
+    groupNameBlock.appendChild(groupNamePicker);
     groupSection.appendChild(groupNameBlock);
 
     const groupColorBlock = el('div', { className: 'form-group' });
@@ -1255,7 +1356,7 @@ function openLessonModal(dateStr, lesson = null) {
   // Buttons
   const btnGroup = el('div', { className: 'btn-group' });
   const baseLesson = isEdit ? (data.lessons.find(l => l.id === lesson.id) || lesson) : null;
-  const isRecurringInstance = !!(isEdit && lesson._recurringInstance && lesson.recurring);
+  const isRecurringInstance = !!(isEdit && lesson._recurringInstance && baseLesson?.recurring);
 
   const getLessonPayload = () => {
     const startMinute = parseInt(startSelect.value);
@@ -1328,16 +1429,25 @@ function openLessonModal(dateStr, lesson = null) {
     };
   };
 
-  const saveLesson = (scope = 'series') => {
+  const saveLesson = () => {
     const payload = getLessonPayload();
     if (!payload) return null;
 
     const lessonData = payload.lessonData;
     let mutated = false;
+    const recurringDisabled = isRecurringInstance && !lessonData.recurring;
+    const recurringReenabled = isRecurringInstance && lessonData.recurring && !!baseLesson?.recurringUntil;
 
     if (currentType === 'individual') {
-      if (scope === 'instance' && isRecurringInstance) {
-        updateLessonInstance(baseLesson.id, lesson._instanceDate, lessonData, { save: false });
+      if (isRecurringInstance) {
+        const instanceLessonData = { ...lessonData };
+        if (recurringDisabled) {
+          instanceLessonData.recurring = false;
+          updateLesson(baseLesson.id, { recurringUntil: lesson._instanceDate }, { save: false });
+        } else if (recurringReenabled) {
+          updateLesson(baseLesson.id, { recurringUntil: null }, { save: false });
+        }
+        updateLessonInstance(baseLesson.id, lesson._instanceDate, instanceLessonData, { save: false });
       } else if (isEdit) {
         updateLesson(lesson.id, lessonData, { save: false });
       } else {
@@ -1359,7 +1469,7 @@ function openLessonModal(dateStr, lesson = null) {
     const manualColor = groupColorEnabled.value ? groupColorInput.value : null;
     const currentSeriesGroup = baseLesson?.groupId ? getGroup(baseLesson.groupId) : null;
 
-    if (scope === 'instance' && isRecurringInstance) {
+    if (isRecurringInstance) {
       const instanceGroup = currentSeriesGroup || (baseLesson?.groupId ? getGroup(baseLesson.groupId) : null);
       const instanceGroupId = instanceGroup?.id || baseLesson?.groupId || null;
       const instanceGroupName = instanceGroup?.name || lessonData.groupName;
@@ -1370,7 +1480,13 @@ function openLessonModal(dateStr, lesson = null) {
         groupName: instanceGroupName,
         groupId: instanceGroupId,
         groupColor: instanceGroupColor,
+        recurring: recurringDisabled ? false : lessonData.recurring,
       };
+      if (recurringDisabled) {
+        updateLesson(baseLesson.id, { recurringUntil: lesson._instanceDate }, { save: false });
+      } else if (recurringReenabled) {
+        updateLesson(baseLesson.id, { recurringUntil: null }, { save: false });
+      }
       updateLessonInstance(baseLesson.id, lesson._instanceDate, instanceLessonData, { save: false });
       for (const participant of payload.participants || []) {
         ensurePackageEntry(participant.name, {
@@ -1407,7 +1523,15 @@ function openLessonModal(dateStr, lesson = null) {
       groupName: payload.groupName,
       groupId: group.id,
       groupColor: group.color,
+      recurring: isRecurringInstance ? true : lessonData.recurring,
     };
+
+    if (recurringDisabled && isRecurringInstance) {
+      updateLesson(lesson.id, { recurringUntil: lesson._instanceDate }, { save: false });
+      updateLessonInstance(lesson.id, lesson._instanceDate, { recurring: false }, { save: false });
+    } else if (recurringReenabled && isRecurringInstance) {
+      updateLesson(lesson.id, { recurringUntil: null }, { save: false });
+    }
 
     if (isEdit) {
       updateLesson(lesson.id, seriesLessonData, { save: false });
@@ -1453,24 +1577,11 @@ function openLessonModal(dateStr, lesson = null) {
     }, icon(isCancelled ? 'restore' : 'cancel'), isCancelled ? t('restore') : t('cancel')));
   }
 
-  if (isRecurringInstance) {
-    btnGroup.appendChild(el('button', {
-      className: 'btn btn-secondary btn-sm',
-      onClick: () => {
-        const result = saveLesson('series');
-        if (!result) return;
-        showToast(result === 'created' ? t('lessonCreated') : t('lessonUpdated'), 'check_circle');
-        overlay.remove();
-        render();
-      }
-    }, icon('layers'), t('saveSeries')));
-  }
-
   btnGroup.appendChild(el('button', {
     className: 'btn btn-primary btn-sm',
     style: { marginLeft: 'auto' },
     onClick: () => {
-      const result = saveLesson(isRecurringInstance ? 'instance' : 'series');
+      const result = saveLesson();
       if (!result) return;
       showToast(result === 'created' ? t('lessonCreated') : t('lessonUpdated'), 'check_circle');
       overlay.remove();
@@ -1512,11 +1623,13 @@ function buildPackageCard(pkg) {
   if (isAdmin()) {
     credits.appendChild(el('button', {
       className: 'btn btn-primary btn-sm',
+      title: t('addCredits'),
+      'aria-label': t('addCredits'),
       onClick: (e) => {
         e.stopPropagation();
         openAddCreditsModal(pkg);
       }
-    }, icon('add'), t('addCredits')));
+    }, icon('add')));
   }
 
   card.appendChild(credits);
@@ -2012,25 +2125,11 @@ function buildSettingsView() {
     authSection.appendChild(el('button', {
       className: 'btn btn-primary',
       style: { width: '100%' },
-      onClick: () => {
-        // Simple login prompt
-        const email = prompt(t('emailLabel'));
-        if (!email) return;
-        const password = prompt(t('passwordLabel'));
-        if (!password) return;
-        
-        login(email, password).then(success => {
-          if (success) {
-            showToast(t('loginSuccess'), 'check_circle');
-            render();
-          } else {
-            showToast(t('loginFailed'), 'error');
-          }
-        });
-      }
+      onClick: promptAdminLogin
     }, icon('login'), t('loginAsAdmin')));
   }
   container.appendChild(authSection);
+  if (!isAdmin()) return container;
 
   if (isAdmin()) {
     // ── Display section
@@ -2068,6 +2167,8 @@ function buildSettingsView() {
     displaySection.appendChild(timeLineRow);
     displaySection.appendChild(buildDayScheduleSettings());
     container.appendChild(displaySection);
+
+    container.appendChild(buildGroupsPanel());
 
     // Horses
     const horsesSection = el('div', { className: 'settings-section' });
@@ -2236,10 +2337,15 @@ function buildBottomNav() {
       className: `nav-item ${currentTab === tab.id ? 'active' : ''}`,
       id: `nav-${tab.id}`,
       onClick: () => {
-        currentTab = tab.id;
         if (tab.id === 'calendar') {
-          selectedDate = formatDate(new Date());
+          if (currentTab === 'calendar' && selectedDate) {
+            selectedDate = null;
+          } else {
+            currentTab = 'calendar';
+            selectedDate = formatDate(new Date());
+          }
         } else {
+          currentTab = tab.id;
           selectedDate = null;
         }
         render();
@@ -2303,6 +2409,7 @@ function buildHorsesView() {
     data.lessons.forEach(lesson => {
       // Basic validation for lesson data
       if (!lesson || !lesson.date || !lesson.title) return;
+      if (lesson.recurring && lesson.recurringUntil && lesson.date > lesson.recurringUntil) return;
       const participantHorses = isGroupLessonRecord(lesson)
         ? getLessonParticipants(lesson).map(participant => participant.horse).filter(Boolean)
         : (lesson.horse ? [lesson.horse] : []);
@@ -2311,6 +2418,7 @@ function buildHorsesView() {
 
       // 1. Check all specific dates in the range
       dateList.forEach(dateStr => {
+        if (lesson.recurring && lesson.recurringUntil && dateStr > lesson.recurringUntil) return;
         const lessonDate = lesson.date === dateStr;
         const recurringMatch = lesson.recurring && (() => {
           const date = parseDate(dateStr);

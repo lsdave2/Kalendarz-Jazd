@@ -72,6 +72,25 @@ input, select, textarea { font-family: inherit; }
   position: relative;
 }
 
+.guest-screen {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.guest-card {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  justify-content: center;
+}
+
+.guest-login-btn {
+  width: 100%;
+}
+
 /* ── Header ─────────────────────────────────────────────────────────── */
 .app-header {
   height: var(--header-h);
@@ -281,6 +300,20 @@ input, select, textarea { font-family: inherit; }
 .calendar-day.past {
   opacity: 0.45;
 }
+.calendar-day.closed {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.22), rgba(248, 113, 113, 0.08));
+  border-color: rgba(248, 113, 113, 0.28);
+  color: #fecaca;
+}
+.calendar-day.closed:hover {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.28), rgba(248, 113, 113, 0.14));
+  border-color: rgba(248, 113, 113, 0.4);
+}
+.calendar-day.closed.today {
+  border-color: var(--red);
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.28), rgba(124, 92, 252, 0.08));
+  color: #fee2e2;
+}
 
 .lesson-count-badge {
   position: absolute;
@@ -302,8 +335,15 @@ input, select, textarea { font-family: inherit; }
 .day-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   padding: 4px 4px 12px;
+}
+.day-header-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 .day-header .back-btn {
   width: 36px;
@@ -321,10 +361,35 @@ input, select, textarea { font-family: inherit; }
   font-weight: 700;
   letter-spacing: -0.02em;
 }
+.day-header-text {
+  min-width: 0;
+}
 .day-header .day-subtitle {
   font-size: 0.78rem;
   color: var(--text-secondary);
   font-weight: 400;
+}
+.day-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.closed-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+.closed-badge.active {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.22);
 }
 
 .day-schedule {
@@ -613,6 +678,19 @@ input, select, textarea { font-family: inherit; }
   .fab {
     right: 16px;
   }
+
+  .group-participants {
+    --participant-horse-max-width: 118px;
+  }
+
+  .participant-row {
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .participant-remove-btn {
+    min-width: 34px;
+  }
 }
 
 /* ── Modal / Dialog ─────────────────────────────────────────────────── */
@@ -735,6 +813,61 @@ select.form-input {
 }
 .form-row .form-group { flex: 1; }
 
+.group-name-field {
+  position: relative;
+}
+.group-name-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hover);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.group-name-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.group-name-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  text-align: left;
+  transition: background var(--transition), transform var(--transition);
+}
+.group-name-option:hover {
+  background: var(--bg-card-hover);
+  transform: translateY(-1px);
+}
+.group-name-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  flex: 0 0 12px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
+}
+.group-name-text {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.group-name-empty {
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 .group-color-row {
   display: flex;
   gap: 12px;
@@ -745,6 +878,7 @@ select.form-input {
   margin-bottom: 0;
 }
 .group-participants {
+  --participant-horse-max-width: 180px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -771,7 +905,7 @@ select.form-input {
   min-width: 0;
 }
 .participant-horse-select {
-  flex: 0 0 var(--participant-horse-width, 160px) !important;
+  flex: 0 0 clamp(92px, var(--participant-horse-width, 160px), var(--participant-horse-max-width, 180px)) !important;
 }
 .participant-remove-btn {
   flex-shrink: 0;
@@ -1038,40 +1172,8 @@ select.form-input {
 }
 
 /* ── Groups Panel ───────────────────────────────────────────────────── */
-.groups-section {
-  margin-bottom: 16px;
-  padding: 12px;
-  background: var(--bg-card);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  transition: all var(--transition);
-}
-.groups-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  cursor: pointer;
-  user-select: none;
-}
+.groups-section {}
 .groups-section h4 {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin: 0;
-}
-.groups-header .material-symbols-rounded {
-  font-size: 18px;
-  color: var(--text-muted);
-}
-.groups-section.collapsed {
-  padding-bottom: 8px;
-}
-.groups-section.collapsed .group-chips {
-  display: none;
-}
-.groups-section:not(.collapsed) .groups-header {
   margin-bottom: 12px;
 }
 .group-chips {
