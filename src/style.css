@@ -1410,3 +1410,47 @@ select.form-input {
   margin-top: 4px;
 }
 
+
+
+/* -- Color Palette ---------------------------------------------------- */
+.color-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.color-palette-chip {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.color-palette-chip:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+}
+
+.color-palette-chip.active {
+  border-color: #fff;
+  transform: scale(1.1) translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+
+.color-palette-chip.active .material-symbols-rounded {
+  color: #fff !important;
+  font-size: 20px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  display: block !important;
+}
+
+.color-palette-chip .material-symbols-rounded {
+  display: none;
+}

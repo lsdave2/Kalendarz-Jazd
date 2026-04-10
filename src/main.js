@@ -5,10 +5,11 @@ import {
   loadData, getData, saveData, subscribe,
   addLesson, updateLesson, deleteLesson, getLessonsForDate,
   updateLessonInstance,
-  updatePackageCredits, togglePackageActive, deletePackage, getPackageByName, deductCredit, ensurePackageEntry, addPackageCredits,
+  updatePackageCredits, togglePackageActive, deletePackage, updatePackageName, getPackageByName, deductCredit, ensurePackageEntry, addPackageCredits,
   getAutoGroupColor, toggleCancelLessonInstance, processPastLessonsForCredits,
   isAdmin, login, logout, isLoading,
-  isDateClosed, toggleClosedDate
+  isDateClosed, toggleClosedDate,
+  GROUP_COLORS
 } from './store.js';
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -737,8 +738,10 @@ function getLessonDisplayName(lesson) {
 function openLessonModal(dateStr, lesson = null) {
   editingLesson = lesson;
   const isEdit = !!lesson;
-  const isGroupEdit = isGroupLessonRecord(lesson);
   const data = getData();
+  const baseLesson = isEdit ? (data.lessons.find(l => l.id === lesson.id) || lesson) : null;
+  const isRecurringInstance = !!(isEdit && lesson._recurringInstance && baseLesson?.recurring);
+  const isGroupEdit = isGroupLessonRecord(lesson);
   const clientNames = getKnownClientNames(data);
   const initialType = isEdit && isGroupEdit ? 'group' : 'individual';
 
@@ -841,17 +844,21 @@ function openLessonModal(dateStr, lesson = null) {
     onClick: () => packageModeToggle.classList.toggle('active')
   });
 
-  const initialGroupColor = lesson?.groupColor || getAutoGroupColor();
-  const groupColorInput = el('input', {
-    className: 'form-input',
-    type: 'color',
-    value: initialGroupColor,
-    style: {
-      width: '72px',
-      height: '44px',
-      padding: '4px',
-      cursor: 'pointer',
-    }
+  const initialGroupColor = baseLesson?.groupColor || lesson?.groupColor || getAutoGroupColor();
+  const groupColorInput = el('input', { type: 'hidden', value: initialGroupColor });
+  const groupColorPalette = el('div', { className: 'color-palette' });
+
+  GROUP_COLORS.forEach(color => {
+    const chip = el('div', {
+      className: `color-palette-chip ${initialGroupColor === color ? 'active' : ''}`,
+      style: { backgroundColor: color },
+      onClick: () => {
+        groupColorPalette.querySelectorAll('.color-palette-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        groupColorInput.value = color;
+      }
+    }, icon('check'));
+    groupColorPalette.appendChild(chip);
   });
 
   const participantList = el('div', { className: 'group-participants' });
@@ -964,6 +971,7 @@ function openLessonModal(dateStr, lesson = null) {
     groupColorBlock.appendChild(el('label', {}, t('groupColor')));
     const groupColorRow = el('div', { className: 'group-color-row' });
     groupColorRow.appendChild(groupColorInput);
+    groupColorRow.appendChild(groupColorPalette);
     groupColorBlock.appendChild(groupColorRow);
     groupSection.appendChild(groupColorBlock);
 
@@ -995,8 +1003,6 @@ function openLessonModal(dateStr, lesson = null) {
 
   // Buttons
   const btnGroup = el('div', { className: 'btn-group' });
-  const baseLesson = isEdit ? (data.lessons.find(l => l.id === lesson.id) || lesson) : null;
-  const isRecurringInstance = !!(isEdit && lesson._recurringInstance && baseLesson?.recurring);
 
   const getLessonPayload = () => {
     const startMinute = parseInt(startSelect.value);
@@ -1101,6 +1107,18 @@ function openLessonModal(dateStr, lesson = null) {
     }
 
     const resolvedGroupColor = groupColorInput.value || lessonData.groupColor || baseLesson?.groupColor || initialGroupColor;
+
+    // For group lessons, color change should apply to the whole series (base lesson)
+    if (baseLesson && baseLesson.groupColor !== resolvedGroupColor) {
+      updateLesson(baseLesson.id, { groupColor: resolvedGroupColor }, { save: false });
+      // Clear any individual color overrides from all instances to ensure uniformity across the series
+      const targetLesson = getData().lessons.find(l => l.id === baseLesson.id);
+      if (targetLesson && targetLesson.instanceOverrides) {
+        for (const dateKey of Object.keys(targetLesson.instanceOverrides)) {
+          delete targetLesson.instanceOverrides[dateKey].groupColor;
+        }
+      }
+    }
 
     if (isRecurringInstance) {
       const instanceLessonData = {
@@ -1248,6 +1266,14 @@ function buildPackageCard(pkg) {
     const actions = el('div', { className: 'package-actions' });
     actions.appendChild(el('button', {
       className: 'package-action-btn',
+      title: t('editClient') || 'Edit',
+      onClick: (e) => {
+        e.stopPropagation();
+        openEditClientModal(pkg);
+      }
+    }, icon('edit')));
+    actions.appendChild(el('button', {
+      className: 'package-action-btn',
       title: t('deleteClient'),
       onClick: (e) => {
         e.stopPropagation();
@@ -1361,6 +1387,59 @@ function buildPackagesView() {
   container.appendChild(buildPackageSection(t('noPackageLessons'), noPackageClients, t('noPackageLessonsYet')));
 
   return container;
+}
+
+function openEditClientModal(pkg) {
+  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
+    if (e.target === overlay) overlay.remove();
+  }});
+
+  const modal = el('div', { className: 'modal', style: { maxWidth: '300px', margin: 'auto' } });
+  modal.appendChild(el('div', { className: 'modal-handle' }));
+  modal.appendChild(el('h3', {}, t('editClient') || 'Edit Client Name'));
+
+  const inputWrapper = el('div', { className: 'form-group' });
+  const input = el('input', {
+    className: 'form-input',
+    type: 'text',
+    value: pkg.name,
+    style: { fontSize: '1rem', padding: '12px' }
+  });
+  inputWrapper.appendChild(input);
+  modal.appendChild(inputWrapper);
+
+  const btnRow = el('div', { className: 'btn-group' });
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-secondary',
+    onClick: () => overlay.remove()
+  }, t('cancel')));
+  
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-primary',
+    style: { marginLeft: 'auto' },
+    onClick: () => {
+      const newName = input.value.trim();
+      if (newName) {
+        const success = updatePackageName(pkg.id, newName);
+        if (success) {
+           showToast(t('clientUpdated') || 'Client name updated', 'check_circle');
+           render();
+        } else {
+           showToast(t('clientAlreadyExists') || 'Name already exists', 'warning');
+        }
+      }
+      overlay.remove();
+    }
+  }, icon('check'), t('saveKey') || 'Save'));
+  
+  modal.appendChild(btnRow);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  setTimeout(() => {
+    input.focus();
+    input.select();
+  }, 10);
 }
 
 function openAddCreditsModal(pkg) {

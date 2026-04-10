@@ -378,7 +378,9 @@ function normalizeLesson(lesson) {
       }
       cleanOverride.groupId = null;
       cleanOverride.groupName = (cleanOverride.groupName || cleanOverride.title || '').trim() || null;
-      cleanOverride.groupColor = cleanOverride.groupColor || null;
+      if (cleanOverride.groupColor !== undefined) {
+        cleanOverride.groupColor = cleanOverride.groupColor || null;
+      }
       normalizedOverrides[dateStr] = cleanOverride;
     }
     normalized.instanceOverrides = normalizedOverrides;
@@ -719,6 +721,68 @@ export function togglePackageActive(id) {
   }
 }
 
+export function updatePackageName(id, newName) {
+  const d = getData();
+  const pkg = d.packages.find(p => p.id === id);
+  if (!pkg) return false;
+  
+  const oldName = pkg.name;
+  const trimmedNew = newName.trim();
+  if (oldName === trimmedNew) return false;
+  
+  // Check if target name already exists
+  if (d.packages.some(p => p.id !== id && p.name.toLowerCase() === trimmedNew.toLowerCase())) {
+     return false; // Already exists
+  }
+  
+  pkg.name = trimmedNew;
+  
+  // Update all lessons
+  for (const lesson of d.lessons) {
+    if (lesson.title && lesson.title.toLowerCase() === oldName.toLowerCase()) {
+       lesson.title = pkg.name;
+    }
+    if (Array.isArray(lesson.participants)) {
+       for (const participant of lesson.participants) {
+          const pName = participant.packageName || participant.name || '';
+          if (pName.toLowerCase() === oldName.toLowerCase()) {
+             if (participant.packageName) {
+                participant.packageName = pkg.name;
+             }
+             if (participant.name.toLowerCase() === oldName.toLowerCase()) {
+                participant.name = pkg.name;
+             }
+          }
+       }
+    }
+    
+    // Also check instanceOverrides
+    if (lesson.instanceOverrides) {
+       for (const override of Object.values(lesson.instanceOverrides)) {
+          if (override.title && override.title.toLowerCase() === oldName.toLowerCase()) {
+             override.title = pkg.name;
+          }
+          if (Array.isArray(override.participants)) {
+             for (const participant of override.participants) {
+                const pName = participant.packageName || participant.name || '';
+                if (pName.toLowerCase() === oldName.toLowerCase()) {
+                   if (participant.packageName) {
+                      participant.packageName = pkg.name;
+                   }
+                   if (participant.name && participant.name.toLowerCase() === oldName.toLowerCase()) {
+                      participant.name = pkg.name;
+                   }
+                }
+             }
+          }
+       }
+    }
+  }
+  
+  saveData();
+  return true;
+}
+
 export function deletePackage(id) {
   const d = getData();
   d.packages = d.packages.filter(p => p.id !== id);
@@ -754,8 +818,16 @@ export function deductCredit(name, dateStr, startMinute) {
 // ── Group Management ───────────────────────────────────────────────────
 
 export const GROUP_COLORS = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#f59e0b',
-  '#10b981', '#06b6d4', '#f97316', '#14b8a6',
+  '#FF1744', // Red
+  '#F57C00', // Orange
+  '#FFD600', // Yellow
+  '#76FF03', // Lime
+  '#00E676', // Green
+  '#00E5FF', // Cyan
+  '#2979FF', // Blue
+  '#651FFF', // Deep Purple
+  '#D500F9', // Magenta
+  '#F50057'  // Rose
 ];
 
 export function getAutoGroupColor() {
