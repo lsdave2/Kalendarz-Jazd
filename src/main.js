@@ -9,7 +9,8 @@ import {
   getAutoGroupColor, toggleCancelLessonInstance, processPastLessonsForCredits,
   isAdmin, login, logout, isLoading,
   isDateClosed, toggleClosedDate,
-  GROUP_COLORS
+  GROUP_COLORS,
+  updateInstructorColor, addInstructor, deleteInstructor
 } from './store.js';
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -287,20 +288,34 @@ function buildDayView(dateStr) {
 
   for (let h = START_HOUR; h <= END_HOUR; h++) {
     const row = el('div', { className: 'hour-row' });
-    row.appendChild(el('div', { className: 'hour-label' }, `${String(h).padStart(2, '0')}:00`));
     row.appendChild(el('div', { className: 'hour-content' }));
     schedule.appendChild(row);
+
+    const hourLabel = el('div', { className: 'hour-label' }, `${String(h).padStart(2, '0')}:00`);
+    hourLabel.style.top = `${(h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT}px`;
+    schedule.appendChild(hourLabel);
 
     const hourLine = el('div', { className: 'hour-line' });
     hourLine.style.top = `${(h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT}px`;
     schedule.appendChild(hourLine);
 
-    // Quarter lines
-    for (let q = 1; q <= 3; q++) {
-      const line = el('div', { className: 'quarter-line' });
-      line.style.top = `${(h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT + q * (DAY_SCHEDULE_SLOT_HEIGHT / 4)}px`;
-      schedule.appendChild(line);
+    if (h < END_HOUR) {
+      const halfTop = (h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT + (DAY_SCHEDULE_SLOT_HEIGHT / 2);
+      const halfLabel = el('div', { className: 'hour-label' }, `${String(h).padStart(2, '0')}:30`);
+      halfLabel.style.top = `${halfTop}px`;
+      schedule.appendChild(halfLabel);
+
+      const halfLine = el('div', { className: 'hour-line half-hour' });
+      halfLine.style.top = `${halfTop}px`;
+      schedule.appendChild(halfLine);
     }
+
+    // Quarter lines (15 and 45 mins)
+    [0.25, 0.75].forEach(offset => {
+      const line = el('div', { className: 'quarter-line' });
+      line.style.top = `${(h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT + offset * DAY_SCHEDULE_SLOT_HEIGHT}px`;
+      schedule.appendChild(line);
+    });
   }
 
   // Compute layout for overlapping tiles
@@ -528,8 +543,18 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
   // Store layout info for drag
   tile._layoutPos = pos;
 
+  const data = getData();
+  const instructorData = (data.instructors || []).find(i => i.name === lesson.instructor);
+  const instructorColor = instructorData ? instructorData.color : null;
+
   const instructorBadge = lesson.instructor
-    ? el('span', { className: 'tile-instructor tile-instructor-badge' }, icon('person'), lesson.instructor)
+    ? el('span', { 
+        className: 'tile-instructor tile-instructor-badge',
+        style: instructorColor ? { color: instructorColor } : {}
+      }, 
+      icon('person'), 
+      lesson.instructor
+    )
     : null;
 
   const meta = el('div', { className: 'tile-meta' });
@@ -853,8 +878,8 @@ function openLessonModal(dateStr, lesson = null) {
   const instrSelect = el('select', { className: 'form-input', id: 'lesson-instructor-select' });
   instrSelect.appendChild(el('option', { value: '' }, t('noInstructor')));
   for (const i of data.instructors) {
-    const opt = el('option', { value: i }, i);
-    if (lesson && lesson.instructor === i) opt.selected = true;
+    const opt = el('option', { value: i.name }, i.name);
+    if (lesson && lesson.instructor === i.name) opt.selected = true;
     instrSelect.appendChild(opt);
   }
 
@@ -1560,7 +1585,32 @@ function openCreditHistoryModal(pkg) {
     historyList.appendChild(el('p', { style: { color: 'var(--text-secondary)', fontStyle: 'italic' } }, t('noHistory')));
   } else {
     // Sort descending by date
-    const sortedHistory = [...history].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const filteredHistory = history.filter(record => {
+      // If it's not a lesson record (manual add/deduct), show it
+      if (!record.lessonDate || (record.reason !== 'lesson' && record.reason !== 'lesson_cancel')) return true;
+      
+      // If it's a lesson record, check if a matching lesson exists in the calendar
+      const lessonsOnDay = getLessonsForDate(record.lessonDate);
+      return lessonsOnDay.some(l => {
+        // Match by lessonId if available
+        if (record.lessonId && l.id === record.lessonId) return true;
+        
+        // Match by title/participants and start time
+        const isSameTime = l.startMinute === record.lessonStartMinute;
+        if (!isSameTime) return false;
+        
+        // Match individual lesson title
+        if (!isGroupLessonRecord(l)) {
+          return (l.title || '').toLowerCase() === pkg.name.toLowerCase();
+        }
+        
+        // Match group lesson participants
+        return l.participants.some(p => (p.packageName || p.name).toLowerCase() === pkg.name.toLowerCase());
+      });
+    });
+
+    // Sort descending by date
+    const sortedHistory = [...filteredHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
     
     for (const record of sortedHistory) {
       const row = el('div', { 
@@ -1690,7 +1740,9 @@ function openInstructorPaymentModal() {
   const instructorSelect = el('select', { className: 'form-input', id: 'payment-instructor-select' });
   instructorSelect.appendChild(el('option', { value: '' }, t('noInstructor')));
   for (const instr of data.instructors || []) {
-    instructorSelect.appendChild(el('option', { value: instr }, instr));
+    const name = instr.name || instr;
+    instructorSelect.appendChild(el('option', { value: name }, name));
+
   }
   instructorGroup.appendChild(instructorSelect);
   modal.appendChild(instructorGroup);
@@ -1947,11 +1999,41 @@ function buildSettingsView() {
     instrSection.appendChild(el('h4', {}, t('instructors')));
     const instrList = el('div', { className: 'settings-list' });
     for (const i of data.instructors) {
-      const chip = el('div', { className: 'settings-chip' },
-        i,
+      const colorBox = el('div', { 
+        className: 'instructor-color-box',
+        style: { backgroundColor: i.color },
+        onClick: (e) => {
+          e.stopPropagation();
+          const p = chip.querySelector('.instructor-color-palette');
+          if (p) p.classList.toggle('visible');
+        }
+      });
+
+      const palette = el('div', { className: 'instructor-color-palette' });
+      GROUP_COLORS.forEach(color => {
+        const pChip = el('div', {
+          className: `color-palette-chip ${i.color === color ? 'active' : ''}`,
+          style: { backgroundColor: color },
+          onClick: (e) => {
+            e.stopPropagation();
+            updateInstructorColor(i.name, color);
+            colorBox.style.backgroundColor = color;
+            palette.classList.remove('visible');
+            // update active class
+            palette.querySelectorAll('.color-palette-chip').forEach(c => c.classList.remove('active'));
+            pChip.classList.add('active');
+          }
+        });
+        palette.appendChild(pChip);
+      });
+
+      const chip = el('div', { className: 'settings-chip instructor-chip' },
+        colorBox,
+        palette,
+        el('span', { className: 'instructor-name' }, i.name),
         isAdmin() ? el('button', { className: 'remove-chip', onClick: () => {
-          data.instructors = data.instructors.filter(x => x !== i);
-          saveData(); render();
+          deleteInstructor(i.name);
+          render();
         }}, icon('close')) : ''
       );
       instrList.appendChild(chip);
@@ -1965,9 +2047,8 @@ function buildSettingsView() {
       className: 'btn btn-primary btn-sm',
       onClick: () => {
         const name = instrInput.value.trim();
-        if (name && !data.instructors.includes(name)) {
-          data.instructors.push(name);
-          saveData(); render();
+        if (addInstructor(name)) {
+          render();
         }
       }
     }, icon('add')));

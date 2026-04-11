@@ -405,11 +405,17 @@ input, select, textarea { font-family: inherit; }
 }
 .hour-label {
   width: 48px;
-  flex-shrink: 0;
+
   font-size: 0.7rem;
   font-weight: 600;
   color: var(--text-muted);
-  padding-top: 4px;
+  transform: translateY(-50%);
+  position: absolute;
+  left: 0;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 5;
+
   text-align: center;
 }
 .hour-content {
@@ -432,8 +438,12 @@ input, select, textarea { font-family: inherit; }
   opacity: 1;
 }
 
+.hour-line.half-hour {
+  opacity: 0.6;
+}
+
 .quarter-line {
-  opacity: 0.5;
+  opacity: 0.25;
 }
 
 /* Current time line */
@@ -1448,3 +1458,69 @@ select.form-input {
 .color-palette-chip .material-symbols-rounded {
   display: none;
 }
+
+/* -- Instructor Settings Colors ----------------------------------------- */
+.settings-chip.instructor-chip {
+  padding-left: 8px;
+  gap: 10px;
+  position: relative;
+  overflow: visible; /* To allow palette to show */
+}
+
+.instructor-color-box {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.instructor-color-box:hover {
+  transform: scale(1.1);
+  filter: brightness(1.1);
+}
+
+.instructor-name {
+  flex: 1;
+}
+
+.instructor-color-palette {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  z-index: 150;
+  box-shadow: var(--shadow-lg);
+  display: none;
+  animation: slideInDown 0.2s ease-out;
+}
+
+@keyframes slideInDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.instructor-color-palette.visible {
+  display: grid;
+}
+
+.instructor-color-palette .color-palette-chip {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 0px !important;
+}
+
+.instructor-color-palette .color-palette-chip.active {
+  border: 2px solid white;
+  transform: scale(1.1);
+}
+

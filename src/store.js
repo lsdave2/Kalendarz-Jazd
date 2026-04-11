@@ -6,7 +6,10 @@ import { t } from './i18n.js';
 
 const defaultData = () => ({
   horses: ['Rubin', 'Czempion', 'Cera', 'Muminek', 'Kadet', 'Sakwa', 'Fason', 'Carewicz', 'Grot', 'Siwa', 'Figa'],
-  instructors: ['Ania', 'Olga'],
+  instructors: [
+    { name: 'Ania', color: '#FF5722' },
+    { name: 'Olga', color: '#4CAF50' }
+  ],
   lessons: [],          // { id, title, date, startMinute, durationMinutes, horse, instructor, recurring, groupId, lessonType, participants, instanceOverrides }
   packages: [],         // { id, name, credits, active, hasPackageLessons, history }
   groups: [],           // { id, name, color }
@@ -154,7 +157,25 @@ function normalizeAppState(state) {
       .filter(group => group.name)
     : [];
 
+  normalizedState.instructors = (Array.isArray(normalizedState.instructors) ? normalizedState.instructors : [])
+    .map(instr => {
+      if (typeof instr === 'string') {
+        return { name: instr, color: getAutoInstructorColor(normalizedState) };
+      }
+      return {
+        name: (instr?.name || '').trim(),
+        color: instr?.color || getAutoInstructorColor(normalizedState)
+      };
+    })
+    .filter(instr => instr.name);
+
   return normalizedState;
+}
+
+function getAutoInstructorColor(state) {
+  const colors = GROUP_COLORS;
+  const count = (state?.instructors || []).length;
+  return colors[count % colors.length];
 }
 
 function ensurePackageEntryState(name, { hasPackageLessons = false } = {}) {
@@ -468,8 +489,60 @@ export function updateLessonInstance(id, dateStr, updates, { save = true } = {})
 
 export function deleteLesson(id) {
   const d = getData();
+  const lesson = d.lessons.find(l => l.id === id);
+  if (!lesson) return;
+
+  // Cleanup history and restore credits for any clients affected by this lesson
+  const affectedClientNames = [];
+  if (Array.isArray(lesson.participants) && lesson.participants.length > 0) {
+    lesson.participants.forEach(p => {
+      const name = (p.packageName || p.name || '').trim();
+      if (name) affectedClientNames.push(name.toLowerCase());
+    });
+  } else if (lesson.title) {
+    affectedClientNames.push(lesson.title.trim().toLowerCase());
+  }
+
+  const uniqueClients = [...new Set(affectedClientNames)];
+  for (const clientName of uniqueClients) {
+    const pkg = d.packages.find(p => p.name.toLowerCase() === clientName);
+    if (pkg && pkg.history) {
+      let creditDelta = 0;
+      const originalHistoryLength = pkg.history.length;
+      
+      pkg.history = pkg.history.filter(record => {
+        // Match by lessonId (preferred) or by date/time (legacy)
+        const isLessonRecord = record.reason === 'lesson' || record.reason === 'lesson_cancel';
+        if (!isLessonReason(record)) return true;
+
+        const isIdMatch = record.lessonId === id;
+        
+        // For legacy records without lessonId, check if the date/time matches this lesson
+        // For recurring lessons, we check if the record date was one of the deducted dates
+        const isLegacyMatch = !record.lessonId && 
+                             record.lessonDate && 
+                             (lesson.date === record.lessonDate || (lesson.deductedDates && lesson.deductedDates.includes(record.lessonDate))) && 
+                             record.lessonStartMinute === lesson.startMinute;
+
+        if (isIdMatch || isLegacyMatch) {
+          creditDelta -= record.amount; // Remove deduction (-1) -> +1 credit, remove cancel (+1) -> -1 credit
+          return false;
+        }
+        return true;
+      });
+
+      if (pkg.history.length !== originalHistoryLength) {
+        pkg.credits += creditDelta;
+      }
+    }
+  }
+
   d.lessons = d.lessons.filter(l => l.id !== id);
   saveData();
+}
+
+function isLessonReason(record) {
+  return record.reason === 'lesson' || record.reason === 'lesson_cancel';
 }
 
 export function getLessonsForDate(dateStr) {
@@ -577,7 +650,8 @@ export function processPastLessonsForCredits() {
               after: pkg.credits,
               reason: 'lesson',
               lessonDate: dStr,
-              lessonStartMinute: startMinute
+              lessonStartMinute: startMinute,
+              lessonId: lesson.id
             });
           }
           lesson.deductedDates.push(dStr);
@@ -596,7 +670,8 @@ export function processPastLessonsForCredits() {
               after: pkg.credits,
               reason: 'lesson_cancel',
               lessonDate: dStr,
-              lessonStartMinute: startMinute
+              lessonStartMinute: startMinute,
+              lessonId: lesson.id
             });
           }
           lesson.deductedDates = lesson.deductedDates.filter(d => d !== dStr);
@@ -623,7 +698,8 @@ export function processPastLessonsForCredits() {
           after: pkg.credits,
           reason: 'lesson',
           lessonDate: dStr,
-          lessonStartMinute: startMinute
+          lessonStartMinute: startMinute,
+          lessonId: lesson.id
         });
         lesson.deductedDates.push(dStr);
         changed = true;
@@ -638,7 +714,8 @@ export function processPastLessonsForCredits() {
           after: pkg.credits,
           reason: 'lesson_cancel',
           lessonDate: dStr,
-          lessonStartMinute: startMinute
+          lessonStartMinute: startMinute,
+          lessonId: lesson.id
         });
         lesson.deductedDates = lesson.deductedDates.filter(d => d !== dStr);
         changed = true;
@@ -813,6 +890,39 @@ export function deductCredit(name, dateStr, startMinute) {
     });
     saveData();
   }
+}
+
+// ── Instructor Management ─────────────────────────────────────────────
+
+export function addInstructor(name) {
+  const d = getData();
+  const trimmed = name.trim();
+  if (trimmed && !d.instructors.find(i => i.name.toLowerCase() === trimmed.toLowerCase())) {
+    const state = getData();
+    const colors = GROUP_COLORS;
+    const count = (state?.instructors || []).length;
+    const color = colors[count % colors.length];
+
+    d.instructors.push({ name: trimmed, color });
+    saveData();
+    return true;
+  }
+  return false;
+}
+
+export function updateInstructorColor(name, color) {
+  const d = getData();
+  const instr = d.instructors.find(i => i.name === name);
+  if (instr) {
+    instr.color = color;
+    saveData();
+  }
+}
+
+export function deleteInstructor(name) {
+  const d = getData();
+  d.instructors = d.instructors.filter(i => i.name !== name);
+  saveData();
 }
 
 // ── Group Management ───────────────────────────────────────────────────
