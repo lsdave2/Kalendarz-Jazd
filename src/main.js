@@ -23,6 +23,20 @@ let horseViewRange = null; // { from, to }
 const DEFAULT_DAY_SCHEDULE_START_HOUR = 8;
 const DEFAULT_DAY_SCHEDULE_END_HOUR = 21;
 const DAY_SCHEDULE_SLOT_HEIGHT = 120;
+const MIN_GRID_SCALE = 0.6;
+
+function calculateLessonMinHeight(lesson) {
+  const padding = 12; // 6px top + 6px bottom
+  const titleHeight = 18; // refined height of title row
+  if (isGroupLessonRecord(lesson)) {
+    const participants = getLessonParticipants(lesson);
+    const rowHeight = 15; // refined height per participant row
+    return padding + titleHeight + (participants.length * rowHeight) + 2;
+  } else {
+    // Individual lesson: title + one line for horse/instructor
+    return padding + titleHeight + 15; 
+  }
+}
 const DAY_SCHEDULE_LABEL_WIDTH = 48;
 const DAY_SCHEDULE_CONTENT_RIGHT = 8;
 
@@ -253,22 +267,23 @@ function buildDayView(dateStr) {
   );
 
   const headerActions = el('div', { className: 'day-header-actions' });
-  const closedBadge = el('span', {
-    className: `closed-badge ${closed ? 'active' : ''}`
-  }, t('closed'));
-  headerActions.appendChild(closedBadge);
 
   if (isAdmin()) {
     const closedToggle = el('div', {
-      className: `toggle ${closed ? 'active' : ''}`,
+      className: `toggle toggle-day-status ${closed ? 'active' : ''}`,
       title: closed ? t('markDayOpen') : t('markDayClosed'),
       onClick: () => {
         toggleClosedDate(dateStr);
         render();
       }
-    });
+    }, el('span', { className: 'toggle-text' }, closed ? t('closed') : t('open')));
     headerActions.appendChild(closedToggle);
-  } else if (!closed) {
+  } else if (closed) {
+    const closedBadge = el('span', {
+      className: `closed-badge active`
+    }, t('closed'));
+    headerActions.appendChild(closedBadge);
+  } else {
     headerActions.style.display = 'none';
   }
 
@@ -284,7 +299,18 @@ function buildDayView(dateStr) {
     lesson.startMinute >= START_HOUR * 60 &&
     lesson.startMinute < (END_HOUR + 1) * 60
   ));
-  schedule.style.minHeight = `${(END_HOUR - START_HOUR + 1) * DAY_SCHEDULE_SLOT_HEIGHT}px`;
+
+  // Auto-scale calculation
+  let dayScale = MIN_GRID_SCALE;
+  for (const lesson of visibleLessons) {
+    const minH = calculateLessonMinHeight(lesson);
+    const baseH = (lesson.durationMinutes / 60) * DAY_SCHEDULE_SLOT_HEIGHT;
+    const reqScale = minH / baseH;
+    if (reqScale > dayScale) dayScale = reqScale;
+  }
+  const slotH = DAY_SCHEDULE_SLOT_HEIGHT * dayScale;
+
+  schedule.style.minHeight = `${(END_HOUR - START_HOUR + 1) * slotH}px`;
 
   for (let h = START_HOUR; h <= END_HOUR; h++) {
     const row = el('div', { className: 'hour-row' });
@@ -292,15 +318,15 @@ function buildDayView(dateStr) {
     schedule.appendChild(row);
 
     const hourLabel = el('div', { className: 'hour-label' }, `${String(h).padStart(2, '0')}:00`);
-    hourLabel.style.top = `${(h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT}px`;
+    hourLabel.style.top = `${(h - START_HOUR) * slotH}px`;
     schedule.appendChild(hourLabel);
 
     const hourLine = el('div', { className: 'hour-line' });
-    hourLine.style.top = `${(h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT}px`;
+    hourLine.style.top = `${(h - START_HOUR) * slotH}px`;
     schedule.appendChild(hourLine);
 
     if (h < END_HOUR) {
-      const halfTop = (h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT + (DAY_SCHEDULE_SLOT_HEIGHT / 2);
+      const halfTop = (h - START_HOUR) * slotH + (slotH / 2);
       const halfLabel = el('div', { className: 'hour-label' }, `${String(h).padStart(2, '0')}:30`);
       halfLabel.style.top = `${halfTop}px`;
       schedule.appendChild(halfLabel);
@@ -313,7 +339,7 @@ function buildDayView(dateStr) {
     // Quarter lines (15 and 45 mins)
     [0.25, 0.75].forEach(offset => {
       const line = el('div', { className: 'quarter-line' });
-      line.style.top = `${(h - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT + offset * DAY_SCHEDULE_SLOT_HEIGHT}px`;
+      line.style.top = `${(h - START_HOUR) * slotH + offset * slotH}px`;
       schedule.appendChild(line);
     });
   }
@@ -324,7 +350,7 @@ function buildDayView(dateStr) {
   // Place lesson tiles with computed positions
   for (const lesson of visibleLessons) {
     const pos = layout.get(lesson.id);
-    const tile = buildLessonTile(lesson, dateStr, START_HOUR, pos);
+    const tile = buildLessonTile(lesson, dateStr, START_HOUR, pos, dayScale);
     schedule.appendChild(tile);
   }
 
@@ -341,7 +367,7 @@ function buildDayView(dateStr) {
       const nowMinutes = now.getHours() * 60 + now.getMinutes();
       if (nowMinutes < START_HOUR * 60 || nowMinutes > END_HOUR * 60) return;
 
-      const top = ((nowMinutes / 60) - START_HOUR) * DAY_SCHEDULE_SLOT_HEIGHT;
+      const top = ((nowMinutes / 60) - START_HOUR) * slotH;
       const line = el('div', { className: 'time-indicator' });
       line.style.top = `${top}px`;
 
@@ -483,7 +509,7 @@ function computeOverlapLayout(lessons) {
 }
 
 // ── Group Containers ───────────────────────────────────────────────────
-function buildLessonTile(lesson, dateStr, startHour, pos) {
+function buildLessonTile(lesson, dateStr, startHour, pos, dayScale) {
   const isGroupLesson = isGroupLessonRecord(lesson);
   const pkg = isGroupLesson ? null : getPackageByName(lesson.title);
   const participants = getLessonParticipants(lesson);
@@ -491,7 +517,7 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
   const tileGroupColor = lesson?.groupColor || null;
 
   // Check if it happened in the past
-  const lessonEnd = new Date(dateStr);
+  const lessonEnd = parseDate(dateStr);
   lessonEnd.setMinutes(lessonEnd.getMinutes() + lesson.startMinute + lesson.durationMinutes);
   const isPastLesson = lessonEnd < new Date();
 
@@ -504,8 +530,9 @@ function buildLessonTile(lesson, dateStr, startHour, pos) {
   if (isPastLesson) extraClasses.push('past');
   if (isCancelled) extraClasses.push('cancelled');
 
-  const top = ((lesson.startMinute / 60) - startHour) * DAY_SCHEDULE_SLOT_HEIGHT;
-  const height = Math.max((lesson.durationMinutes / 60) * DAY_SCHEDULE_SLOT_HEIGHT, 24);
+  const slotH = DAY_SCHEDULE_SLOT_HEIGHT * dayScale;
+  const top = ((lesson.startMinute / 60) - startHour) * slotH;
+  const height = Math.max((lesson.durationMinutes / 60) * slotH, 24);
 
   // Compute left/width from column layout
   const col = pos ? pos.col : 0;
@@ -691,10 +718,11 @@ function makeDraggable(tileEl, lesson, dateStr) {
     tileEl.classList.remove('long-press-ready');
 
     // Each pixel ~= 1 minute, scaled to the current hour height.
-    const rawMinutes = dy * (60 / DAY_SCHEDULE_SLOT_HEIGHT);
+    const slotH = DAY_SCHEDULE_SLOT_HEIGHT * dayScale;
+    const rawMinutes = dy * (60 / slotH);
     offsetMinute = Math.round(rawMinutes / 15) * 15;
     const newStart = Math.max(0, Math.min(startMinute + offsetMinute, (endHour - 1) * 60)); // Limit to day range
-    tileEl.style.top = `${((newStart / 60) - startHour) * DAY_SCHEDULE_SLOT_HEIGHT}px`;
+    tileEl.style.top = `${((newStart / 60) - startHour) * slotH}px`;
   };
 
   const onEnd = () => {
@@ -1896,6 +1924,10 @@ function buildDayScheduleSettings() {
   return row;
 }
 
+function buildGridScaleSettings() {
+  return el('div', { className: 'is-hidden' });
+}
+
 // Settings View
 function buildSettingsView() {
   const container = el('div');
@@ -1960,6 +1992,7 @@ function buildSettingsView() {
     timeLineRow.appendChild(timeLineToggle);
     displaySection.appendChild(timeLineRow);
     displaySection.appendChild(buildDayScheduleSettings());
+    displaySection.appendChild(el('div', { style: { marginTop: '12px' } }, buildGridScaleSettings()));
     container.appendChild(displaySection);
 
     // Horses
@@ -2133,6 +2166,7 @@ function buildSettingsView() {
   displaySection.appendChild(langRow);
   displaySection.appendChild(el('h4', {}, t('display')));
   displaySection.appendChild(buildDayScheduleSettings());
+  displaySection.appendChild(el('div', { style: { marginTop: '12px' } }, buildGridScaleSettings()));
   container.appendChild(displaySection);
   return container;
 }

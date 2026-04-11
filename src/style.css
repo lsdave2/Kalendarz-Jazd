@@ -983,6 +983,45 @@ select.form-input {
   transform: translateX(20px);
 }
 
+/* Day Status Specific Toggle */
+.toggle-day-status {
+  width: 100px;
+  background: #5a8273; /* Subdued green */
+  border-color: #5a8273;
+  box-shadow: 0 0 8px rgba(90, 130, 115, 0.2);
+}
+
+.toggle-day-status.active {
+  background: #b36b6b; /* Subdued red */
+  border-color: #b36b6b;
+  box-shadow: 0 0 8px rgba(179, 107, 107, 0.2);
+}
+
+.toggle-day-status .toggle-text {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.95);
+  pointer-events: none;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.toggle-day-status:not(.active) .toggle-text {
+  right: 10px;
+}
+
+.toggle-day-status.active .toggle-text {
+  left: 10px;
+}
+
+.toggle-day-status.active::after {
+  transform: translateX(78px);
+}
+
 /* ── Buttons ────────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
@@ -1006,12 +1045,14 @@ select.form-input {
   border: 1px solid var(--border);
 }
 .btn-secondary:hover { background: var(--bg-card-hover); }
+
 .btn-danger {
   background: var(--red-soft);
   color: var(--red);
   border: 1px solid rgba(248, 113, 113, 0.2);
 }
 .btn-danger:hover { background: rgba(248, 113, 113, 0.2); }
+
 .btn-sm {
   padding: 8px 14px;
   font-size: 0.78rem;
@@ -1022,6 +1063,7 @@ select.form-input {
   gap: 8px;
   margin-top: 8px;
 }
+
 
 /* ── Suggestions ────────────────────────────────────────────────────── */
 .suggestions-row {
