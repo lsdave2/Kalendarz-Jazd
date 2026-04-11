@@ -27,14 +27,14 @@ const MIN_GRID_SCALE = 0.6;
 
 function calculateLessonMinHeight(lesson) {
   const padding = 12; // 6px top + 6px bottom
-  const titleHeight = 18; // refined height of title row
+  const titleHeight = 22; // approx height of title row
   if (isGroupLessonRecord(lesson)) {
     const participants = getLessonParticipants(lesson);
-    const rowHeight = 15; // refined height per participant row
-    return padding + titleHeight + (participants.length * rowHeight) + 2;
+    const rowHeight = 18; // approx height per participant row
+    return padding + titleHeight + (participants.length * rowHeight) + 4;
   } else {
-    // Individual lesson: title + one line for horse/instructor
-    return padding + titleHeight + 15; 
+    // Individual lesson is usually short enough
+    return padding + titleHeight + 20; 
   }
 }
 const DAY_SCHEDULE_LABEL_WIDTH = 48;
