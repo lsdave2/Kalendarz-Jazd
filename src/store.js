@@ -25,13 +25,15 @@ const _listeners = new Set();
 
 // Keep _isAdmin in sync with real Supabase session state at all times
 // (handles token refresh, expiry, login, logout)
-supabase.auth.onAuthStateChange((event, session) => {
-  const wasAdmin = _isAdmin;
-  _isAdmin = !!session;
-  if (wasAdmin !== _isAdmin) {
-    notifyListeners();
-  }
-});
+if (supabase) {
+  supabase.auth.onAuthStateChange((event, session) => {
+    const wasAdmin = _isAdmin;
+    _isAdmin = !!session;
+    if (wasAdmin !== _isAdmin) {
+      notifyListeners();
+    }
+  });
+}
 
 export function isAdmin() {
   return _isAdmin;
@@ -42,16 +44,19 @@ export function isLoading() {
 }
 
 // Subscribe to Supabase realtime
-supabase.channel('public:app_state')
-  .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state' }, payload => {
-    if (payload.new && payload.new.state) {
-      _data = normalizeAppState(payload.new.state);
-      notifyListeners();
-    }
-  })
-  .subscribe();
+if (supabase) {
+  supabase.channel('public:app_state')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state' }, payload => {
+      if (payload.new && payload.new.state) {
+        _data = normalizeAppState(payload.new.state);
+        notifyListeners();
+      }
+    })
+    .subscribe();
+}
 
 export async function login(email, password) {
+  if (!supabase) return false;
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (!error && data.session) {
     _isAdmin = true;
@@ -62,7 +67,7 @@ export async function login(email, password) {
 }
 
 export async function logout() {
-  await supabase.auth.signOut();
+  if (supabase) await supabase.auth.signOut();
   _isAdmin = false;
   notifyListeners();
 }
@@ -70,6 +75,17 @@ export async function logout() {
 export async function loadData() {
   _isLoading = true;
   notifyListeners();
+
+  if (!supabase) {
+    // Fallback to local storage if Supabase is not configured
+    const rawLocal = localStorage.getItem('horsebook_data');
+    if (rawLocal) {
+      try { _data = normalizeAppState(JSON.parse(rawLocal)); } catch (e) {}
+    }
+    _isLoading = false;
+    notifyListeners();
+    return;
+  }
 
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -288,8 +304,8 @@ export async function saveData() {
     console.error('[store] LocalStorage save failed', e);
   }
 
-  if (!_isAdmin) {
-    console.warn('[store] saveData skipped Supabase sync — no active admin session.');
+  if (!supabase || !_isAdmin) {
+    if (!_isAdmin) console.warn('[store] saveData skipped Supabase sync — no active admin session.');
     return;
   }
 
