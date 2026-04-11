@@ -1,7 +1,9 @@
 import { t } from '../i18n.js';
 import { el, icon, formatDate, minutesToTime } from '../utils.js';
 import { updatePackageName, addPackageCredits, getLessonsForDate } from '../store.js';
-import { render, showToast, isGroupLessonRecord, formatDateNice } from '../main.js';
+import { render, showToast } from '../main.js';
+import { isGroupLessonRecord } from '../services/LessonService.js';
+import { formatDateNice } from '../views/CalendarView.js';
 
 export function openEditClientModal(pkg) {
   const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {

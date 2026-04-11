@@ -146,6 +146,9 @@ export const translations = {
     individualPay: 'Individual pay',
     groupPay: 'Group pay',
     totalPay: 'Total pay',
+    database: 'Database',
+    live: 'Live',
+    test: 'Test',
   },
   pl: {
     appTitle: 'Stajnia Rotmistrz 15',
@@ -294,6 +297,9 @@ export const translations = {
     individualPay: 'Wynagrodzenie za jazdy indywidualne',
     groupPay: 'Wynagrodzenie za jazdy grupowe',
     totalPay: 'Łączne wynagrodzenie',
+    database: 'Baza danych',
+    live: 'Produkcyjna',
+    test: 'Testowa',
   }
 };
 

@@ -5,7 +5,8 @@ import {
   ensurePackageEntry, getPackageByName, getAutoGroupColor, toggleCancelLessonInstance,
   GROUP_COLORS, saveData, processPastLessonsForCredits 
 } from '../store.js';
-import { render, showToast, isGroupLessonRecord, getKnownClientNames } from '../main.js';
+import { render, showToast } from '../main.js';
+import { isGroupLessonRecord, getKnownClientNames } from '../services/LessonService.js';
 
 let editingLesson = null;
 

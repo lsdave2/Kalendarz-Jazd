@@ -1,3 +1,12 @@
+-- 0. Create the table
+create table if not exists app_state (
+  id bigint primary key,
+  state jsonb
+);
+
+-- Initialize row 1 if it doesn't exist
+insert into app_state (id, state) values (1, '{}') on conflict (id) do nothing;
+
 -- 1. First, clear the old policies
 drop policy if exists "Only authenticated users can update app_state" on app_state;
 drop policy if exists "Only authenticated users can insert app_state" on app_state;
