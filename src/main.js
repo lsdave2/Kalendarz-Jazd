@@ -403,8 +403,9 @@ function buildDayView(dateStr) {
   let touchStartY = null;
 
   container.addEventListener('touchstart', (e) => {
-    // Only detect swipe if there's exactly one touch and we are not interacting with inner elements like tiles
-    if (e.touches.length === 1 && (!e.target.closest || !e.target.closest('.lesson-tile, .fab'))) {
+    // Detect swipe even if on a tile, since dragging tiles is primarily vertical 
+    // and requires a long-press on mobile anyway.
+    if (e.touches.length === 1 && (!e.target.closest || !e.target.closest('.fab'))) {
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
     }
