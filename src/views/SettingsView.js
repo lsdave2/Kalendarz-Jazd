@@ -309,8 +309,7 @@ export function buildSettingsView() {
     langSelect.onchange = (e) => setLang(e.target.value);
     langRow.appendChild(langSelect);
     displaySection.appendChild(langRow);
-    displaySection.appendChild(el('h4', {}, t('display')));
-    displaySection.appendChild(el('div', { style: { marginTop: '12px' } }, buildGridScaleSettings()));
+
     container.appendChild(displaySection);
   } else {
     // ── Display section (admin)
