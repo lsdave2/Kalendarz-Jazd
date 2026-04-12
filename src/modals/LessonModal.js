@@ -7,8 +7,10 @@ import {
 } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, getKnownClientNames } from '../services/LessonService.js';
+import { getDayScheduleHours } from '../views/SettingsView.js';
 
 let editingLesson = null;
+let lastCreatedStartMinute = null;
 
 export function openLessonModal(dateStr, lesson = null) {
   editingLesson = lesson;
@@ -53,7 +55,15 @@ export function openLessonModal(dateStr, lesson = null) {
 
   let currentType = initialType;
 
-  const startMinuteDefault = lesson ? lesson.startMinute : 10 * 60;
+  let startMinuteDefault = 10 * 60;
+  if (lesson) {
+    startMinuteDefault = lesson.startMinute;
+  } else if (lastCreatedStartMinute !== null) {
+    startMinuteDefault = lastCreatedStartMinute;
+  } else if (data.lessons && data.lessons.length > 0) {
+    startMinuteDefault = data.lessons[data.lessons.length - 1].startMinute;
+  }
+
   const durationDefault = lesson ? lesson.durationMinutes : 60;
   const recurringDefault = !!(
     lesson &&
@@ -61,12 +71,26 @@ export function openLessonModal(dateStr, lesson = null) {
     (!lesson.recurringUntil || lesson._instanceDate !== lesson.recurringUntil)
   );
 
-  const startSelect = el('select', { className: 'form-input', id: 'lesson-start-select' });
-  for (let m = 6 * 60; m < 22 * 60; m += 15) {
-    const opt = el('option', { value: String(m) }, minutesToTime(m));
-    if (startMinuteDefault === m) opt.selected = true;
-    startSelect.appendChild(opt);
+  const { startHour, endHour } = getDayScheduleHours();
+  const startHourSelect = el('select', { className: 'form-input', style: { flex: 1, padding: '12px' } });
+  for (let h = startHour; h <= endHour; h++) {
+    const opt = el('option', { value: String(h) }, String(h).padStart(2, '0'));
+    if (Math.floor(startMinuteDefault / 60) === h) opt.selected = true;
+    startHourSelect.appendChild(opt);
   }
+
+  const startMinuteSelect = el('select', { className: 'form-input', style: { flex: 1, padding: '12px' } });
+  for (const m of [0, 15, 30, 45]) {
+    const opt = el('option', { value: String(m) }, String(m).padStart(2, '0'));
+    if (Math.floor((startMinuteDefault % 60) / 15) * 15 === m) opt.selected = true;
+    startMinuteSelect.appendChild(opt);
+  }
+
+  const startInputWrapper = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, 
+    startHourSelect, 
+    el('span', { style: { fontWeight: 'bold' } }, ':'), 
+    startMinuteSelect
+  );
 
   const durSelect = el('select', { className: 'form-input', id: 'lesson-duration-select' });
   for (const dur of [30, 45, 60, 90, 120]) {
@@ -224,7 +248,7 @@ export function openLessonModal(dateStr, lesson = null) {
 
 
     const scheduleRow = el('div', { className: 'form-row' });
-    const startGroup = el('div', { className: 'form-group' }, el('label', {}, t('startTime')), startSelect);
+    const startGroup = el('div', { className: 'form-group' }, el('label', {}, t('startTime')), startInputWrapper);
     const durGroup = el('div', { className: 'form-group' }, el('label', {}, t('duration')), durSelect);
     scheduleRow.appendChild(startGroup);
     scheduleRow.appendChild(durGroup);
@@ -283,7 +307,9 @@ export function openLessonModal(dateStr, lesson = null) {
   const btnGroup = el('div', { className: 'btn-group' });
 
   const getLessonPayload = () => {
-    const startMinute = parseInt(startSelect.value);
+    const h = parseInt(startHourSelect.value) || 10;
+    const m = parseInt(startMinuteSelect.value) || 0;
+    const startMinute = h * 60 + m;
     const durationMinutes = parseInt(durSelect.value);
     const instructor = instrSelect.value || null;
     const recurring = recurToggle.classList.contains('active');
@@ -352,6 +378,7 @@ export function openLessonModal(dateStr, lesson = null) {
     if (!payload) return null;
 
     const lessonData = payload.lessonData;
+    lastCreatedStartMinute = lessonData.startMinute;
     let mutated = false;
     const recurringDisabled = isRecurringInstance && !lessonData.recurring;
     const recurringReenabled = isRecurringInstance && lessonData.recurring && !!baseLesson?.recurringUntil;
