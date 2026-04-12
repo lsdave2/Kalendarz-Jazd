@@ -310,7 +310,6 @@ export function buildSettingsView() {
     langRow.appendChild(langSelect);
     displaySection.appendChild(langRow);
     displaySection.appendChild(el('h4', {}, t('display')));
-    displaySection.appendChild(buildDayScheduleSettings());
     displaySection.appendChild(el('div', { style: { marginTop: '12px' } }, buildGridScaleSettings()));
     container.appendChild(displaySection);
   } else {
