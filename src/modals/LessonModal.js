@@ -21,8 +21,24 @@ export function openLessonModal(dateStr, lesson = null) {
   const clientNames = getKnownClientNames(data);
   const initialType = isEdit && isGroupEdit ? 'group' : 'individual';
 
+  history.pushState({ modalOpen: true }, '');
+
+  const closeModal = (fromPopState = false) => {
+    overlay.remove();
+    window.removeEventListener('popstate', onPopState);
+    if (!fromPopState) {
+      history.back();
+    }
+  };
+
+  const onPopState = (e) => {
+    closeModal(true);
+  };
+
+  window.addEventListener('popstate', onPopState);
+
   const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
-    if (e.target === overlay) overlay.remove();
+    if (e.target === overlay) closeModal();
   }});
 
   const modal = el('div', { className: 'modal', tabIndex: -1 });
@@ -467,7 +483,7 @@ export function openLessonModal(dateStr, lesson = null) {
       className: 'btn btn-danger btn-sm',
       onClick: () => {
         deleteLesson(lesson.id);
-        overlay.remove();
+        closeModal();
         showToast(t('lessonDeleted'), 'delete');
         render();
       }
@@ -479,7 +495,7 @@ export function openLessonModal(dateStr, lesson = null) {
       onClick: () => {
         toggleCancelLessonInstance(lesson.id, dateStr);
         processPastLessonsForCredits();
-        overlay.remove();
+        closeModal();
         showToast(isCancelled ? t('lessonRestored') : t('lessonCancelled'), isCancelled ? 'restore' : 'cancel');
         render();
       }
@@ -493,7 +509,7 @@ export function openLessonModal(dateStr, lesson = null) {
       const result = saveLesson();
       if (!result) return;
       showToast(result === 'created' ? t('lessonCreated') : t('lessonUpdated'), 'check_circle');
-      overlay.remove();
+      closeModal();
       render();
     }
   }, icon('check'), isRecurringInstance ? t('saveOccurrence') : (isEdit ? t('update') : t('create'))));
