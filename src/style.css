@@ -730,6 +730,20 @@ input, select, textarea { font-family: inherit; }
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
+.modal-overlay.closing {
+  animation: fadeOverlayOut 0.2s ease forwards;
+}
+@keyframes fadeOverlayOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.modal-overlay.closing .modal {
+  animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes slideDown {
+  from { transform: translateY(var(--drag-y, 0)); }
+  to { transform: translateY(100%); }
+}
 .modal-handle {
   width: 36px;
   height: 4px;
@@ -737,6 +751,18 @@ input, select, textarea { font-family: inherit; }
   background: var(--text-muted);
   margin: 0 auto 16px;
   opacity: 0.4;
+  cursor: grab;
+  touch-action: none; /* Prevent scrolling while dragging handle */
+  position: relative;
+}
+/* Hit area expansion */
+.modal-handle::after {
+  content: '';
+  position: absolute;
+  inset: -10px -20px;
+}
+.modal-handle:active {
+  cursor: grabbing;
 }
 .modal h3 {
   font-size: 1.1rem;

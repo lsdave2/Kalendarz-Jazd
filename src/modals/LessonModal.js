@@ -23,11 +23,54 @@ export function openLessonModal(dateStr, lesson = null) {
 
   history.pushState({ modalOpen: true }, '');
 
+  let isClosing = false;
   const closeModal = (fromPopState = false) => {
-    overlay.remove();
-    window.removeEventListener('popstate', onPopState);
-    if (!fromPopState) {
-      history.back();
+    if (isClosing) return;
+    isClosing = true;
+    overlay.classList.add('closing');
+    setTimeout(() => {
+      overlay.remove();
+      window.removeEventListener('popstate', onPopState);
+      window.removeEventListener('mousemove', onDragMove);
+      window.removeEventListener('touchmove', onDragMove);
+      window.removeEventListener('mouseup', onDragEnd);
+      window.removeEventListener('touchend', onDragEnd);
+      if (!fromPopState) {
+        history.back();
+      }
+    }, 200);
+  };
+
+  let dragStartY = 0;
+  let dragCurrentY = 0;
+  let isDragging = false;
+
+  const onDragStart = (e) => {
+    dragStartY = (e.touches ? e.touches[0].pageY : e.pageY);
+    isDragging = true;
+    modal.style.transition = 'none';
+  };
+
+  const onDragMove = (e) => {
+    if (!isDragging) return;
+    dragCurrentY = (e.touches ? e.touches[0].pageY : e.pageY);
+    const diffY = dragCurrentY - dragStartY;
+    if (diffY > 0) {
+      modal.style.transform = `translateY(${diffY}px)`;
+      modal.style.setProperty('--drag-y', `${diffY}px`);
+    }
+  };
+
+  const onDragEnd = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    const diffY = dragCurrentY - dragStartY;
+    if (diffY > 100) {
+      closeModal();
+    } else {
+      modal.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+      modal.style.transform = 'translateY(0)';
+      modal.style.setProperty('--drag-y', '0px');
     }
   };
 
@@ -42,7 +85,15 @@ export function openLessonModal(dateStr, lesson = null) {
   }});
 
   const modal = el('div', { className: 'modal', tabIndex: -1 });
-  modal.appendChild(el('div', { className: 'modal-handle' }));
+  const handle = el('div', { className: 'modal-handle' });
+  handle.addEventListener('mousedown', onDragStart);
+  handle.addEventListener('touchstart', onDragStart, { passive: true });
+  window.addEventListener('mousemove', onDragMove);
+  window.addEventListener('touchmove', onDragMove, { passive: false });
+  window.addEventListener('mouseup', onDragEnd);
+  window.addEventListener('touchend', onDragEnd);
+
+  modal.appendChild(handle);
   modal.appendChild(el('h3', {}, isEdit ? t('editLesson') : t('newLesson')));
 
   const content = el('div');
