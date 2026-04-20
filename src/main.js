@@ -39,7 +39,9 @@ export function render() {
     app.appendChild(buildHeader());
   }
 
-  const page = el('div', { className: 'page' });
+  const page = el('div', {
+    className: `page ${currentTab === 'calendar' && calendarState.selectedDate ? 'day-view' : ''}`.trim()
+  });
 
   switch (currentTab) {
     case 'calendar':
@@ -68,11 +70,12 @@ export function render() {
 function buildHeader() {
   const titleText = currentTab === 'calendar'
     ? (calendarState.selectedDate ? formatDateNice(calendarState.selectedDate) : t('appTitle'))
-    : currentTab === 'packages' ? t('packages') : currentTab === 'horses' ? t('horsesTab') : t('settings');
+    : currentTab === 'packages' ? t('clientsTab') : currentTab === 'horses' ? t('horsesTab') : t('settings');
+  const titleIcon = currentTab === 'packages' ? 'groups' : 'calendar_month';
 
   const header = el('header', { className: 'app-header' },
     el('h1', {},
-      icon('calendar_month'),
+      icon(titleIcon),
       titleText
     )
   );
@@ -99,7 +102,7 @@ function buildBottomNav() {
   ];
 
   if (admin) {
-    tabs.push({ id: 'packages', icon: 'inventory_2', label: t('packages') });
+    tabs.push({ id: 'packages', icon: 'groups', label: t('clientsTab') });
     tabs.push({ id: 'horses', icon: 'horse', label: t('horsesTab') });
   }
 

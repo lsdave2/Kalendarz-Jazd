@@ -53,6 +53,143 @@ function formatDuration(minutes) {
   return parts.length > 0 ? parts.join(' ') : `0 ${t('m')}`;
 }
 
+function parseRate(value) {
+  const rate = Number.parseFloat(value);
+  return Number.isFinite(rate) ? rate : 0;
+}
+
+function getPaymentReportRates() {
+  const settings = getSettings();
+  const individual = Number.parseFloat(settings.paymentReportIndividualRate);
+  const group = Number.parseFloat(settings.paymentReportGroupRate);
+  return {
+    individual: Number.isFinite(individual) ? individual : 60,
+    group: Number.isFinite(group) ? group : 30
+  };
+}
+
+function savePaymentReportRates(individual, group) {
+  const settings = getSettings();
+  settings.paymentReportIndividualRate = Number.isFinite(individual) ? individual : 60;
+  settings.paymentReportGroupRate = Number.isFinite(group) ? group : 30;
+  saveSettings(settings);
+}
+
+function getRevenueReportRates() {
+  const settings = getSettings();
+  return {
+    individual: Number.parseFloat(settings.revenueReportIndividualRate) || 140,
+    group: Number.parseFloat(settings.revenueReportGroupRate) || 110,
+    individualPackage: Number.parseFloat(settings.revenueReportIndividualPackageRate) || 110,
+    groupPackage: Number.parseFloat(settings.revenueReportGroupPackageRate) || 90
+  };
+}
+
+function saveRevenueReportRates(rates) {
+  const settings = getSettings();
+  settings.revenueReportIndividualRate = rates.individual;
+  settings.revenueReportGroupRate = rates.group;
+  settings.revenueReportIndividualPackageRate = rates.individualPackage;
+  settings.revenueReportGroupPackageRate = rates.groupPackage;
+  saveSettings(settings);
+}
+
+function createRevenueStatValue(count, revenue) {
+  return el('div', { className: 'report-summary-stat' },
+    el('div', { className: 'report-summary-stat-count' }, `${count}×`),
+    el('div', { className: 'report-summary-stat-revenue' }, formatCurrency(revenue))
+  );
+}
+
+function getCustomPaymentRate(clientName) {
+  const name = (clientName || '').trim().toLowerCase();
+  if (!name) return null;
+  const data = getData();
+  const pkg = (data.packages || []).find(entry => (entry.name || '').trim().toLowerCase() === name);
+  const rate = Number.parseFloat(pkg?.customPaymentRate);
+  return Number.isFinite(rate) ? rate : null;
+}
+
+function getRevenueDefaultRate(lesson, participant, rates) {
+  if (participant) {
+    return participant.packageMode !== false ? rates.groupPackageRate : rates.groupRate;
+  }
+  return lesson.packageMode !== false ? rates.individualPackageRate : rates.individualRate;
+}
+
+function computeRevenueReport({ from, to, rates }) {
+  const dates = getDatesInRange(from, to);
+  const totals = {
+    individual: { count: 0, hours: 0, revenue: 0 },
+    individualPackage: { count: 0, hours: 0, revenue: 0 },
+    group: { count: 0, hours: 0, revenue: 0 },
+    groupPackage: { count: 0, hours: 0, revenue: 0 }
+  };
+  const days = [];
+
+  for (const dateStr of dates) {
+    const lessons = getLessonsForDate(dateStr);
+    const dayEntries = [];
+    let dayTotal = 0;
+
+    for (const lesson of lessons) {
+      const isCancelled = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(dateStr);
+      if (isCancelled) continue;
+
+      const durationMultiplier = Math.max((lesson.durationMinutes || 0) / 60, 0);
+
+      if (isGroupLessonRecord(lesson)) {
+        for (const participant of getLessonParticipants(lesson)) {
+          const bucket = participant.packageMode !== false ? totals.groupPackage : totals.group;
+          const clientName = participant.packageName || participant.name;
+          const customRate = getCustomPaymentRate(clientName);
+          const rate = customRate ?? getRevenueDefaultRate(lesson, participant, rates);
+          const amount = durationMultiplier * rate;
+          bucket.count += 1;
+          bucket.hours += durationMultiplier;
+          bucket.revenue += amount;
+          dayTotal += amount;
+          dayEntries.push({
+            clientName,
+            amount,
+            rate,
+            durationMultiplier,
+            lessonType: participant.packageMode !== false ? 'groupPackage' : 'group'
+          });
+        }
+        continue;
+      }
+
+      const bucket = lesson.packageMode !== false ? totals.individualPackage : totals.individual;
+      const clientName = lesson.title || '';
+      const customRate = getCustomPaymentRate(clientName);
+      const rate = customRate ?? getRevenueDefaultRate(lesson, null, rates);
+      const amount = durationMultiplier * rate;
+      bucket.count += 1;
+      bucket.hours += durationMultiplier;
+      bucket.revenue += amount;
+      dayTotal += amount;
+      dayEntries.push({
+        clientName,
+        amount,
+        rate,
+        durationMultiplier,
+        lessonType: lesson.packageMode !== false ? 'individualPackage' : 'individual'
+      });
+    }
+
+    if (dayEntries.length > 0) {
+      days.push({
+        dateStr,
+        total: dayTotal,
+        entries: dayEntries
+      });
+    }
+  }
+
+  return { totals, days };
+}
+
 function computeInstructorPaymentReport({ instructor, from, to }) {
   const dates = getDatesInRange(from, to);
   let individualCount = 0;
@@ -91,8 +228,17 @@ function computeInstructorPaymentReport({ instructor, from, to }) {
   return { individualCount, individualDurationMinutes, groupLessonsCount, groupParticipants };
 }
 
+function computeInstructorPaymentAmount({ instructor, from, to, individualRate, groupRate }) {
+  const report = computeInstructorPaymentReport({ instructor, from, to });
+  return (
+    (report.individualDurationMinutes / 60) * individualRate +
+    report.groupParticipants * groupRate
+  );
+}
+
 function openInstructorPaymentModal() {
   const data = getData();
+  const savedRates = getPaymentReportRates();
   const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
     if (e.target === overlay) overlay.remove();
   }});
@@ -129,13 +275,13 @@ function openInstructorPaymentModal() {
   const ratesRow = el('div', { className: 'form-row' });
   const individualRateGroup = el('div', { className: 'form-group' });
   individualRateGroup.appendChild(el('label', {}, t('individualRate')));
-  const individualRateInput = el('input', { className: 'form-input', type: 'number', min: '0', step: '1', value: '60' });
+  const individualRateInput = el('input', { className: 'form-input', type: 'number', min: '0', step: '1', value: String(savedRates.individual) });
   individualRateGroup.appendChild(individualRateInput);
   ratesRow.appendChild(individualRateGroup);
 
   const groupRateGroup = el('div', { className: 'form-group' });
   groupRateGroup.appendChild(el('label', {}, t('groupRatePerPerson')));
-  const groupRateInput = el('input', { className: 'form-input', type: 'number', min: '0', step: '1', value: '30' });
+  const groupRateInput = el('input', { className: 'form-input', type: 'number', min: '0', step: '1', value: String(savedRates.group) });
   groupRateGroup.appendChild(groupRateInput);
   ratesRow.appendChild(groupRateGroup);
   modal.appendChild(ratesRow);
@@ -151,6 +297,7 @@ function openInstructorPaymentModal() {
     const to = toInput.value;
     const individualRate = parseFloat(individualRateInput.value);
     const groupRate = parseFloat(groupRateInput.value);
+    savePaymentReportRates(individualRate, groupRate);
 
     if (!instructor || !from || !to) {
       summary.innerHTML = '';
@@ -189,6 +336,291 @@ function openInstructorPaymentModal() {
   toInput.addEventListener('change', updateSummary);
   individualRateInput.addEventListener('input', updateSummary);
   groupRateInput.addEventListener('input', updateSummary);
+
+  const btnRow = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-secondary',
+    style: { width: '100%' },
+    onClick: () => overlay.remove()
+  }, t('close')));
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
+function openRevenueReportModal() {
+  const today = formatDate(new Date());
+  const data = getData();
+  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
+    if (e.target === overlay) overlay.remove();
+  }});
+
+  const modal = el('div', { className: 'modal' });
+  modal.appendChild(el('div', { className: 'modal-handle' }));
+  modal.appendChild(el('h3', {}, t('revenueReportTitle')));
+
+  const rangeRow = el('div', { className: 'form-row' });
+  const fromGroup = el('div', { className: 'form-group' });
+  fromGroup.appendChild(el('label', {}, t('dateFrom')));
+  const fromInput = el('input', { className: 'form-input', type: 'date', value: today });
+  fromGroup.appendChild(fromInput);
+  rangeRow.appendChild(fromGroup);
+
+  const toGroup = el('div', { className: 'form-group' });
+  toGroup.appendChild(el('label', {}, t('dateTo')));
+  const toInput = el('input', { className: 'form-input', type: 'date', value: today });
+  toGroup.appendChild(toInput);
+  rangeRow.appendChild(toGroup);
+  modal.appendChild(rangeRow);
+
+  const savedRevenueRates = getRevenueReportRates();
+
+  const ratesRow = el('div', { className: 'form-row' });
+  const individualRateGroup = el('div', { className: 'form-group' });
+  individualRateGroup.appendChild(el('label', {}, t('individualLessonRate')));
+  const individualRateInput = el('input', {
+    className: 'form-input',
+    type: 'number',
+    min: '0',
+    step: '0.01',
+    value: String(savedRevenueRates.individual)
+  });
+  individualRateGroup.appendChild(individualRateInput);
+  ratesRow.appendChild(individualRateGroup);
+
+  const groupRateGroup = el('div', { className: 'form-group' });
+  groupRateGroup.appendChild(el('label', {}, t('groupLessonRate')));
+  const groupRateInput = el('input', {
+    className: 'form-input',
+    type: 'number',
+    min: '0',
+    step: '0.01',
+    value: String(savedRevenueRates.group)
+  });
+  groupRateGroup.appendChild(groupRateInput);
+  ratesRow.appendChild(groupRateGroup);
+  modal.appendChild(ratesRow);
+
+  const packageRatesRow = el('div', { className: 'form-row' });
+  const individualPackageRateGroup = el('div', { className: 'form-group' });
+  individualPackageRateGroup.appendChild(el('label', {}, t('individualPackageLessonRate')));
+  const individualPackageRateInput = el('input', {
+    className: 'form-input',
+    type: 'number',
+    min: '0',
+    step: '0.01',
+    value: String(savedRevenueRates.individualPackage)
+  });
+  individualPackageRateGroup.appendChild(individualPackageRateInput);
+  packageRatesRow.appendChild(individualPackageRateGroup);
+
+  const groupPackageRateGroup = el('div', { className: 'form-group' });
+  groupPackageRateGroup.appendChild(el('label', {}, t('groupPackageLessonRate')));
+  const groupPackageRateInput = el('input', {
+    className: 'form-input',
+    type: 'number',
+    min: '0',
+    step: '0.01',
+    value: String(savedRevenueRates.groupPackage)
+  });
+  groupPackageRateGroup.appendChild(groupPackageRateInput);
+  packageRatesRow.appendChild(groupPackageRateGroup);
+  modal.appendChild(packageRatesRow);
+
+  const detailedRow = el('div', { className: 'toggle-row', style: { marginTop: '12px' } });
+  detailedRow.appendChild(el('span', {}, t('detailedReport')));
+  const detailedToggle = el('div', {
+    className: 'toggle',
+    onClick: () => {
+      detailedToggle.classList.toggle('active');
+      updateSummary();
+    }
+  });
+  detailedRow.appendChild(detailedToggle);
+  modal.appendChild(detailedRow);
+  modal.appendChild(el('p', {
+    className: 'report-summary-muted',
+    style: { marginTop: '8px', marginBottom: '0' }
+  }, t('detailedReportHint')));
+
+  const instructorSection = el('div', { className: 'report-instructor-section' });
+  instructorSection.appendChild(el('div', { className: 'report-instructor-title' }, t('deductInstructorPayments')));
+  const instructorList = el('div', { className: 'report-instructor-list' });
+  const instructorRows = [];
+  for (const instr of data.instructors || []) {
+    const name = instr.name || instr;
+    const rowState = { name, active: false, amount: 0, amountEl: null, toggleEl: null };
+    const row = el('div', { className: 'report-instructor-row' });
+    const left = el('div', { className: 'report-instructor-left' });
+    left.appendChild(el('div', { className: 'report-instructor-name' }, name));
+    left.appendChild(el('div', { className: 'report-instructor-payment', }, formatCurrency(0)));
+    row.appendChild(left);
+    rowState.amountEl = left.lastChild;
+    const toggle = el('div', {
+      className: 'toggle',
+      onClick: () => {
+        rowState.active = !rowState.active;
+        toggle.classList.toggle('active', rowState.active);
+        updateSummary();
+      }
+    });
+    rowState.toggleEl = toggle;
+    row.appendChild(toggle);
+    instructorList.appendChild(row);
+    instructorRows.push(rowState);
+  }
+  if (instructorRows.length === 0) {
+    instructorList.appendChild(el('div', { className: 'report-instructor-empty' }, t('noInstructorsYet') || t('noInstructor')));
+  }
+  instructorSection.appendChild(instructorList);
+  modal.appendChild(instructorSection);
+
+  const summary = el('div', { className: 'report-summary' },
+    el('div', { className: 'report-summary-muted' }, t('revenueReportInstructions'))
+  );
+  modal.appendChild(summary);
+
+  const updateSummary = () => {
+    const from = fromInput.value;
+    const to = toInput.value;
+    if (!from || !to) {
+      summary.innerHTML = '';
+      summary.appendChild(el('div', { className: 'report-summary-muted' }, t('revenueReportInstructions')));
+      return;
+    }
+
+    const individualRate = parseRate(individualRateInput.value);
+    const groupRate = parseRate(groupRateInput.value);
+    const individualPackageRate = parseRate(individualPackageRateInput.value);
+    const groupPackageRate = parseRate(groupPackageRateInput.value);
+    const paymentRates = getPaymentReportRates();
+
+    saveRevenueReportRates({
+      individual: individualRate,
+      group: groupRate,
+      individualPackage: individualPackageRate,
+      groupPackage: groupPackageRate
+    });
+
+    const report = computeRevenueReport({
+      from,
+      to,
+      rates: { individualRate, groupRate, individualPackageRate, groupPackageRate }
+    });
+    const grossRevenue = report.totals.individual.revenue
+      + report.totals.group.revenue
+      + report.totals.individualPackage.revenue
+      + report.totals.groupPackage.revenue;
+    let instructorDeductions = 0;
+    const selectedInstructorRows = [];
+    for (const rowState of instructorRows) {
+      const amount = computeInstructorPaymentAmount({
+        instructor: rowState.name,
+        from,
+        to,
+        individualRate: paymentRates.individual,
+        groupRate: paymentRates.group
+      });
+      rowState.amount = amount;
+      if (rowState.amountEl) rowState.amountEl.textContent = formatCurrency(amount);
+      if (rowState.active) {
+        instructorDeductions += amount;
+        selectedInstructorRows.push(rowState);
+      }
+    }
+    const totalRevenue = grossRevenue - instructorDeductions;
+
+    summary.innerHTML = '';
+    summary.appendChild(el('div', { className: 'report-summary-title' }, t('reportSummary')));
+
+    if (!detailedToggle.classList.contains('active')) {
+      const grid = el('div', { className: 'report-summary-grid' });
+      grid.appendChild(el('div', { className: 'report-summary-label' }, t('individualLessonRevenue')));
+      grid.appendChild(createRevenueStatValue(report.totals.individual.count, report.totals.individual.revenue));
+      grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupLessonRevenue')));
+      grid.appendChild(createRevenueStatValue(report.totals.group.count, report.totals.group.revenue));
+      grid.appendChild(el('div', { className: 'report-summary-label' }, t('individualPackageLessonRevenue')));
+      grid.appendChild(createRevenueStatValue(report.totals.individualPackage.count, report.totals.individualPackage.revenue));
+      grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupPackageLessonRevenue')));
+      grid.appendChild(createRevenueStatValue(report.totals.groupPackage.count, report.totals.groupPackage.revenue));
+      grid.appendChild(el('div', { className: 'report-summary-label' }, t('grossRevenue')));
+      grid.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(grossRevenue)));
+      grid.appendChild(el('div', { className: 'report-summary-label' }, t('instructorDeductions')));
+      grid.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(instructorDeductions)));
+      grid.appendChild(el('div', { className: 'report-summary-label total' }, t('netRevenue')));
+      grid.appendChild(el('div', { className: 'report-summary-value total' }, formatCurrency(totalRevenue)));
+      summary.appendChild(grid);
+      return;
+    }
+
+    summary.appendChild(el('div', {
+      className: 'report-summary-grid',
+      style: { marginBottom: '12px' }
+    },
+      el('div', { className: 'report-summary-label' }, t('grossRevenue')),
+      el('div', { className: 'report-summary-value' }, formatCurrency(grossRevenue))
+    ));
+
+    for (const day of report.days) {
+      const daySection = el('div', { className: 'report-day-section' });
+      const dayHeader = el('div', { className: 'report-day-header' });
+      dayHeader.appendChild(el('div', { className: 'report-day-title' }, day.dateStr));
+      dayHeader.appendChild(el('div', { className: 'report-day-total' }, formatCurrency(day.total)));
+      daySection.appendChild(dayHeader);
+
+      const entriesWrap = el('div', { className: 'report-day-entries' });
+      for (const entry of day.entries) {
+        const row = el('div', { className: 'report-entry-row' });
+        const left = el('div', { className: 'report-entry-left' });
+        left.appendChild(el('div', { className: 'report-entry-name' }, entry.clientName || t('client')));
+        left.appendChild(el('div', { className: 'report-entry-meta' }, `${formatDuration(Math.round(entry.durationMultiplier * 60))} × ${formatCurrency(entry.rate)}/h`));
+        row.appendChild(left);
+        row.appendChild(el('div', { className: 'report-entry-amount' }, formatCurrency(entry.amount)));
+        entriesWrap.appendChild(row);
+      }
+
+      daySection.appendChild(entriesWrap);
+      summary.appendChild(daySection);
+    }
+
+    if (selectedInstructorRows.length > 0) {
+      const deductionSection = el('div', { className: 'report-day-section' });
+      const deductionHeader = el('div', { className: 'report-day-header' });
+      deductionHeader.appendChild(el('div', { className: 'report-day-title' }, t('instructorDeductions')));
+      deductionHeader.appendChild(el('div', { className: 'report-day-total' }, `-${formatCurrency(instructorDeductions)}`));
+      deductionSection.appendChild(deductionHeader);
+
+      const deductionList = el('div', { className: 'report-day-entries' });
+      for (const rowState of selectedInstructorRows) {
+        const row = el('div', { className: 'report-entry-row' });
+        const left = el('div', { className: 'report-entry-left' });
+        left.appendChild(el('div', { className: 'report-entry-name' }, rowState.name));
+        left.appendChild(el('div', { className: 'report-entry-meta' }, t('instructorPayment')));
+        row.appendChild(left);
+        row.appendChild(el('div', { className: 'report-entry-amount' }, `-${formatCurrency(rowState.amount)}`));
+        deductionList.appendChild(row);
+      }
+      deductionSection.appendChild(deductionList);
+      summary.appendChild(deductionSection);
+    }
+
+    summary.appendChild(el('div', { className: 'report-day-section' },
+      el('div', { className: 'report-day-header' },
+        el('div', { className: 'report-day-title' }, t('netRevenue')),
+        el('div', { className: 'report-day-total' }, formatCurrency(totalRevenue))
+      )
+    ));
+  };
+
+  fromInput.addEventListener('change', updateSummary);
+  toInput.addEventListener('change', updateSummary);
+  individualRateInput.addEventListener('input', updateSummary);
+  groupRateInput.addEventListener('input', updateSummary);
+  individualPackageRateInput.addEventListener('input', updateSummary);
+  groupPackageRateInput.addEventListener('input', updateSummary);
+
+  updateSummary();
 
   const btnRow = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
   btnRow.appendChild(el('button', {
@@ -429,11 +861,18 @@ export function buildSettingsView() {
   // ── Reports
   const reportSection = el('div', { className: 'settings-section' });
   reportSection.appendChild(el('h4', {}, t('reports')));
-  reportSection.appendChild(el('button', {
+  const reportButtons = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } });
+  reportButtons.appendChild(el('button', {
     className: 'btn btn-primary btn-sm',
     style: { width: '100%' },
     onClick: () => openInstructorPaymentModal()
   }, icon('payments'), t('generatePaymentReport')));
+  reportButtons.appendChild(el('button', {
+    className: 'btn btn-primary btn-sm',
+    style: { width: '100%' },
+    onClick: () => openRevenueReportModal()
+  }, icon('request_quote'), t('generateRevenueReport')));
+  reportSection.appendChild(reportButtons);
   container.appendChild(reportSection);
 
   // ── Data management

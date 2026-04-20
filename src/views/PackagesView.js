@@ -1,13 +1,12 @@
 import { t } from '../i18n.js';
 import { el, icon } from '../utils.js';
-import { getData, saveData, isAdmin, deletePackage, ensurePackageEntry } from '../store.js';
+import { getData, saveData, isAdmin, deletePackage, ensurePackageEntry, setPackageActive } from '../store.js';
 import { render, showToast } from '../main.js';
-import { isGroupLessonRecord } from '../services/LessonService.js';
-import { openEditClientModal, openAddCreditsModal, openCreditHistoryModal } from '../modals/ClientModals.js';
+import { openAddCreditsModal, openCreditHistoryModal } from '../modals/ClientModals.js';
 
 function buildPackageCard(pkg) {
   const card = el('div', {
-    className: 'package-card',
+    className: `package-card ${pkg.active === false ? 'inactive' : ''}`.trim(),
     style: { cursor: 'pointer' },
     'data-name': pkg.name.toLowerCase(),
     onClick: () => openCreditHistoryModal(pkg)
@@ -44,14 +43,6 @@ function buildPackageCard(pkg) {
 
   if (isAdmin()) {
     const actions = el('div', { className: 'package-actions' });
-    actions.appendChild(el('button', {
-      className: 'package-action-btn',
-      title: t('editClient') || 'Edit',
-      onClick: (e) => {
-        e.stopPropagation();
-        openEditClientModal(pkg);
-      }
-    }, icon('edit')));
     actions.appendChild(el('button', {
       className: 'package-action-btn',
       title: t('deleteClient'),
@@ -148,7 +139,13 @@ export function buildPackagesView() {
         const d = getData();
         const exists = d.packages.find(p => p.name.toLowerCase() === name.toLowerCase());
         if (exists) {
-          showToast(t('clientAlreadyExists'), 'warning');
+          if (exists.active === false) {
+            setPackageActive(exists.id, true);
+            showToast(t('clientRestored') || 'Client restored', 'restore');
+            render();
+          } else {
+            showToast(t('clientAlreadyExists'), 'warning');
+          }
           return;
         }
         ensurePackageEntry(name, { save: false, hasPackageLessons: false });
@@ -160,11 +157,13 @@ export function buildPackagesView() {
   }
 
   const sorted = [...(data.packages || [])].sort((a, b) => a.name.localeCompare(b.name));
-  const packageClients = sorted.filter(pkg => pkg.hasPackageLessons);
-  const noPackageClients = sorted.filter(pkg => !pkg.hasPackageLessons);
+  const packageClients = sorted.filter(pkg => pkg.hasPackageLessons && pkg.active !== false);
+  const noPackageClients = sorted.filter(pkg => !pkg.hasPackageLessons && pkg.active !== false);
+  const archivedClients = sorted.filter(pkg => pkg.active === false);
 
   container.appendChild(buildPackageSection(t('packageClients'), packageClients, t('noPackageClientsYet')));
   container.appendChild(buildPackageSection(t('noPackageLessons'), noPackageClients, t('noPackageLessonsYet')));
+  container.appendChild(buildPackageSection(t('archivedClients') || 'Archived', archivedClients, t('noArchivedClientsYet') || 'No archived clients yet.'));
 
   return container;
 }

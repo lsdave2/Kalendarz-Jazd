@@ -1,11 +1,11 @@
 import { t } from '../i18n.js';
 import { el, icon, formatDate, minutesToTime } from '../utils.js';
-import { updatePackageName, addPackageCredits, getLessonsForDate } from '../store.js';
+import { updatePackageName, addPackageCredits, getLessonsForDate, getData, saveData, setPackageActive } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord } from '../services/LessonService.js';
 import { formatDateNice } from '../views/CalendarView.js';
 
-export function openEditClientModal(pkg) {
+export function openEditClientModal(pkg, { onSaved } = {}) {
   const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
     if (e.target === overlay) overlay.remove();
   }});
@@ -39,6 +39,7 @@ export function openEditClientModal(pkg) {
         const success = updatePackageName(pkg.id, newName);
         if (success) {
            showToast(t('clientUpdated') || 'Client name updated', 'check_circle');
+           if (typeof onSaved === 'function') onSaved(newName);
            render();
         } else {
            showToast(t('clientAlreadyExists') || 'Name already exists', 'warning');
@@ -114,7 +115,62 @@ export function openCreditHistoryModal(pkg) {
 
   const modal = el('div', { className: 'modal' });
   modal.appendChild(el('div', { className: 'modal-handle' }));
-  modal.appendChild(el('h3', {}, `${pkg.name} - ${t('creditHistory')}`));
+  const title = el('h3', {}, `${pkg.name} - ${t('creditHistory')}`);
+  modal.appendChild(title);
+
+  const statusRow = el('div', {
+    className: 'client-modal-status',
+    style: { marginBottom: '12px' }
+  }, pkg.active === false ? t('archived') : t('active'));
+  modal.appendChild(statusRow);
+
+  const actionRow = el('div', { className: 'client-modal-actions' });
+  actionRow.appendChild(el('button', {
+    className: 'btn btn-secondary btn-sm',
+    onClick: () => {
+      openEditClientModal(pkg, {
+        onSaved: (newName) => {
+          title.textContent = `${newName} - ${t('creditHistory')}`;
+        }
+      });
+    }
+  }, icon('edit'), t('editClient') || 'Edit Client Name'));
+
+  actionRow.appendChild(el('button', {
+    className: 'btn btn-secondary btn-sm',
+    onClick: () => {
+      const nextActive = pkg.active === false;
+      setPackageActive(pkg.id, nextActive);
+      showToast(nextActive ? (t('clientRestored') || 'Client restored') : (t('clientArchived') || 'Client archived'), nextActive ? 'restore' : 'archive');
+      render();
+      overlay.remove();
+    }
+  }, icon(pkg.active === false ? 'restore' : 'archive'), pkg.active === false ? (t('restoreClient') || 'Restore client') : (t('archiveClient') || 'Archive client')));
+  modal.appendChild(actionRow);
+
+  const customRateValue = Number.isFinite(Number(pkg.customPaymentRate)) ? String(pkg.customPaymentRate) : '';
+  const rateGroup = el('div', { className: 'form-group', style: { marginTop: '12px' } });
+  rateGroup.appendChild(el('label', {}, t('customPaymentRate')));
+  const rateInput = el('input', {
+    className: 'form-input',
+    type: 'number',
+    min: '0',
+    step: '0.01',
+    placeholder: '140',
+    value: customRateValue
+  });
+  rateGroup.appendChild(rateInput);
+  modal.appendChild(rateGroup);
+
+  const rateHint = el('p', {
+    style: {
+      marginTop: '8px',
+      marginBottom: '0',
+      color: 'var(--text-secondary)',
+      fontSize: '0.8rem'
+    }
+  }, t('customPaymentRateHint'));
+  modal.appendChild(rateHint);
 
   const historyList = el('div', { className: 'history-list', style: { marginTop: '16px', maxHeight: '60vh', overflowY: 'auto' } });
 
@@ -196,9 +252,25 @@ export function openCreditHistoryModal(pkg) {
   const btnRow = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
-    style: { width: '100%' },
     onClick: () => overlay.remove()
   }, t('close')));
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-primary',
+    style: { marginLeft: 'auto' },
+    onClick: () => {
+      const raw = rateInput.value.trim();
+      const nextValue = raw === '' ? null : Number.parseFloat(raw);
+      const data = getData();
+      const target = data.packages.find(p => p.id === pkg.id);
+      if (target) {
+        target.customPaymentRate = Number.isFinite(nextValue) ? nextValue : null;
+        saveData();
+        showToast(t('customPaymentRateSaved'), 'check_circle');
+        render();
+      }
+      overlay.remove();
+    }
+  }, icon('check'), t('saveKey')));
   modal.appendChild(btnRow);
 
   overlay.appendChild(modal);

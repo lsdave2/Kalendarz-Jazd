@@ -148,17 +148,25 @@ export function buildDayView(dateStr) {
   const schedule = el('div', { className: 'day-schedule', id: 'day-schedule' });
   const lessons = getLessonsForDate(dateStr);
   const { startHour: START_HOUR, endHour: END_HOUR } = getDayScheduleHours();
-  const visibleLessons = lessons.filter(l => (l.startMinute >= START_HOUR * 60 && l.startMinute < (END_HOUR + 1) * 60));
+  const visibleLessons = lessons.filter(l => (l.startMinute >= START_HOUR * 60 && l.startMinute < END_HOUR * 60));
+  const scheduleEndHour = END_HOUR;
 
-  let dayScale = MIN_GRID_SCALE;
+  const navHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--nav-h')) || 60;
+  const viewportHeight = document.documentElement.clientHeight || window.innerHeight || 0;
+  const visibleScheduleHours = Math.max(1, scheduleEndHour - START_HOUR);
+  const viewportFitScale = viewportHeight > 0
+    ? Math.max(MIN_GRID_SCALE, (viewportHeight - navHeight - 24) / (visibleScheduleHours * DAY_SCHEDULE_SLOT_HEIGHT))
+    : MIN_GRID_SCALE;
+
+  let dayScale = viewportFitScale;
   for (const l of visibleLessons) {
     const scale = calculateLessonMinHeight(l) / ((l.durationMinutes / 60) * DAY_SCHEDULE_SLOT_HEIGHT);
     if (scale > dayScale) dayScale = scale;
   }
   const slotH = DAY_SCHEDULE_SLOT_HEIGHT * dayScale;
-  schedule.style.minHeight = `${(END_HOUR - START_HOUR + 1) * slotH}px`;
+  schedule.style.minHeight = `${(scheduleEndHour - START_HOUR) * slotH}px`;
 
-  for (let h = START_HOUR; h <= END_HOUR; h++) {
+  for (let h = START_HOUR; h < scheduleEndHour; h++) {
     const row = el('div', { className: 'hour-row' });
     row.appendChild(el('div', { className: 'hour-content' }));
     schedule.appendChild(row);
@@ -171,7 +179,7 @@ export function buildDayView(dateStr) {
     line.style.top = `${(h - START_HOUR) * slotH}px`;
     schedule.appendChild(line);
 
-    if (h < END_HOUR) {
+    if (h < scheduleEndHour) {
       const hlbl = el('div', { className: 'hour-label' }, `${String(h).padStart(2, '0')}:30`);
       hlbl.style.top = `${(h - START_HOUR) * slotH + (slotH / 2)}px`;
       schedule.appendChild(hlbl);
@@ -186,6 +194,14 @@ export function buildDayView(dateStr) {
     });
   }
 
+  const endLine = el('div', { className: 'hour-line terminal-line' });
+  endLine.style.top = `${(scheduleEndHour - START_HOUR) * slotH}px`;
+  schedule.appendChild(endLine);
+
+  const endLabel = el('div', { className: 'hour-label terminal-label' }, `${String(END_HOUR).padStart(2, '0')}:00`);
+  endLabel.style.top = `${(scheduleEndHour - START_HOUR) * slotH}px`;
+  schedule.appendChild(endLabel);
+
   const layout = computeOverlapLayout(visibleLessons);
   for (const l of visibleLessons) {
     schedule.appendChild(buildLessonTile(l, dateStr, START_HOUR, layout.get(l.id), dayScale));
@@ -199,7 +215,7 @@ export function buildDayView(dateStr) {
       if (existing) existing.remove();
       const n = new Date();
       const mins = n.getHours() * 60 + n.getMinutes();
-      if (mins < START_HOUR * 60 || mins > END_HOUR * 60) return;
+      if (mins < START_HOUR * 60 || mins >= END_HOUR * 60) return;
       const tline = el('div', { className: 'time-indicator' });
       tline.style.top = `${((mins / 60) - START_HOUR) * slotH}px`;
       tline.appendChild(el('div', { className: 'time-indicator-dot' }));

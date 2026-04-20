@@ -13,8 +13,8 @@ This guide explains how to use your new local testing environment. You can now r
 3. Create a "New Query".
 4. Copy the contents of your local [README_supabase.sql](file:///c:/Users/dawid/Desktop/ai%20slop/horse%20scheduler/README_supabase.sql) and paste it there.
 5. Click **Run**.
-   > [!NOTE]
-   > This creates the `app_state` table and sets up the security policies.
+   > [!IMPORTANT]
+   > This creates the `app_state` table and **enables Row-Level Security (RLS)**. RLS is critical to prevent unauthorized access to your data.
 
 ## 3. Configure Local Environment
 1. In your code editor, locate the folder `horse scheduler`.
