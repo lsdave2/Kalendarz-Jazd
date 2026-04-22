@@ -290,7 +290,7 @@ export function openLessonModal(dateStr, lesson = null) {
   renderForm();
 
   // Buttons
-  const btnGroup = el('div', { className: 'btn-group' });
+  const btnGroup = el('div', { className: 'btn-group modal-actions' });
 
   const getLessonPayload = () => {
     const startMinute = parseInt(startSelect.value);
@@ -548,7 +548,7 @@ function openMoveLessonModal(lesson, dateStr, isRecurringInstance, baseLesson, c
     modal.appendChild(scopeGroup);
   }
 
-  const btnRow = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
+  const btnRow = el('div', { className: 'btn-group modal-actions', style: { marginTop: '16px' } });
   
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',

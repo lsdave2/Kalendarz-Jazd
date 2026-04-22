@@ -27,7 +27,7 @@ export function openEditClientModal(pkg, { onSaved } = {}) {
   inputWrapper.appendChild(input);
   modal.appendChild(inputWrapper);
 
-  const btnRow = el('div', { className: 'btn-group' });
+  const btnRow = el('div', { className: 'btn-group modal-actions' });
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
     onClick: () => closeModal()
@@ -85,7 +85,7 @@ export function openAddCreditsModal(pkg) {
   inputWrapper.appendChild(input);
   modal.appendChild(inputWrapper);
 
-  const btnRow = el('div', { className: 'btn-group' });
+  const btnRow = el('div', { className: 'btn-group modal-actions' });
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
     onClick: () => closeModal()
@@ -258,7 +258,7 @@ export function openCreditHistoryModal(pkg) {
 
   modal.appendChild(historyList);
   
-  const btnRow = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
+  const btnRow = el('div', { className: 'btn-group modal-actions', style: { marginTop: '16px' } });
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
     onClick: () => closeModal()

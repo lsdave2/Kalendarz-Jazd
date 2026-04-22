@@ -1099,10 +1099,7 @@ export const GROUP_COLORS = [
   '#76FF03', // Lime
   '#00E676', // Green
   '#00E5FF', // Cyan
-  '#2979FF', // Blue
-  '#651FFF', // Deep Purple
-  '#D500F9', // Magenta
-  '#F50057'  // Rose
+  '#D500F9'  // Magenta
 ];
 
 export function getAutoGroupColor() {

@@ -1087,6 +1087,33 @@ select.form-input {
   margin-top: 8px;
 }
 
+@media (max-width: 620px) {
+  .btn-group.modal-actions {
+    gap: 6px;
+    width: 100%;
+  }
+
+  .btn-group.modal-actions .btn {
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 4px;
+    font-size: 0.65rem;
+    min-width: 0;
+    text-align: center;
+    line-height: 1.1;
+  }
+
+  .btn-group.modal-actions .btn .material-symbols-rounded {
+    font-size: 20px;
+    margin: 0;
+  }
+
+  .btn-group.modal-actions .btn-primary {
+    margin-left: 0 !important;
+  }
+}
+
 
 /* ── Suggestions ────────────────────────────────────────────────────── */
 .suggestions-row {
