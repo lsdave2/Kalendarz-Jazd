@@ -70,7 +70,7 @@ export function buildMonthView() {
     const dateStr = formatDate(new Date(calendarState.viewYear, calendarState.viewMonth, d));
     const lessons = getLessonsForDate(dateStr);
     const closed = isDateClosed(dateStr);
-    const classes = ['calendar-day'];
+    const classes = ['calendar-day'];
     if (isToday(dateStr)) classes.push('today');
     if (isPast(dateStr)) classes.push('past');
     if (lessons.length > 0) classes.push('has-lessons');
@@ -97,10 +97,12 @@ export function buildMonthView() {
   container.appendChild(grid);
   return container;
 }
-export function navMonth(direction) {
+
+export function navMonth(direction) {
   calendarState.viewMonth += direction;
   if (calendarState.viewMonth < 0) { calendarState.viewMonth = 11; calendarState.viewYear--; }
   if (calendarState.viewMonth > 11) { calendarState.viewMonth = 0; calendarState.viewYear++; }
+  history.replaceState({ tab: 'calendar', date: null }, '');
   render();
 }
 
@@ -113,6 +115,7 @@ export function navDay(direction) {
   calendarState.viewMonth = d2.getMonth();
   calendarState.viewYear = d2.getFullYear();
   calendarState.selectedDate = newDate;
+  history.replaceState({ tab: 'calendar', date: newDate }, '');
   render();
 }
 

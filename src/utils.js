@@ -117,11 +117,19 @@ export function setupModalSwipeToClose(modal, overlay, handle, onClosed) {
   let dragStartY = 0;
   let dragCurrentY = 0;
   let isDragging = false;
+  let isClosingFromPopState = false;
 
   const closeModal = () => {
     if (isClosing) return;
     isClosing = true;
     overlay.classList.add('closing');
+    
+    // History cleanup
+    window.removeEventListener('popstate', onPopState);
+    if (!isClosingFromPopState) {
+      history.back();
+    }
+
     setTimeout(() => {
       onClosed();
       window.removeEventListener('mousemove', onDragMove);
@@ -130,6 +138,19 @@ export function setupModalSwipeToClose(modal, overlay, handle, onClosed) {
       window.removeEventListener('touchend', onDragEnd);
     }, 200);
   };
+
+  const onPopState = () => {
+    // Only close if this is the topmost modal
+    const allOverlays = document.querySelectorAll('.modal-overlay');
+    if (allOverlays.length > 0 && allOverlays[allOverlays.length - 1] === overlay) {
+      isClosingFromPopState = true;
+      closeModal();
+    }
+  };
+
+  // Push state and listen for back button
+  history.pushState({ modalOpen: true }, '');
+  window.addEventListener('popstate', onPopState);
 
   const onDragStart = (e) => {
     dragStartY = (e.touches ? e.touches[0].pageY : e.pageY);

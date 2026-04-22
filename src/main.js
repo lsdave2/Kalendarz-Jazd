@@ -149,6 +149,12 @@ function buildBottomNav() {
         }
 
         if (nextTab !== currentTab || nextDate !== calendarState.selectedDate) {
+          // If we are switching from another tab to calendar day view,
+          // push the month view state first so that 'back' (UI or Android) returns to month view.
+          if (nextTab === 'calendar' && nextDate && currentTab !== 'calendar') {
+            history.pushState({ tab: 'calendar', date: null }, '');
+          }
+
           currentTab = nextTab;
           calendarState.selectedDate = nextDate;
           history.pushState({ tab: currentTab, date: calendarState.selectedDate }, '');

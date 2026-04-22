@@ -21,8 +21,6 @@ export function openLessonModal(dateStr, lesson = null) {
   const clientNames = getKnownClientNames(data);
   const initialType = isEdit && isGroupEdit ? 'group' : 'individual';
 
-  history.pushState({ modalOpen: true }, '');
-
   const overlay = el('div', { className: 'modal-overlay' });
   overlay.onclick = (e) => {
     if (e.target === overlay) closeModal();
@@ -31,21 +29,9 @@ export function openLessonModal(dateStr, lesson = null) {
   const modal = el('div', { className: 'modal', tabIndex: -1 });
   const handle = el('div', { className: 'modal-handle' });
 
-  let isClosingFromPopState = false;
   const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => {
     overlay.remove();
-    window.removeEventListener('popstate', onPopState);
-    if (!isClosingFromPopState) {
-       history.back();
-    }
   });
-
-  const onPopState = (e) => {
-    isClosingFromPopState = true;
-    closeModal();
-  };
-
-  window.addEventListener('popstate', onPopState);
 
   modal.appendChild(handle);
   modal.appendChild(el('h3', {}, isEdit ? t('editLesson') : t('newLesson')));

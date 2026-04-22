@@ -48,7 +48,7 @@ export function openEditClientModal(pkg, { onSaved } = {}) {
            showToast(t('clientAlreadyExists') || 'Name already exists', 'warning');
         }
       }
-      overlay.remove();
+      closeModal();
     }
   }, icon('check'), t('saveKey') || 'Save'));
   
