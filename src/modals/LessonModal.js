@@ -1,5 +1,5 @@
 import { t } from '../i18n.js';
-import { el, icon, minutesToTime } from '../utils.js';
+import { el, icon, minutesToTime, setupModalSwipeToClose } from '../utils.js';
 import { 
   getData, addLesson, updateLesson, deleteLesson, updateLessonInstance, 
   ensurePackageEntry, getPackageByName, getAutoGroupColor, toggleCancelLessonInstance,
@@ -23,75 +23,29 @@ export function openLessonModal(dateStr, lesson = null) {
 
   history.pushState({ modalOpen: true }, '');
 
-  let isClosing = false;
-  const closeModal = (fromPopState = false) => {
-    if (isClosing) return;
-    isClosing = true;
-    overlay.classList.add('closing');
-    setTimeout(() => {
-      overlay.remove();
-      window.removeEventListener('popstate', onPopState);
-      window.removeEventListener('mousemove', onDragMove);
-      window.removeEventListener('touchmove', onDragMove);
-      window.removeEventListener('mouseup', onDragEnd);
-      window.removeEventListener('touchend', onDragEnd);
-      if (!fromPopState) {
-        history.back();
-      }
-    }, 200);
-  };
-
-  let dragStartY = 0;
-  let dragCurrentY = 0;
-  let isDragging = false;
-
-  const onDragStart = (e) => {
-    dragStartY = (e.touches ? e.touches[0].pageY : e.pageY);
-    isDragging = true;
-    modal.style.transition = 'none';
-  };
-
-  const onDragMove = (e) => {
-    if (!isDragging) return;
-    dragCurrentY = (e.touches ? e.touches[0].pageY : e.pageY);
-    const diffY = dragCurrentY - dragStartY;
-    if (diffY > 0) {
-      modal.style.transform = `translateY(${diffY}px)`;
-      modal.style.setProperty('--drag-y', `${diffY}px`);
-    }
-  };
-
-  const onDragEnd = () => {
-    if (!isDragging) return;
-    isDragging = false;
-    const diffY = dragCurrentY - dragStartY;
-    if (diffY > 100) {
-      closeModal();
-    } else {
-      modal.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
-      modal.style.transform = 'translateY(0)';
-      modal.style.setProperty('--drag-y', '0px');
-    }
-  };
-
-  const onPopState = (e) => {
-    closeModal(true);
-  };
-
-  window.addEventListener('popstate', onPopState);
-
-  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
     if (e.target === overlay) closeModal();
-  }});
+  };
 
   const modal = el('div', { className: 'modal', tabIndex: -1 });
   const handle = el('div', { className: 'modal-handle' });
-  handle.addEventListener('mousedown', onDragStart);
-  handle.addEventListener('touchstart', onDragStart, { passive: true });
-  window.addEventListener('mousemove', onDragMove);
-  window.addEventListener('touchmove', onDragMove, { passive: false });
-  window.addEventListener('mouseup', onDragEnd);
-  window.addEventListener('touchend', onDragEnd);
+
+  let isClosingFromPopState = false;
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => {
+    overlay.remove();
+    window.removeEventListener('popstate', onPopState);
+    if (!isClosingFromPopState) {
+       history.back();
+    }
+  });
+
+  const onPopState = (e) => {
+    isClosingFromPopState = true;
+    closeModal();
+  };
+
+  window.addEventListener('popstate', onPopState);
 
   modal.appendChild(handle);
   modal.appendChild(el('h3', {}, isEdit ? t('editLesson') : t('newLesson')));
@@ -551,6 +505,14 @@ export function openLessonModal(dateStr, lesson = null) {
         render();
       }
     }, icon(isCancelled ? 'restore' : 'cancel'), isCancelled ? t('restore') : t('cancel')));
+
+    // Move button
+    btnGroup.appendChild(el('button', {
+      className: 'btn btn-secondary btn-sm',
+      onClick: () => {
+        openMoveLessonModal(lesson, dateStr, isRecurringInstance, baseLesson, closeModal);
+      }
+    }, icon('calendar_month'), t('move')));
   }
 
   btnGroup.appendChild(el('button', {
@@ -570,4 +532,88 @@ export function openLessonModal(dateStr, lesson = null) {
   document.body.appendChild(overlay);
 
   setTimeout(() => modal.focus(), 300);
+}
+
+function openMoveLessonModal(lesson, dateStr, isRecurringInstance, baseLesson, closeParentModal) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+  
+  const modal = el('div', { className: 'modal' });
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  
+  modal.appendChild(handle);
+  modal.appendChild(el('h3', {}, t('move') + '...'));
+
+  const dateGroup = el('div', { className: 'form-group' });
+  dateGroup.appendChild(el('label', {}, t('date')));
+  const dateInput = el('input', { className: 'form-input', type: 'date', value: dateStr });
+  dateGroup.appendChild(dateInput);
+  modal.appendChild(dateGroup);
+
+  let scopeSelect = null;
+  if (isRecurringInstance) {
+    const scopeGroup = el('div', { className: 'form-group' });
+    scopeGroup.appendChild(el('label', {}, t('moveScope', 'Move Scope')));
+    scopeSelect = el('select', { className: 'form-input' });
+    scopeSelect.appendChild(el('option', { value: 'instance' }, t('moveInstance', 'Move only this instance')));
+    scopeSelect.appendChild(el('option', { value: 'series' }, t('moveSeries', 'Move whole series')));
+    scopeGroup.appendChild(scopeSelect);
+    modal.appendChild(scopeGroup);
+  }
+
+  const btnRow = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
+  
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-secondary',
+    onClick: () => closeModal()
+  }, t('cancel')));
+
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-primary',
+    style: { marginLeft: 'auto' },
+    onClick: () => {
+      const newDateStr = dateInput.value;
+      if (!newDateStr || newDateStr === dateStr) {
+        closeModal();
+        return;
+      }
+      
+      const scope = scopeSelect ? scopeSelect.value : 'series';
+      
+      if (isRecurringInstance && scope === 'instance') {
+        // Cancel the occurrence on the old date
+        toggleCancelLessonInstance(baseLesson.id, dateStr);
+        // Create a new independent lesson on the new date
+        const newLessonData = {
+          ...lesson,
+          id: undefined,
+          date: newDateStr,
+          recurring: false,
+          recurringUntil: null,
+          instanceOverrides: {},
+          cancelledDates: [],
+          deductedDates: []
+        };
+        // Clean up internal flags
+        delete newLessonData._recurringInstance;
+        delete newLessonData._instanceDate;
+        
+        addLesson(newLessonData, { save: true });
+      } else {
+        // Move individual lesson OR move whole series
+        const targetId = isRecurringInstance ? baseLesson.id : lesson.id;
+        updateLesson(targetId, { date: newDateStr }, { save: true });
+      }
+      
+      closeModal();
+      closeParentModal();
+      showToast(t('lessonUpdated'), 'check_circle');
+      render();
+    }
+  }, icon('check'), t('move')));
+
+  modal.appendChild(btnRow);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
 }

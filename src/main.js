@@ -12,6 +12,26 @@ import { buildMonthView, buildDayView, calendarState, formatDateNice } from './v
 // ── State ──────────────────────────────────────────────────────────────
 let currentTab = 'calendar';
 
+// Navigation State Management
+function updateStateFromHistory(state) {
+  if (state) {
+    if (state.tab) currentTab = state.tab;
+    if (state.date !== undefined) calendarState.selectedDate = state.date;
+  } else {
+    // Initial state
+    currentTab = 'calendar';
+    calendarState.selectedDate = null;
+  }
+  render();
+}
+
+window.addEventListener('popstate', (e) => {
+  // If a modal is open, it should have its own popstate listener that handles its closing.
+  // We only handle view transitions here.
+  if (e.state && e.state.modalOpen) return;
+  updateStateFromHistory(e.state);
+});
+
 function isTabVisible(tabId) {
   if (tabId === 'packages') return isAdmin();
   if (tabId === 'horses') return isAdmin();
@@ -113,18 +133,27 @@ function buildBottomNav() {
       className: `nav-item ${currentTab === tab.id ? 'active' : ''}`,
       id: `nav-${tab.id}`,
       onClick: () => {
+        let nextTab = tab.id;
+        let nextDate = null;
+
         if (tab.id === 'calendar') {
           if (currentTab === 'calendar' && calendarState.selectedDate) {
-            calendarState.selectedDate = null;
+            nextDate = null;
           } else {
-            currentTab = 'calendar';
-            calendarState.selectedDate = formatDate(new Date());
+            nextTab = 'calendar';
+            nextDate = formatDate(new Date());
           }
         } else {
-          currentTab = tab.id;
-          calendarState.selectedDate = null;
+          nextTab = tab.id;
+          nextDate = null;
         }
-        render();
+
+        if (nextTab !== currentTab || nextDate !== calendarState.selectedDate) {
+          currentTab = nextTab;
+          calendarState.selectedDate = nextDate;
+          history.pushState({ tab: currentTab, date: calendarState.selectedDate }, '');
+          render();
+        }
       }
     }, icon(tab.icon), tab.label);
     nav.appendChild(item);

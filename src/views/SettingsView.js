@@ -1,5 +1,5 @@
 import { t, setLang, getLang } from '../i18n.js';
-import { el, icon, formatDate, getDatesInRange } from '../utils.js';
+import { el, icon, formatDate, getDatesInRange, setupModalSwipeToClose } from '../utils.js';
 import {
   getData, saveData, isAdmin, login, logout,
   getLessonsForDate, GROUP_COLORS, updateInstructorColor, addInstructor, deleteInstructor
@@ -239,12 +239,15 @@ function computeInstructorPaymentAmount({ instructor, from, to, individualRate, 
 function openInstructorPaymentModal() {
   const data = getData();
   const savedRates = getPaymentReportRates();
-  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
-    if (e.target === overlay) overlay.remove();
-  }});
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
 
   const modal = el('div', { className: 'modal' });
-  modal.appendChild(el('div', { className: 'modal-handle' }));
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
   modal.appendChild(el('h3', {}, t('instructorPaymentReport')));
 
   const instructorGroup = el('div', { className: 'form-group' });
@@ -341,7 +344,7 @@ function openInstructorPaymentModal() {
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
     style: { width: '100%' },
-    onClick: () => overlay.remove()
+    onClick: () => closeModal()
   }, t('close')));
   modal.appendChild(btnRow);
 
@@ -352,12 +355,15 @@ function openInstructorPaymentModal() {
 function openRevenueReportModal() {
   const today = formatDate(new Date());
   const data = getData();
-  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
-    if (e.target === overlay) overlay.remove();
-  }});
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
 
   const modal = el('div', { className: 'modal' });
-  modal.appendChild(el('div', { className: 'modal-handle' }));
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
   modal.appendChild(el('h3', {}, t('revenueReportTitle')));
 
   const rangeRow = el('div', { className: 'form-row' });
@@ -626,7 +632,7 @@ function openRevenueReportModal() {
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
     style: { width: '100%' },
-    onClick: () => overlay.remove()
+    onClick: () => closeModal()
   }, t('close')));
   modal.appendChild(btnRow);
 

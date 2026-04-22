@@ -111,3 +111,61 @@ export function icon(name, extraClass = '') {
   span.textContent = name;
   return span;
 }
+
+export function setupModalSwipeToClose(modal, overlay, handle, onClosed) {
+  let isClosing = false;
+  let dragStartY = 0;
+  let dragCurrentY = 0;
+  let isDragging = false;
+
+  const closeModal = () => {
+    if (isClosing) return;
+    isClosing = true;
+    overlay.classList.add('closing');
+    setTimeout(() => {
+      onClosed();
+      window.removeEventListener('mousemove', onDragMove);
+      window.removeEventListener('touchmove', onDragMove);
+      window.removeEventListener('mouseup', onDragEnd);
+      window.removeEventListener('touchend', onDragEnd);
+    }, 200);
+  };
+
+  const onDragStart = (e) => {
+    dragStartY = (e.touches ? e.touches[0].pageY : e.pageY);
+    isDragging = true;
+    modal.style.transition = 'none';
+  };
+
+  const onDragMove = (e) => {
+    if (!isDragging) return;
+    dragCurrentY = (e.touches ? e.touches[0].pageY : e.pageY);
+    const diffY = dragCurrentY - dragStartY;
+    if (diffY > 0) {
+      modal.style.transform = `translateY(${diffY}px)`;
+      modal.style.setProperty('--drag-y', `${diffY}px`);
+    }
+  };
+
+  const onDragEnd = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    const diffY = dragCurrentY - dragStartY;
+    if (diffY > 100) {
+      closeModal();
+    } else {
+      modal.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+      modal.style.transform = 'translateY(0)';
+      modal.style.setProperty('--drag-y', '0px');
+    }
+  };
+
+  handle.addEventListener('mousedown', onDragStart);
+  handle.addEventListener('touchstart', onDragStart, { passive: true });
+  window.addEventListener('mousemove', onDragMove);
+  window.addEventListener('touchmove', onDragMove, { passive: false });
+  window.addEventListener('mouseup', onDragEnd);
+  window.addEventListener('touchend', onDragEnd);
+
+  return { closeModal, isDragging: () => isDragging };
+}

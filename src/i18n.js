@@ -185,6 +185,10 @@ export const translations = {
     database: 'Database',
     live: 'Live',
     test: 'Test',
+    move: 'Move',
+    moveScope: 'Move Scope',
+    moveInstance: 'Move only this instance',
+    moveSeries: 'Move whole series',
   },
   pl: {
     appTitle: 'Stajnia Rotmistrz 15',
@@ -372,6 +376,10 @@ export const translations = {
     database: 'Baza danych',
     live: 'Produkcyjna',
     test: 'Testowa',
+    move: 'Przenieś',
+    moveScope: 'Zakres przenoszenia',
+    moveInstance: 'Przenieś tylko tę jazdę',
+    moveSeries: 'Przenieś całą serię',
   }
 };
 

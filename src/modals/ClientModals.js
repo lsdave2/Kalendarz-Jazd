@@ -1,17 +1,20 @@
 import { t } from '../i18n.js';
-import { el, icon, formatDate, minutesToTime } from '../utils.js';
+import { el, icon, formatDate, minutesToTime, setupModalSwipeToClose } from '../utils.js';
 import { updatePackageName, addPackageCredits, getLessonsForDate, getData, saveData, setPackageActive } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord } from '../services/LessonService.js';
 import { formatDateNice } from '../views/CalendarView.js';
 
 export function openEditClientModal(pkg, { onSaved } = {}) {
-  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
-    if (e.target === overlay) overlay.remove();
-  }});
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
 
   const modal = el('div', { className: 'modal', style: { maxWidth: '300px', margin: 'auto' } });
-  modal.appendChild(el('div', { className: 'modal-handle' }));
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
   modal.appendChild(el('h3', {}, t('editClient') || 'Edit Client Name'));
 
   const inputWrapper = el('div', { className: 'form-group' });
@@ -27,7 +30,7 @@ export function openEditClientModal(pkg, { onSaved } = {}) {
   const btnRow = el('div', { className: 'btn-group' });
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
-    onClick: () => overlay.remove()
+    onClick: () => closeModal()
   }, t('cancel')));
   
   btnRow.appendChild(el('button', {
@@ -60,12 +63,15 @@ export function openEditClientModal(pkg, { onSaved } = {}) {
 }
 
 export function openAddCreditsModal(pkg) {
-  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
-    if (e.target === overlay) overlay.remove();
-  }});
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
 
   const modal = el('div', { className: 'modal', style: { maxWidth: '300px', margin: 'auto' } });
-  modal.appendChild(el('div', { className: 'modal-handle' }));
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
   modal.appendChild(el('h3', {}, t('addCredits')));
   modal.appendChild(el('p', { style: { marginBottom: '16px', color: 'var(--text-secondary)' } }, t('creditsToAdd')));
 
@@ -82,7 +88,7 @@ export function openAddCreditsModal(pkg) {
   const btnRow = el('div', { className: 'btn-group' });
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
-    onClick: () => overlay.remove()
+    onClick: () => closeModal()
   }, t('cancel')));
   
   btnRow.appendChild(el('button', {
@@ -94,7 +100,7 @@ export function openAddCreditsModal(pkg) {
         addPackageCredits(pkg.id, val);
         render();
       }
-      overlay.remove();
+      closeModal();
     }
   }, icon('add'), t('addCredits')));
   
@@ -109,12 +115,15 @@ export function openAddCreditsModal(pkg) {
 }
 
 export function openCreditHistoryModal(pkg) {
-  const overlay = el('div', { className: 'modal-overlay', onClick: (e) => {
-    if (e.target === overlay) overlay.remove();
-  }});
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
 
   const modal = el('div', { className: 'modal' });
-  modal.appendChild(el('div', { className: 'modal-handle' }));
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
   const title = el('h3', {}, `${pkg.name} - ${t('creditHistory')}`);
   modal.appendChild(title);
 
@@ -143,7 +152,7 @@ export function openCreditHistoryModal(pkg) {
       setPackageActive(pkg.id, nextActive);
       showToast(nextActive ? (t('clientRestored') || 'Client restored') : (t('clientArchived') || 'Client archived'), nextActive ? 'restore' : 'archive');
       render();
-      overlay.remove();
+      closeModal();
     }
   }, icon(pkg.active === false ? 'restore' : 'archive'), pkg.active === false ? (t('restoreClient') || 'Restore client') : (t('archiveClient') || 'Archive client')));
   modal.appendChild(actionRow);
@@ -252,7 +261,7 @@ export function openCreditHistoryModal(pkg) {
   const btnRow = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
-    onClick: () => overlay.remove()
+    onClick: () => closeModal()
   }, t('close')));
   btnRow.appendChild(el('button', {
     className: 'btn btn-primary',
@@ -268,7 +277,7 @@ export function openCreditHistoryModal(pkg) {
         showToast(t('customPaymentRateSaved'), 'check_circle');
         render();
       }
-      overlay.remove();
+      closeModal();
     }
   }, icon('check'), t('saveKey')));
   modal.appendChild(btnRow);
