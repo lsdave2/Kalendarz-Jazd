@@ -1,6 +1,6 @@
 import { t } from '../i18n.js';
 import { el, icon, formatDate, minutesToTime, setupModalSwipeToClose } from '../utils.js';
-import { updatePackageName, addPackageCredits, getLessonsForDate, getData, saveData, setPackageActive } from '../store.js';
+import { updatePackageName, addPackageCredits, getLessonsForDate, getData, setPackageActive, updatePackageCustomPaymentRate } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord } from '../services/LessonService.js';
 import { formatDateNice } from '../views/CalendarView.js';
@@ -269,11 +269,7 @@ export function openCreditHistoryModal(pkg) {
     onClick: () => {
       const raw = rateInput.value.trim();
       const nextValue = raw === '' ? null : Number.parseFloat(raw);
-      const data = getData();
-      const target = data.packages.find(p => p.id === pkg.id);
-      if (target) {
-        target.customPaymentRate = Number.isFinite(nextValue) ? nextValue : null;
-        saveData();
+      if (updatePackageCustomPaymentRate(pkg.id, Number.isFinite(nextValue) ? nextValue : null)) {
         showToast(t('customPaymentRateSaved'), 'check_circle');
         render();
       }

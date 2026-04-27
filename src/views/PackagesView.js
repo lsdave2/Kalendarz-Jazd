@@ -1,6 +1,6 @@
 import { t } from '../i18n.js';
 import { el, icon } from '../utils.js';
-import { getData, saveData, isAdmin, deletePackage, ensurePackageEntry, setPackageActive } from '../store.js';
+import { getData, isAdmin, deletePackage, ensurePackageEntry, setPackageActive } from '../store.js';
 import { render, showToast } from '../main.js';
 import { openAddCreditsModal, openCreditHistoryModal } from '../modals/ClientModals.js';
 
@@ -148,8 +148,7 @@ export function buildPackagesView() {
           }
           return;
         }
-        ensurePackageEntry(name, { save: false, hasPackageLessons: false });
-        saveData();
+        ensurePackageEntry(name, { save: true, hasPackageLessons: false });
         render();
       }
     }, icon('add'), t('add')));

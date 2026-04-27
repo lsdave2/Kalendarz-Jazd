@@ -2,7 +2,9 @@ import { formatDate, parseDate } from './utils.js';
 import { supabase } from './supabase.js';
 import { t } from './i18n.js';
 
-// ── Reactive Store (Supabase-backed) ──────────────────────────────
+const LOCAL_DATA_KEY = 'horsebook_data';
+const LOCAL_PENDING_KEY = 'horsebook_pending_sync';
+const REMOTE_TABLES = ['lessons', 'packages', 'instructors', 'horses', 'groups', 'settings'];
 
 const defaultData = () => ({
   horses: ['Rubin', 'Czempion', 'Cera', 'Muminek', 'Kadet', 'Sakwa', 'Fason', 'Carewicz', 'Grot', 'Siwa', 'Figa'],
@@ -10,25 +12,61 @@ const defaultData = () => ({
     { name: 'Ania', color: '#FF5722' },
     { name: 'Olga', color: '#4CAF50' }
   ],
-  lessons: [],          // { id, title, date, startMinute, durationMinutes, horse, instructor, recurring, groupId, lessonType, participants, instanceOverrides }
-  packages: [],         // { id, name, credits, active, hasPackageLessons, history }
-  groups: [],           // { id, name, color }
-  closedDates: [],      // ['YYYY-MM-DD']
+  lessons: [],
+  packages: [],
+  groups: [],
+  closedDates: [],
   nextId: 1,
   nextGroupId: 1,
 });
 
+function createEmptyPersistedState() {
+  return {
+    horses: [],
+    instructors: [],
+    lessons: [],
+    packages: [],
+    groups: [],
+    closedDates: [],
+    nextId: 1,
+    nextGroupId: 1,
+  };
+}
+
 let _data = defaultData();
+let _persistedData = defaultData();
 let _isAdmin = false;
 let _isLoading = true;
+let _hasPendingLocalChanges = false;
+let _saveChain = Promise.resolve();
+let _realtimeChannel = null;
+let _realtimeInitialized = false;
+let _needsRemoteRefresh = false;
 const _listeners = new Set();
 
-// Keep _isAdmin in sync with real Supabase session state at all times
-// (handles token refresh, expiry, login, logout)
+const _meta = {
+  horses: new Map(),
+  instructors: new Map(),
+  settings: new Map(),
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    if (_hasPendingLocalChanges) {
+      saveData();
+    } else if (supabase) {
+      refreshFromRemote();
+    }
+  });
+}
+
 if (supabase) {
   supabase.auth.onAuthStateChange((event, session) => {
     const wasAdmin = _isAdmin;
     _isAdmin = !!session;
+    if (_isAdmin && _hasPendingLocalChanges) {
+      saveData();
+    }
     if (wasAdmin !== _isAdmin) {
       notifyListeners();
     }
@@ -43,16 +81,464 @@ export function isLoading() {
   return _isLoading;
 }
 
-// Subscribe to Supabase realtime
-if (supabase) {
-  supabase.channel('public:app_state')
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state' }, payload => {
-      if (payload.new && payload.new.state) {
-        _data = normalizeAppState(payload.new.state);
-        notifyListeners();
-      }
+export function subscribe(fn) {
+  _listeners.add(fn);
+  return () => _listeners.delete(fn);
+}
+
+export function getData() {
+  return _data;
+}
+
+export function generateId() {
+  return createUuid();
+}
+
+export function generateGroupId() {
+  return createUuid();
+}
+
+function createUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function isUuid(value) {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function deepClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function notifyListeners() {
+  _listeners.forEach(fn => fn(_data));
+}
+
+function dispatchStoreError(message) {
+  window.dispatchEvent(new CustomEvent('store-error', {
+    detail: { message, type: 'error' }
+  }));
+}
+
+function readLocalState() {
+  try {
+    const raw = localStorage.getItem(LOCAL_DATA_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistLocalState({ pending = _hasPendingLocalChanges } = {}) {
+  try {
+    localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify(_data));
+    localStorage.setItem(LOCAL_PENDING_KEY, pending ? '1' : '0');
+  } catch (e) {
+    console.error('[store] LocalStorage save failed', e);
+  }
+}
+
+function readPendingFlag() {
+  try {
+    return localStorage.getItem(LOCAL_PENDING_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function normalizeHorseList(horses) {
+  if (!Array.isArray(horses)) return [];
+  return horses
+    .map(horse => (typeof horse === 'string' ? horse.trim() : ''))
+    .filter(Boolean);
+}
+
+function normalizeParticipants(participants) {
+  if (!Array.isArray(participants)) return [];
+  return participants
+    .map(participant => {
+      const name = (participant?.name || '').trim();
+      const horse = participant?.horse || null;
+      const packageName = (participant?.packageName || name).trim();
+      const packageMode = participant?.packageMode !== false;
+      if (!name) return null;
+      return { name, horse, packageName, packageMode };
     })
-    .subscribe();
+    .filter(Boolean);
+}
+
+function normalizeDateString(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
+  if (!pkg || typeof pkg !== 'object') return null;
+  const name = (pkg.name || '').trim();
+  if (!name) return null;
+  const credits = Number.isFinite(pkg.credits) ? pkg.credits : (parseInt(pkg.credits, 10) || 0);
+  const hasHistory = Array.isArray(pkg.history) && pkg.history.length > 0;
+  const history = Array.isArray(pkg.history) ? pkg.history.map(entry => {
+    if (!entry || typeof entry !== 'object') return null;
+    const nextEntry = { ...entry };
+    if (nextEntry.lessonId !== undefined && lessonIdMap.has(String(nextEntry.lessonId))) {
+      nextEntry.lessonId = lessonIdMap.get(String(nextEntry.lessonId));
+    }
+    return nextEntry;
+  }).filter(Boolean) : [];
+  const rawCustomPaymentRate = pkg.customPaymentRate;
+  const customPaymentRate = rawCustomPaymentRate === null
+    || rawCustomPaymentRate === undefined
+    || rawCustomPaymentRate === ''
+    ? null
+    : Number(rawCustomPaymentRate);
+  return {
+    ...pkg,
+    id: isUuid(pkg.id) ? pkg.id : createUuid(),
+    name,
+    credits,
+    active: pkg.active !== false,
+    archivedAt: typeof pkg.archivedAt === 'string' && pkg.archivedAt.trim() ? pkg.archivedAt : null,
+    history,
+    customPaymentRate: Number.isFinite(customPaymentRate) ? customPaymentRate : null,
+    hasPackageLessons: pkg.hasPackageLessons === true || hasHistory || credits !== 0,
+  };
+}
+
+function normalizeLesson(lesson, lessonIdMap = new Map(), groupMetadataById = new Map()) {
+  const normalized = {
+    cancelledDates: [],
+    deductedDates: [],
+    lessonType: 'individual',
+    instanceOverrides: {},
+    ...lesson
+  };
+
+  const oldId = normalized.id;
+  normalized.id = isUuid(normalized.id) ? normalized.id : createUuid();
+  if (oldId !== undefined && String(oldId) !== normalized.id) {
+    lessonIdMap.set(String(oldId), normalized.id);
+  }
+
+  if (!Array.isArray(normalized.cancelledDates)) normalized.cancelledDates = [];
+  if (!Array.isArray(normalized.deductedDates)) normalized.deductedDates = [];
+  normalized.cancelledDates = normalized.cancelledDates.filter(date => typeof date === 'string');
+  normalized.deductedDates = normalized.deductedDates.filter(date => typeof date === 'string');
+
+  if (normalized.packageMode === undefined) {
+    normalized.packageMode = !!(normalized.participants?.length > 0);
+  } else {
+    normalized.packageMode = normalized.packageMode !== false;
+  }
+
+  const legacyGroup = normalized.groupId ? groupMetadataById.get(String(normalized.groupId)) : null;
+  normalized.participants = normalizeParticipants(normalized.participants);
+  normalized.groupId = null;
+  normalized.groupName = (normalized.groupName || legacyGroup?.name || normalized.title || '').trim() || null;
+  normalized.groupColor = normalized.groupColor || legacyGroup?.color || null;
+  normalized.lessonType = normalized.lessonType || (normalized.participants.length > 0 ? 'group' : 'individual');
+  normalized.recurringUntil = normalizeDateString(normalized.recurringUntil);
+  normalized.horse = normalized.horse || null;
+  normalized.instructor = normalized.instructor || null;
+
+  if (normalized.instanceOverrides && typeof normalized.instanceOverrides === 'object') {
+    const cleanedOverrides = {};
+    for (const [dateStr, override] of Object.entries(normalized.instanceOverrides)) {
+      if (!override || typeof override !== 'object') continue;
+      const cleanOverride = { ...override };
+      const overrideLegacyGroup = cleanOverride.groupId ? groupMetadataById.get(String(cleanOverride.groupId)) : legacyGroup;
+      if (Array.isArray(cleanOverride.participants)) {
+        cleanOverride.participants = normalizeParticipants(cleanOverride.participants);
+      }
+      cleanOverride.groupId = null;
+      cleanOverride.groupName = (cleanOverride.groupName || overrideLegacyGroup?.name || cleanOverride.title || '').trim() || null;
+      cleanOverride.groupColor = cleanOverride.groupColor || overrideLegacyGroup?.color || normalized.groupColor || null;
+      cleanedOverrides[dateStr] = cleanOverride;
+    }
+    normalized.instanceOverrides = cleanedOverrides;
+  } else {
+    normalized.instanceOverrides = {};
+  }
+
+  return normalized;
+}
+
+function normalizeAppState(state) {
+  const def = defaultData();
+  const source = state && typeof state === 'object' ? state : {};
+  const lessonIdMap = new Map();
+  const rawGroups = Array.isArray(source.groups) ? source.groups : [];
+  const groupMetadataById = new Map(
+    rawGroups
+      .filter(group => group && typeof group === 'object' && group.id !== undefined)
+      .map(group => [String(group.id), {
+        name: (group.name || '').trim(),
+        color: group.color || null,
+      }])
+  );
+  const normalizedState = {
+    ...def,
+    ...source
+  };
+
+  normalizedState.horses = normalizeHorseList(normalizedState.horses);
+  normalizedState.lessons = Array.isArray(normalizedState.lessons)
+    ? normalizedState.lessons.map(lesson => normalizeLesson(lesson, lessonIdMap, groupMetadataById)).filter(Boolean)
+    : [];
+  normalizedState.packages = Array.isArray(normalizedState.packages)
+    ? normalizedState.packages.map(pkg => normalizePackageEntry(pkg, lessonIdMap)).filter(Boolean)
+    : [];
+  normalizedState.groups = Array.isArray(normalizedState.groups)
+    ? normalizedState.groups
+      .filter(group => group && typeof group === 'object')
+      .map(group => ({
+        ...group,
+        id: isUuid(group.id) ? group.id : createUuid(),
+        name: (group.name || '').trim(),
+        color: group.color || getAutoGroupColor(),
+      }))
+      .filter(group => group.name)
+    : [];
+  normalizedState.instructors = (Array.isArray(normalizedState.instructors) ? normalizedState.instructors : [])
+    .map(instr => {
+      if (typeof instr === 'string') {
+        return { name: instr.trim(), color: getAutoInstructorColor(normalizedState) };
+      }
+      return {
+        name: (instr?.name || '').trim(),
+        color: instr?.color || getAutoInstructorColor(normalizedState)
+      };
+    })
+    .filter(instr => instr.name);
+  normalizedState.closedDates = Array.isArray(normalizedState.closedDates)
+    ? normalizedState.closedDates.filter(date => typeof date === 'string')
+    : [];
+
+  syncReferenceEntriesFromLessons(normalizedState);
+
+  return normalizedState;
+}
+
+function syncReferenceEntriesFromLessons(state) {
+  const horseSet = new Set(normalizeHorseList(state.horses));
+  const instructorMap = new Map(
+    (Array.isArray(state.instructors) ? state.instructors : [])
+      .filter(instr => instr?.name)
+      .map(instr => [instr.name.toLowerCase(), instr])
+  );
+
+  const addHorseName = (horseName) => {
+    const trimmed = (horseName || '').trim();
+    if (!trimmed || horseSet.has(trimmed)) return;
+    horseSet.add(trimmed);
+  };
+
+  const addInstructorName = (instructorName) => {
+    const trimmed = (instructorName || '').trim();
+    if (!trimmed || instructorMap.has(trimmed.toLowerCase())) return;
+    const next = { name: trimmed, color: getAutoInstructorColor({ instructors: [...instructorMap.values()] }) };
+    instructorMap.set(trimmed.toLowerCase(), next);
+  };
+
+  const collectFromLesson = (lesson) => {
+    addHorseName(lesson?.horse);
+    addInstructorName(lesson?.instructor);
+    for (const participant of lesson?.participants || []) {
+      addHorseName(participant?.horse);
+    }
+    if (lesson?.instanceOverrides && typeof lesson.instanceOverrides === 'object') {
+      for (const override of Object.values(lesson.instanceOverrides)) {
+        addHorseName(override?.horse);
+        addInstructorName(override?.instructor);
+        for (const participant of override?.participants || []) {
+          addHorseName(participant?.horse);
+        }
+      }
+    }
+  };
+
+  for (const lesson of state.lessons || []) {
+    collectFromLesson(lesson);
+  }
+
+  state.horses = [...horseSet];
+  state.instructors = [...instructorMap.values()];
+}
+
+function setDataState(nextState, { persisted = false, pending = _hasPendingLocalChanges } = {}) {
+  _data = normalizeAppState(nextState);
+  if (persisted) {
+    _persistedData = deepClone(_data);
+  }
+  _hasPendingLocalChanges = pending;
+  persistLocalState({ pending });
+}
+
+function getAutoInstructorColor(state) {
+  const colors = GROUP_COLORS;
+  const count = (state?.instructors || []).length;
+  return colors[count % colors.length];
+}
+
+function isStateEffectivelyEmpty(state) {
+  if (!state) return true;
+  return (
+    (!state.lessons || state.lessons.length === 0) &&
+    (!state.packages || state.packages.length === 0) &&
+    (!state.groups || state.groups.length === 0) &&
+    (!state.closedDates || state.closedDates.length === 0) &&
+    (!state.horses || state.horses.length === 0) &&
+    (!state.instructors || state.instructors.length === 0)
+  );
+}
+
+async function fetchRemoteRows(table) {
+  const { data, error } = await supabase.from(table).select('*');
+  if (error) throw error;
+  return data || [];
+}
+
+async function fetchLegacyAppState() {
+  try {
+    const { data, error } = await supabase.from('app_state').select('state').eq('id', 1).maybeSingle();
+    if (error) throw error;
+    return data?.state || null;
+  } catch (error) {
+    console.warn('[store] Legacy app_state lookup failed', error);
+    return null;
+  }
+}
+
+function clearMeta() {
+  _meta.horses.clear();
+  _meta.instructors.clear();
+  _meta.settings.clear();
+}
+
+function buildRemoteState(rows) {
+  clearMeta();
+
+  const horses = (rows.horses || [])
+    .map(row => {
+      const name = (row.name || '').trim();
+      if (!name) return null;
+      _meta.horses.set(name, { id: row.id });
+      return name;
+    })
+    .filter(Boolean);
+
+  const instructors = (rows.instructors || [])
+    .map(row => {
+      const name = (row.name || '').trim();
+      if (!name) return null;
+      _meta.instructors.set(name, { id: row.id });
+      return { name, color: row.color || getAutoInstructorColor({ instructors: rows.instructors || [] }) };
+    })
+    .filter(Boolean);
+
+  const horseNameById = new Map((rows.horses || []).map(row => [row.id, row.name]));
+  const instructorNameById = new Map((rows.instructors || []).map(row => [row.id, row.name]));
+
+  const lessons = (rows.lessons || []).map(row => normalizeLesson({
+    id: row.id,
+    title: row.title,
+    date: row.date,
+    startMinute: row.start_minute,
+    durationMinutes: row.duration_minutes,
+    horse: row.horse_name || horseNameById.get(row.horse_id) || null,
+    instructor: row.instructor_name || instructorNameById.get(row.instructor_id) || null,
+    recurring: row.recurring === true,
+    recurringUntil: row.recurring_until,
+    lessonType: row.lesson_type || 'individual',
+    packageMode: row.package_mode !== false,
+    groupName: row.group_name || null,
+    groupColor: row.group_color || null,
+    participants: Array.isArray(row.participants) ? row.participants : [],
+    cancelledDates: Array.isArray(row.cancelled_dates) ? row.cancelled_dates : [],
+    deductedDates: Array.isArray(row.deducted_dates) ? row.deducted_dates : [],
+    instanceOverrides: row.instance_overrides && typeof row.instance_overrides === 'object' ? row.instance_overrides : {},
+  }));
+
+  const packages = (rows.packages || []).map(row => normalizePackageEntry({
+    id: row.id,
+    name: row.name,
+    credits: row.credits,
+    active: row.active,
+    archivedAt: row.archived_at,
+    history: Array.isArray(row.history) ? row.history : [],
+    customPaymentRate: row.custom_payment_rate,
+    hasPackageLessons: row.has_package_lessons,
+  }));
+
+  const groups = (rows.groups || []).map(row => ({
+    id: row.id,
+    name: (row.name || '').trim(),
+    color: row.color || getAutoGroupColor(),
+  })).filter(group => group.name);
+
+  const settingsMap = new Map((rows.settings || []).map(row => {
+    _meta.settings.set(row.key, true);
+    return [row.key, row.value];
+  }));
+
+  return normalizeAppState({
+    horses,
+    instructors,
+    lessons,
+    packages,
+    groups,
+    closedDates: Array.isArray(settingsMap.get('closed_dates')) ? settingsMap.get('closed_dates') : [],
+    nextId: Number(settingsMap.get('legacy_next_id')) || 1,
+    nextGroupId: Number(settingsMap.get('legacy_next_group_id')) || 1,
+  });
+}
+
+async function fetchRemoteSnapshot() {
+  const [lessons, packages, instructors, horses, groups, settings] = await Promise.all(
+    REMOTE_TABLES.map(table => fetchRemoteRows(table))
+  );
+
+  const hasData = [lessons, packages, instructors, horses, groups, settings].some(rows => rows.length > 0);
+  return {
+    hasData,
+    state: buildRemoteState({ lessons, packages, instructors, horses, groups, settings }),
+  };
+}
+
+function setupRealtime() {
+  if (!supabase || _realtimeInitialized) return;
+  _realtimeInitialized = true;
+  _realtimeChannel = supabase.channel('horsebook-normalized');
+  for (const table of REMOTE_TABLES) {
+    _realtimeChannel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table },
+      () => {
+        if (_hasPendingLocalChanges) {
+          _needsRemoteRefresh = true;
+          return;
+        }
+        refreshFromRemote();
+      }
+    );
+  }
+  _realtimeChannel.subscribe();
+}
+
+async function refreshFromRemote() {
+  if (!supabase) return;
+  try {
+    const snapshot = await fetchRemoteSnapshot();
+    if (!snapshot.hasData && !_hasPendingLocalChanges) return;
+    setDataState(snapshot.state, { persisted: true, pending: false });
+    notifyListeners();
+  } catch (error) {
+    console.error('[store] Realtime refresh failed', error);
+  }
 }
 
 export async function login(email, password) {
@@ -60,6 +546,9 @@ export async function login(email, password) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (!error && data.session) {
     _isAdmin = true;
+    if (_hasPendingLocalChanges) {
+      saveData();
+    }
     notifyListeners();
     return true;
   }
@@ -76,123 +565,409 @@ export async function loadData() {
   _isLoading = true;
   notifyListeners();
 
+  const cachedLocalState = readLocalState();
+  const hasPendingLocalCache = readPendingFlag();
+
   if (!supabase) {
-    // Fallback to local storage if Supabase is not configured
-    const rawLocal = localStorage.getItem('horsebook_data');
-    if (rawLocal) {
-      try { _data = normalizeAppState(JSON.parse(rawLocal)); } catch (e) {}
-    }
+    setDataState(cachedLocalState || defaultData(), {
+      persisted: true,
+      pending: false,
+    });
     _isLoading = false;
+    processPastLessonsForCredits();
     notifyListeners();
-    return;
+    return _data;
   }
 
   try {
     const { data: { session } } = await supabase.auth.getSession();
     _isAdmin = !!session;
+    setupRealtime();
 
-    const { data, error } = await supabase.from('app_state').select('state').eq('id', 1).single();
-    
-    // Check if remote DB is empty
-    const remoteEmpty = !data?.state || Object.keys(data.state).length === 0;
+    let snapshot = await fetchRemoteSnapshot();
+    let legacyMigrationState = null;
 
-    if (remoteEmpty) {
-      // Check local storage for legacy data only because supabase state is completely empty
-      const rawLocal = localStorage.getItem('horsebook_data');
-      if (rawLocal) {
-        try { 
-          const parsed = JSON.parse(rawLocal);
-          // Only use local if it actually has lessons or packages to avoid overwriting remote DB with empty defaults
-          if (parsed.lessons?.length > 0 || parsed.packages?.length > 0) {
-            _data = normalizeAppState(parsed);
-            if (_isAdmin) saveData(); // migrate up
-          }
-        } catch (e) {}
+    if (!snapshot.hasData) {
+      const legacyRemoteState = await fetchLegacyAppState();
+      if (legacyRemoteState && !isStateEffectivelyEmpty(legacyRemoteState)) {
+        legacyMigrationState = normalizeAppState(legacyRemoteState);
       }
-    } else {
-      // Remote has data, prefer remote
-      _data = normalizeAppState(data.state);
     }
-  } catch (e) {
-    console.error("Failed to sync from Supabase", e);
+
+    if (hasPendingLocalCache && cachedLocalState) {
+      _persistedData = deepClone(snapshot.state);
+      setDataState(cachedLocalState, { pending: true });
+    } else if (snapshot.hasData) {
+      setDataState(snapshot.state, { persisted: true, pending: false });
+    } else if (legacyMigrationState) {
+      _persistedData = deepClone(createEmptyPersistedState());
+      setDataState(legacyMigrationState, { pending: true });
+    } else if (cachedLocalState) {
+      setDataState(cachedLocalState, { pending: !!_isAdmin });
+      _persistedData = deepClone(createEmptyPersistedState());
+    } else {
+      setDataState(defaultData(), { persisted: true, pending: false });
+    }
+  } catch (error) {
+    console.error('[store] Failed to load Supabase data', error);
+    setDataState(cachedLocalState || defaultData(), {
+      persisted: !cachedLocalState,
+      pending: !!cachedLocalState,
+    });
   }
-  
+
   _isLoading = false;
   processPastLessonsForCredits();
   notifyListeners();
+
+  if (_isAdmin && _hasPendingLocalChanges) {
+    saveData();
+  }
+
   return _data;
 }
 
-function notifyListeners() {
-  _listeners.forEach(fn => fn(_data));
+function jsonEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function normalizePackageEntry(pkg) {
-  if (!pkg || typeof pkg !== 'object') return null;
-  const name = (pkg.name || '').trim();
-  if (!name) return null;
-  const credits = Number.isFinite(pkg.credits) ? pkg.credits : (parseInt(pkg.credits, 10) || 0);
-  const hasHistory = Array.isArray(pkg.history) && pkg.history.length > 0;
+function getHistoryDiff(baseHistory = [], currentHistory = []) {
+  const baseSet = new Set(baseHistory.map(entry => JSON.stringify(entry)));
+  return currentHistory.filter(entry => !baseSet.has(JSON.stringify(entry)));
+}
+
+function mergeHistory(remoteHistory = [], localEntries = []) {
+  const merged = [...remoteHistory];
+  const seen = new Set(remoteHistory.map(entry => JSON.stringify(entry)));
+  for (const entry of localEntries) {
+    const signature = JSON.stringify(entry);
+    if (seen.has(signature)) continue;
+    merged.push(entry);
+    seen.add(signature);
+  }
+  return merged;
+}
+
+function pickMergedField(field, current, base, remote) {
+  return jsonEqual(current?.[field], base?.[field]) ? remote?.[field] : current?.[field];
+}
+
+function mergePackageState(current, base, remote) {
+  if (!remote) return current;
+  const localHistoryDelta = getHistoryDiff(base?.history || [], current.history || []);
+  const localCreditsDelta = (current.credits || 0) - (base?.credits || 0);
+  const creditsChangedLocally = !jsonEqual(current.credits, base?.credits);
+  const historyChangedLocally = localHistoryDelta.length > 0 || !jsonEqual(current.history || [], base?.history || []);
+
+  return normalizePackageEntry({
+    ...remote,
+    id: current.id,
+    name: pickMergedField('name', current, base, remote),
+    active: pickMergedField('active', current, base, remote),
+    archivedAt: pickMergedField('archivedAt', current, base, remote),
+    hasPackageLessons: pickMergedField('hasPackageLessons', current, base, remote),
+    customPaymentRate: pickMergedField('customPaymentRate', current, base, remote),
+    credits: creditsChangedLocally ? (Number(remote.credits) || 0) + localCreditsDelta : remote.credits,
+    history: historyChangedLocally ? mergeHistory(remote.history || [], localHistoryDelta) : (remote.history || []),
+  });
+}
+
+function buildLessonRow(lesson, horseIdByName, instructorIdByName) {
   return {
-    ...pkg,
-    id: pkg.id ?? generateId(),
-    name,
-    credits,
-    active: pkg.active !== false,
-    archivedAt: typeof pkg.archivedAt === 'string' && pkg.archivedAt.trim() ? pkg.archivedAt : null,
-    history: Array.isArray(pkg.history) ? pkg.history : [],
-    hasPackageLessons: pkg.hasPackageLessons === true || hasHistory || credits !== 0,
+    id: lesson.id,
+    title: lesson.title || '',
+    date: lesson.date,
+    start_minute: lesson.startMinute,
+    duration_minutes: lesson.durationMinutes,
+    horse_id: lesson.horse ? (horseIdByName.get(lesson.horse) || null) : null,
+    horse_name: lesson.horse || null,
+    instructor_id: lesson.instructor ? (instructorIdByName.get(lesson.instructor) || null) : null,
+    instructor_name: lesson.instructor || null,
+    recurring: lesson.recurring === true,
+    recurring_until: lesson.recurringUntil || null,
+    lesson_type: lesson.lessonType || 'individual',
+    package_mode: lesson.packageMode !== false,
+    group_name: lesson.groupName || null,
+    group_color: lesson.groupColor || null,
+    participants: lesson.participants || [],
+    cancelled_dates: lesson.cancelledDates || [],
+    deducted_dates: lesson.deductedDates || [],
+    instance_overrides: lesson.instanceOverrides || {},
   };
 }
 
-function normalizeAppState(state) {
-  const def = defaultData();
-  const normalizedState = {
-    ...def,
-    ...(state && typeof state === 'object' ? state : {})
+function buildPackageRow(pkg) {
+  return {
+    id: pkg.id,
+    name: pkg.name,
+    credits: pkg.credits || 0,
+    active: pkg.active !== false,
+    archived_at: pkg.archivedAt || null,
+    history: pkg.history || [],
+    custom_payment_rate: pkg.customPaymentRate ?? null,
+    has_package_lessons: pkg.hasPackageLessons === true,
   };
+}
 
-  if (!Array.isArray(normalizedState.closedDates)) {
-    normalizedState.closedDates = [];
+function buildGroupRow(group) {
+  return {
+    id: group.id,
+    name: group.name,
+    color: group.color,
+  };
+}
+
+async function syncHorses(current, persisted) {
+  const currentSet = new Set(current.horses || []);
+  const persistedSet = new Set(persisted.horses || []);
+
+  for (const horse of currentSet) {
+    if (persistedSet.has(horse)) continue;
+    const { error } = await supabase.from('horses').insert({ name: horse });
+    if (error && error.code !== '23505') throw error;
   }
 
-  normalizedState.lessons = Array.isArray(normalizedState.lessons)
-    ? normalizedState.lessons.map(normalizeLesson).filter(Boolean)
-    : [];
-
-  normalizedState.packages = Array.isArray(normalizedState.packages)
-    ? normalizedState.packages.map(normalizePackageEntry).filter(Boolean)
-    : [];
-
-  normalizedState.groups = Array.isArray(normalizedState.groups)
-    ? normalizedState.groups
-      .filter(group => group && typeof group === 'object')
-      .map(group => ({
-        ...group,
-        name: (group.name || '').trim()
-      }))
-      .filter(group => group.name)
-    : [];
-
-  normalizedState.instructors = (Array.isArray(normalizedState.instructors) ? normalizedState.instructors : [])
-    .map(instr => {
-      if (typeof instr === 'string') {
-        return { name: instr, color: getAutoInstructorColor(normalizedState) };
-      }
-      return {
-        name: (instr?.name || '').trim(),
-        color: instr?.color || getAutoInstructorColor(normalizedState)
-      };
-    })
-    .filter(instr => instr.name);
-
-  return normalizedState;
+  for (const horse of persistedSet) {
+    if (currentSet.has(horse)) continue;
+    const { error } = await supabase.from('horses').delete().eq('name', horse);
+    if (error) throw error;
+  }
 }
 
-function getAutoInstructorColor(state) {
-  const colors = GROUP_COLORS;
-  const count = (state?.instructors || []).length;
-  return colors[count % colors.length];
+async function syncInstructors(current, persisted) {
+  const currentByName = new Map((current.instructors || []).map(instr => [instr.name, instr]));
+  const persistedByName = new Map((persisted.instructors || []).map(instr => [instr.name, instr]));
+
+  for (const [name, instr] of currentByName.entries()) {
+    const previous = persistedByName.get(name);
+    if (!previous) {
+      const { error } = await supabase.from('instructors').insert({
+        name,
+        color: instr.color,
+      });
+      if (error && error.code !== '23505') throw error;
+      continue;
+    }
+    if (jsonEqual(instr, previous)) continue;
+    const { error } = await supabase.from('instructors').update({
+      color: instr.color,
+    }).eq('name', name);
+    if (error) throw error;
+  }
+
+  for (const [name] of persistedByName.entries()) {
+    if (currentByName.has(name)) continue;
+    const { error } = await supabase.from('instructors').delete().eq('name', name);
+    if (error) throw error;
+  }
+}
+
+async function syncGroups(current, persisted) {
+  const currentById = new Map((current.groups || []).map(group => [group.id, group]));
+  const persistedById = new Map((persisted.groups || []).map(group => [group.id, group]));
+
+  for (const [id, group] of currentById.entries()) {
+    const previous = persistedById.get(id);
+    if (previous && jsonEqual(group, previous)) continue;
+    const { error } = await supabase.from('groups').upsert(buildGroupRow(group), { onConflict: 'id' });
+    if (error) throw error;
+  }
+
+  for (const [id] of persistedById.entries()) {
+    if (currentById.has(id)) continue;
+    const { error } = await supabase.from('groups').delete().eq('id', id);
+    if (error) throw error;
+  }
+}
+
+async function syncPackages(current, persisted) {
+  const currentPackages = current.packages || [];
+  const persistedById = new Map((persisted.packages || []).map(pkg => [pkg.id, pkg]));
+
+  for (let index = 0; index < currentPackages.length; index += 1) {
+    const pkg = currentPackages[index];
+    const previous = persistedById.get(pkg.id);
+    if (previous && jsonEqual(pkg, previous)) continue;
+
+    if (!previous) {
+      const { data: existingByName, error: existingByNameError } = await supabase
+        .from('packages')
+        .select('*')
+        .eq('name', pkg.name)
+        .maybeSingle();
+      if (existingByNameError) throw existingByNameError;
+
+      if (existingByName) {
+        const remotePkg = normalizePackageEntry({
+          id: existingByName.id,
+          name: existingByName.name,
+          credits: existingByName.credits,
+          active: existingByName.active,
+          archivedAt: existingByName.archived_at,
+          history: existingByName.history,
+          customPaymentRate: existingByName.custom_payment_rate,
+          hasPackageLessons: existingByName.has_package_lessons,
+        });
+        const mergedPkg = mergePackageState(pkg, null, remotePkg);
+        currentPackages[index] = mergedPkg;
+        const { error } = await supabase.from('packages').upsert(buildPackageRow(mergedPkg), { onConflict: 'id' });
+        if (error) throw error;
+        continue;
+      }
+
+      const { error } = await supabase.from('packages').upsert(buildPackageRow(pkg), { onConflict: 'id' });
+      if (error) throw error;
+      continue;
+    }
+
+    const { data: latestRow, error: latestError } = await supabase.from('packages').select('*').eq('id', pkg.id).maybeSingle();
+    if (latestError) throw latestError;
+
+    const mergedPkg = mergePackageState(
+      pkg,
+      previous,
+      latestRow ? normalizePackageEntry({
+        id: latestRow.id,
+        name: latestRow.name,
+        credits: latestRow.credits,
+        active: latestRow.active,
+        archivedAt: latestRow.archived_at,
+        history: latestRow.history,
+        customPaymentRate: latestRow.custom_payment_rate,
+        hasPackageLessons: latestRow.has_package_lessons,
+      }) : null
+    );
+
+    currentPackages[index] = mergedPkg;
+
+    const { error } = await supabase.from('packages').upsert(buildPackageRow(mergedPkg), { onConflict: 'id' });
+    if (error) throw error;
+  }
+
+  for (const pkg of persisted.packages || []) {
+    if (currentPackages.some(entry => entry.id === pkg.id)) continue;
+    const { error } = await supabase.from('packages').delete().eq('id', pkg.id);
+    if (error) throw error;
+  }
+}
+
+async function syncLessons(current, persisted) {
+  const horseIdByName = new Map();
+  const instructorIdByName = new Map();
+  const { data: horseRows, error: horseError } = await supabase.from('horses').select('id,name');
+  if (horseError) throw horseError;
+  for (const row of horseRows || []) horseIdByName.set(row.name, row.id);
+  const { data: instructorRows, error: instructorError } = await supabase.from('instructors').select('id,name');
+  if (instructorError) throw instructorError;
+  for (const row of instructorRows || []) instructorIdByName.set(row.name, row.id);
+
+  const currentById = new Map((current.lessons || []).map(lesson => [lesson.id, lesson]));
+  const persistedById = new Map((persisted.lessons || []).map(lesson => [lesson.id, lesson]));
+
+  for (const [id, lesson] of currentById.entries()) {
+    const previous = persistedById.get(id);
+    if (previous && jsonEqual(lesson, previous)) continue;
+    const { error } = await supabase.from('lessons').upsert(
+      buildLessonRow(lesson, horseIdByName, instructorIdByName),
+      { onConflict: 'id' }
+    );
+    if (error) throw error;
+  }
+
+  for (const [id] of persistedById.entries()) {
+    if (currentById.has(id)) continue;
+    const { error } = await supabase.from('lessons').delete().eq('id', id);
+    if (error) throw error;
+  }
+}
+
+async function syncSettings(current, persisted) {
+  const currentRows = [
+    { key: 'closed_dates', value: current.closedDates || [] },
+    { key: 'legacy_next_id', value: current.nextId || 1 },
+    { key: 'legacy_next_group_id', value: current.nextGroupId || 1 },
+  ];
+  const persistedRows = [
+    { key: 'closed_dates', value: persisted.closedDates || [] },
+    { key: 'legacy_next_id', value: persisted.nextId || 1 },
+    { key: 'legacy_next_group_id', value: persisted.nextGroupId || 1 },
+  ];
+  const persistedMap = new Map(persistedRows.map(row => [row.key, row.value]));
+
+  for (const row of currentRows) {
+    if (jsonEqual(row.value, persistedMap.get(row.key))) continue;
+    const { error } = await supabase.from('settings').upsert(row, { onConflict: 'key' });
+    if (error) throw error;
+  }
+}
+
+async function syncToSupabase() {
+  await syncHorses(_data, _persistedData);
+  await syncInstructors(_data, _persistedData);
+  await syncGroups(_data, _persistedData);
+  await syncPackages(_data, _persistedData);
+  await syncLessons(_data, _persistedData);
+  await syncSettings(_data, _persistedData);
+}
+
+export function saveData({ throwOnError = false } = {}) {
+  notifyListeners();
+  _saveChain = _saveChain.then(async () => {
+    _data = normalizeAppState(_data);
+    const hasDiff = !jsonEqual(_data, _persistedData);
+    _hasPendingLocalChanges = hasDiff;
+    persistLocalState({ pending: hasDiff });
+
+    if (!hasDiff) {
+      if (_needsRemoteRefresh) {
+        _needsRemoteRefresh = false;
+        await refreshFromRemote();
+      }
+      return;
+    }
+
+    if (!supabase || !_isAdmin) {
+      if (!_isAdmin) {
+        console.warn('[store] saveData skipped Supabase sync - no active admin session.');
+      }
+      return;
+    }
+
+    try {
+      await syncToSupabase();
+      _persistedData = deepClone(_data);
+      _hasPendingLocalChanges = false;
+      persistLocalState({ pending: false });
+      if (_needsRemoteRefresh) {
+        _needsRemoteRefresh = false;
+        await refreshFromRemote();
+      }
+    } catch (error) {
+      console.error('[store] Failed to save to Supabase', error);
+      _hasPendingLocalChanges = true;
+      persistLocalState({ pending: true });
+      dispatchStoreError(error?.message ? t('syncFailed', { error: error.message }) : t('syncConnectionError'));
+      if (throwOnError) {
+        throw error;
+      }
+    }
+  });
+
+  return _saveChain;
+}
+
+async function clearRemoteNormalizedTables() {
+  const deleteAllById = async (table, key) => {
+    const { error } = await supabase.from(table).delete().not(key, 'is', null);
+    if (error) throw error;
+  };
+
+  await deleteAllById('lessons', 'id');
+  await deleteAllById('packages', 'id');
+  await deleteAllById('groups', 'id');
+  await deleteAllById('instructors', 'id');
+  await deleteAllById('horses', 'id');
+  await deleteAllById('settings', 'key');
 }
 
 function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate = true } = {}) {
@@ -209,6 +984,7 @@ function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate =
       active: true,
       archivedAt: null,
       history: [],
+      customPaymentRate: null,
       hasPackageLessons: !!hasPackageLessons
     });
     return true;
@@ -239,6 +1015,9 @@ function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate =
   if (typeof pkg.archivedAt !== 'string' && pkg.active !== false) {
     pkg.archivedAt = null;
   }
+  if (!Number.isFinite(Number(pkg.customPaymentRate))) {
+    pkg.customPaymentRate = null;
+  }
   return changed;
 }
 
@@ -251,26 +1030,7 @@ function syncPackageEntriesFromLessons() {
     changed = true;
   }
 
-  const normalizedPackages = [];
-  for (const rawPkg of d.packages) {
-    const normalized = normalizePackageEntry(rawPkg);
-    if (!normalized) {
-      changed = true;
-      continue;
-    }
-    if (
-      normalized.id !== rawPkg.id ||
-      normalized.name !== rawPkg.name ||
-      normalized.credits !== rawPkg.credits ||
-      normalized.active !== rawPkg.active ||
-      normalized.hasPackageLessons !== rawPkg.hasPackageLessons ||
-      !Array.isArray(rawPkg.history)
-    ) {
-      changed = true;
-    }
-    normalizedPackages.push(normalized);
-  }
-  d.packages = normalizedPackages;
+  d.packages = d.packages.map(pkg => normalizePackageEntry(pkg)).filter(Boolean);
 
   const registerClient = (name, hasPackageLessons) => {
     if (ensurePackageEntryState(name, { hasPackageLessons, reactivate: false })) {
@@ -297,274 +1057,6 @@ function syncPackageEntriesFromLessons() {
   }
 
   return changed;
-}
-
-export function getData() {
-  return _data;
-}
-
-export async function saveData() {
-  // Always notify local listeners first for UI responsiveness
-  notifyListeners();
-  
-  // Always save to local storage as a reliable fallback
-  try {
-    localStorage.setItem('horsebook_data', JSON.stringify(_data));
-  } catch (e) {
-    console.error('[store] LocalStorage save failed', e);
-  }
-
-  if (!supabase || !_isAdmin) {
-    if (!_isAdmin) console.warn('[store] saveData skipped Supabase sync — no active admin session.');
-    return;
-  }
-
-  try {
-    const clonedObj = JSON.parse(JSON.stringify(_data));
-    const { error } = await supabase
-      .from('app_state')
-      .upsert({ id: 1, state: clonedObj }, { onConflict: 'id' });
-    
-    if (error) {
-      console.error('[store] Supabase upsert error:', error.message);
-      window.dispatchEvent(new CustomEvent('store-error', { 
-        detail: { message: t('syncFailed', { error: error.message }), type: 'error' } 
-      }));
-    } else {
-      console.log('[store] Supabase sync successful');
-    }
-  } catch (e) {
-    console.error('[store] Failed to save to Supabase', e);
-    window.dispatchEvent(new CustomEvent('store-error', { 
-      detail: { message: t('syncConnectionError'), type: 'error' } 
-    }));
-  }
-}
-
-export function subscribe(fn) {
-  _listeners.add(fn);
-  return () => _listeners.delete(fn);
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────
-
-export function generateId() {
-  const d = getData();
-  return d.nextId++;
-}
-
-export function generateGroupId() {
-  const d = getData();
-  return d.nextGroupId++;
-}
-
-function normalizeLesson(lesson) {
-  const normalizeParticipants = (participants) => {
-    if (!Array.isArray(participants)) return [];
-    return participants
-      .map(participant => {
-        const name = (participant?.name || '').trim();
-        const horse = participant?.horse || null;
-        const packageName = (participant?.packageName || name).trim();
-        const packageMode = participant?.packageMode !== false;
-        if (!name) return null;
-        return { name, horse, packageName, packageMode };
-      })
-      .filter(Boolean);
-  };
-
-  const normalizeDateString = (value) => {
-    if (typeof value !== 'string') return null;
-    const trimmed = value.trim();
-    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
-  };
-
-  const normalized = {
-    cancelledDates: [],
-    deductedDates: [],
-    lessonType: 'individual',
-    instanceOverrides: {},
-    ...lesson
-  };
-
-  if (!Array.isArray(normalized.cancelledDates)) normalized.cancelledDates = [];
-  if (!Array.isArray(normalized.deductedDates)) normalized.deductedDates = [];
-  if (normalized.packageMode === undefined) {
-    const legacyPackage =
-      !!(normalized.title && getPackageByName(normalized.title)) ||
-      normalized.participants?.length > 0;
-    normalized.packageMode = legacyPackage;
-  } else {
-    normalized.packageMode = normalized.packageMode !== false;
-  }
-
-  if (Array.isArray(normalized.participants)) {
-    normalized.participants = normalizeParticipants(normalized.participants);
-  } else {
-    normalized.participants = [];
-  }
-
-  // Legacy group links should no longer couple lessons together.
-  normalized.groupId = null;
-  normalized.groupName = (normalized.groupName || normalized.title || '').trim() || null;
-  normalized.groupColor = normalized.groupColor || null;
-
-  if (!normalized.lessonType) {
-    normalized.lessonType = normalized.participants.length > 0 ? 'group' : 'individual';
-  }
-
-  normalized.recurringUntil = normalizeDateString(normalized.recurringUntil);
-
-  if (normalized.instanceOverrides && typeof normalized.instanceOverrides === 'object') {
-    const normalizedOverrides = {};
-    for (const [dateStr, override] of Object.entries(normalized.instanceOverrides)) {
-      if (!override || typeof override !== 'object') continue;
-      const cleanOverride = { ...override };
-      if (Array.isArray(cleanOverride.participants)) {
-        cleanOverride.participants = normalizeParticipants(cleanOverride.participants);
-      }
-      cleanOverride.groupId = null;
-      cleanOverride.groupName = (cleanOverride.groupName || cleanOverride.title || '').trim() || null;
-      if (cleanOverride.groupColor !== undefined) {
-        cleanOverride.groupColor = cleanOverride.groupColor || null;
-      }
-      normalizedOverrides[dateStr] = cleanOverride;
-    }
-    normalized.instanceOverrides = normalizedOverrides;
-  } else {
-    normalized.instanceOverrides = {};
-  }
-
-  return normalized;
-}
-
-// ── Lesson CRUD ────────────────────────────────────────────────────────
-
-export function addLesson(lesson, { save = true } = {}) {
-  const d = getData();
-  const id = generateId();
-  const newLesson = normalizeLesson({
-    id,
-    ...lesson
-  });
-  d.lessons.push(newLesson);
-
-  if (save) saveData();
-  return newLesson;
-}
-
-export function updateLesson(id, updates, { save = true } = {}) {
-  const d = getData();
-  const idx = d.lessons.findIndex(l => l.id === id);
-  if (idx >= 0) {
-    d.lessons[idx] = normalizeLesson({ ...d.lessons[idx], ...updates });
-    if (save) saveData();
-  }
-}
-
-export function updateLessonInstance(id, dateStr, updates, { save = true } = {}) {
-  const d = getData();
-  const idx = d.lessons.findIndex(l => l.id === id);
-  if (idx < 0) return;
-
-  const lesson = d.lessons[idx];
-  if (!lesson.instanceOverrides || typeof lesson.instanceOverrides !== 'object') {
-    lesson.instanceOverrides = {};
-  }
-
-  const override = {};
-  for (const [key, value] of Object.entries(updates || {})) {
-    if ([
-      'id',
-      'date',
-      'recurring',
-      'recurringUntil',
-      'cancelledDates',
-      'deductedDates',
-      'instanceOverrides',
-      '_recurringInstance',
-      '_instanceDate'
-    ].includes(key)) continue;
-    if (JSON.stringify(lesson[key]) !== JSON.stringify(value)) {
-      override[key] = value;
-    }
-  }
-
-  if (Object.keys(override).length === 0) {
-    delete lesson.instanceOverrides[dateStr];
-  } else {
-    const existing = lesson.instanceOverrides[dateStr] || {};
-    const merged = { ...existing, ...override };
-    if (Array.isArray(merged.participants)) {
-      merged.participants = merged.participants
-        .map(participant => {
-          const name = (participant?.name || '').trim();
-          const horse = participant?.horse || null;
-          const packageName = (participant?.packageName || name).trim();
-          const packageMode = participant?.packageMode !== false;
-          if (!name) return null;
-          return { name, horse, packageName, packageMode };
-        })
-        .filter(Boolean);
-    }
-    lesson.instanceOverrides[dateStr] = merged;
-  }
-
-  if (save) saveData();
-}
-
-export function deleteLesson(id) {
-  const d = getData();
-  const lesson = d.lessons.find(l => l.id === id);
-  if (!lesson) return;
-
-  // Cleanup history and restore credits for any clients affected by this lesson
-  const affectedClientNames = [];
-  if (Array.isArray(lesson.participants) && lesson.participants.length > 0) {
-    lesson.participants.forEach(p => {
-      const name = (p.packageName || p.name || '').trim();
-      if (name) affectedClientNames.push(name.toLowerCase());
-    });
-  } else if (lesson.title) {
-    affectedClientNames.push(lesson.title.trim().toLowerCase());
-  }
-
-  const uniqueClients = [...new Set(affectedClientNames)];
-  for (const clientName of uniqueClients) {
-    const pkg = d.packages.find(p => p.name.toLowerCase() === clientName);
-    if (pkg && pkg.history) {
-      let creditDelta = 0;
-      const originalHistoryLength = pkg.history.length;
-      
-      pkg.history = pkg.history.filter(record => {
-        // Match by lessonId (preferred) or by date/time (legacy)
-        const isLessonRecord = record.reason === 'lesson' || record.reason === 'lesson_cancel';
-        if (!isLessonReason(record)) return true;
-
-        const isIdMatch = record.lessonId === id;
-        
-        // For legacy records without lessonId, check if the date/time matches this lesson
-        // For recurring lessons, we check if the record date was one of the deducted dates
-        const isLegacyMatch = !record.lessonId && 
-                             record.lessonDate && 
-                             (lesson.date === record.lessonDate || (lesson.deductedDates && lesson.deductedDates.includes(record.lessonDate))) && 
-                             record.lessonStartMinute === lesson.startMinute;
-
-        if (isIdMatch || isLegacyMatch) {
-          creditDelta -= record.amount; // Remove deduction (-1) -> +1 credit, remove cancel (+1) -> -1 credit
-          return false;
-        }
-        return true;
-      });
-
-      if (pkg.history.length !== originalHistoryLength) {
-        pkg.credits += creditDelta;
-      }
-    }
-  }
-
-  d.lessons = d.lessons.filter(l => l.id !== id);
-  saveData();
 }
 
 function isLessonReason(record) {
@@ -700,6 +1192,116 @@ function autoArchiveDormantClients() {
   return changed;
 }
 
+export function addLesson(lesson, { save = true } = {}) {
+  const d = getData();
+  const newLesson = normalizeLesson({
+    id: generateId(),
+    ...lesson
+  });
+  d.lessons.push(newLesson);
+  if (save) saveData();
+  return newLesson;
+}
+
+export function updateLesson(id, updates, { save = true } = {}) {
+  const d = getData();
+  const idx = d.lessons.findIndex(lesson => lesson.id === id);
+  if (idx >= 0) {
+    d.lessons[idx] = normalizeLesson({ ...d.lessons[idx], ...updates });
+    if (save) saveData();
+  }
+}
+
+export function updateLessonInstance(id, dateStr, updates, { save = true } = {}) {
+  const d = getData();
+  const idx = d.lessons.findIndex(lesson => lesson.id === id);
+  if (idx < 0) return;
+
+  const lesson = d.lessons[idx];
+  if (!lesson.instanceOverrides || typeof lesson.instanceOverrides !== 'object') {
+    lesson.instanceOverrides = {};
+  }
+
+  const override = {};
+  for (const [key, value] of Object.entries(updates || {})) {
+    if ([
+      'id',
+      'date',
+      'recurring',
+      'recurringUntil',
+      'cancelledDates',
+      'deductedDates',
+      'instanceOverrides',
+      '_recurringInstance',
+      '_instanceDate'
+    ].includes(key)) continue;
+    if (JSON.stringify(lesson[key]) !== JSON.stringify(value)) {
+      override[key] = value;
+    }
+  }
+
+  if (Object.keys(override).length === 0) {
+    delete lesson.instanceOverrides[dateStr];
+  } else {
+    const existing = lesson.instanceOverrides[dateStr] || {};
+    const merged = { ...existing, ...override };
+    if (Array.isArray(merged.participants)) {
+      merged.participants = normalizeParticipants(merged.participants);
+    }
+    lesson.instanceOverrides[dateStr] = merged;
+  }
+
+  if (save) saveData();
+}
+
+export function deleteLesson(id) {
+  const d = getData();
+  const lesson = d.lessons.find(entry => entry.id === id);
+  if (!lesson) return;
+
+  const affectedClientNames = [];
+  if (Array.isArray(lesson.participants) && lesson.participants.length > 0) {
+    lesson.participants.forEach(participant => {
+      const name = (participant.packageName || participant.name || '').trim();
+      if (name) affectedClientNames.push(name.toLowerCase());
+    });
+  } else if (lesson.title) {
+    affectedClientNames.push(lesson.title.trim().toLowerCase());
+  }
+
+  const uniqueClients = [...new Set(affectedClientNames)];
+  for (const clientName of uniqueClients) {
+    const pkg = d.packages.find(entry => entry.name.toLowerCase() === clientName);
+    if (pkg && pkg.history) {
+      let creditDelta = 0;
+      const originalHistoryLength = pkg.history.length;
+
+      pkg.history = pkg.history.filter(record => {
+        if (!isLessonReason(record)) return true;
+
+        const isIdMatch = record.lessonId === id;
+        const isLegacyMatch = !record.lessonId
+          && record.lessonDate
+          && (lesson.date === record.lessonDate || (lesson.deductedDates && lesson.deductedDates.includes(record.lessonDate)))
+          && record.lessonStartMinute === lesson.startMinute;
+
+        if (isIdMatch || isLegacyMatch) {
+          creditDelta -= record.amount;
+          return false;
+        }
+        return true;
+      });
+
+      if (pkg.history.length !== originalHistoryLength) {
+        pkg.credits += creditDelta;
+      }
+    }
+  }
+
+  d.lessons = d.lessons.filter(entry => entry.id !== id);
+  saveData();
+}
+
 export function getLessonsForDate(dateStr) {
   const d = getData();
   const results = [];
@@ -729,7 +1331,6 @@ export function getLessonsForDate(dateStr) {
     } else if (lesson.recurring) {
       const lessonDate = new Date(lesson.date);
       if (lessonDate.getDay() === targetDay && lessonDate <= targetDate) {
-        // Check this recurring lesson falls on this date
         const diffMs = targetDate - lessonDate;
         const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
         if (diffDays >= 0 && diffDays % 7 === 0) {
@@ -743,20 +1344,18 @@ export function getLessonsForDate(dateStr) {
 
 export function toggleCancelLessonInstance(id, dateStr) {
   const d = getData();
-  const lesson = d.lessons.find(l => l.id === id);
+  const lesson = d.lessons.find(entry => entry.id === id);
   if (!lesson) return;
-  
+
   if (!lesson.cancelledDates) lesson.cancelledDates = [];
-  
+
   if (lesson.cancelledDates.includes(dateStr)) {
-    lesson.cancelledDates = lesson.cancelledDates.filter(d => d !== dateStr);
+    lesson.cancelledDates = lesson.cancelledDates.filter(entry => entry !== dateStr);
   } else {
     lesson.cancelledDates.push(dateStr);
   }
   saveData();
 }
-
-// ── Automatic Credit Deduction ─────────────────────────────────────────
 
 export function processPastLessonsForCredits() {
   if (!_data) return;
@@ -779,7 +1378,7 @@ export function processPastLessonsForCredits() {
       const durationMinutes = instanceLesson.durationMinutes;
       const instanceEnd = parseDate(dStr);
       instanceEnd.setMinutes(instanceEnd.getMinutes() + startMinute + durationMinutes);
-      
+
       const isPast = instanceEnd < now;
       const isCancelled = lesson.cancelledDates.includes(dStr);
 
@@ -788,13 +1387,13 @@ export function processPastLessonsForCredits() {
         const uniqueNames = [...new Set(
           instanceLesson.participants
             .filter(participant => participant?.packageMode !== false)
-            .map(p => (p?.packageName || p?.name || '').trim())
+            .map(participant => (participant?.packageName || participant?.name || '').trim())
             .filter(Boolean)
         )];
         if (uniqueNames.length === 0) return;
         if (isPast && !isCancelled && !isDeducted) {
           for (const name of uniqueNames) {
-            const pkg = _data.packages.find(p => p.name.toLowerCase() === name.toLowerCase());
+            const pkg = _data.packages.find(entry => entry.name.toLowerCase() === name.toLowerCase());
             if (!pkg || !pkg.active) continue;
             if (!pkg.history) pkg.history = [];
             const before = pkg.credits;
@@ -814,7 +1413,7 @@ export function processPastLessonsForCredits() {
           changed = true;
         } else if ((!isPast || isCancelled) && isDeducted) {
           for (const name of uniqueNames) {
-            const pkg = _data.packages.find(p => p.name.toLowerCase() === name.toLowerCase());
+            const pkg = _data.packages.find(entry => entry.name.toLowerCase() === name.toLowerCase());
             if (!pkg || !pkg.active) continue;
             if (!pkg.history) pkg.history = [];
             const before = pkg.credits;
@@ -830,17 +1429,15 @@ export function processPastLessonsForCredits() {
               lessonId: lesson.id
             });
           }
-          lesson.deductedDates = lesson.deductedDates.filter(d => d !== dStr);
+          lesson.deductedDates = lesson.deductedDates.filter(entry => entry !== dStr);
           changed = true;
         }
         return;
       }
 
-      if (instanceLesson.packageMode === false) {
-        return;
-      }
+      if (instanceLesson.packageMode === false) return;
 
-      const pkg = _data.packages.find(p => p.name.toLowerCase() === lesson.title.toLowerCase());
+      const pkg = _data.packages.find(entry => entry.name.toLowerCase() === lesson.title.toLowerCase());
       if (!pkg || !pkg.active) return;
 
       if (isPast && !isCancelled && !lesson.deductedDates.includes(dStr)) {
@@ -873,7 +1470,7 @@ export function processPastLessonsForCredits() {
           lessonStartMinute: startMinute,
           lessonId: lesson.id
         });
-        lesson.deductedDates = lesson.deductedDates.filter(d => d !== dStr);
+        lesson.deductedDates = lesson.deductedDates.filter(entry => entry !== dStr);
         changed = true;
       }
     };
@@ -881,9 +1478,7 @@ export function processPastLessonsForCredits() {
     if (!lesson.recurring) {
       checkInstance(lesson.date, lesson);
     } else {
-      if (lesson.recurringUntil && lesson.date > lesson.recurringUntil) {
-        continue;
-      }
+      if (lesson.recurringUntil && lesson.date > lesson.recurringUntil) continue;
       let currentInstance = parseDate(lesson.date);
       const boundDate = new Date();
       boundDate.setDate(boundDate.getDate() + 7);
@@ -894,10 +1489,10 @@ export function processPastLessonsForCredits() {
         const dStr = formatDate(currentInstance);
         const instanceLesson = getInstanceLesson(lesson, dStr);
         checkInstance(dStr, instanceLesson);
-        
+
         const instanceEnd = new Date(currentInstance);
         instanceEnd.setMinutes(instanceEnd.getMinutes() + instanceLesson.startMinute + instanceLesson.durationMinutes);
-        if (instanceEnd >= now) break; 
+        if (instanceEnd >= now) break;
 
         currentInstance.setDate(currentInstance.getDate() + 7);
       }
@@ -909,8 +1504,6 @@ export function processPastLessonsForCredits() {
   }
 }
 
-// ── Package Management ─────────────────────────────────────────────────
-
 export function ensurePackageEntry(name, { save = true, hasPackageLessons = false } = {}) {
   const changed = ensurePackageEntryState(name, { hasPackageLessons, reactivate: true });
   if (changed && save) saveData();
@@ -918,188 +1511,198 @@ export function ensurePackageEntry(name, { save = true, hasPackageLessons = fals
 
 export function updatePackageCredits(id, credits) {
   const d = getData();
-  const pkg = d.packages.find(p => p.id === id);
-  if (pkg) {
-    pkg.credits = credits;
-    pkg.hasPackageLessons = true;
-    saveData();
-  }
+  const pkg = d.packages.find(entry => entry.id === id);
+  if (!pkg) return;
+  pkg.credits = credits;
+  pkg.hasPackageLessons = true;
+  saveData();
 }
 
 export function addPackageCredits(id, amount) {
   const d = getData();
-  const pkg = d.packages.find(p => p.id === id);
-  if (pkg) {
-    if (!pkg.history) pkg.history = [];
-    pkg.hasPackageLessons = true;
-    const before = pkg.credits;
-    const after = before + amount;
-    pkg.credits = after;
-    pkg.history.push({
-      date: new Date().toISOString(),
-      amount,
-      before,
-      after
-    });
-    saveData();
+  const pkg = d.packages.find(entry => entry.id === id);
+  if (!pkg) return;
+  if (!pkg.history) pkg.history = [];
+  pkg.hasPackageLessons = true;
+  const before = pkg.credits;
+  const after = before + amount;
+  pkg.credits = after;
+  pkg.history.push({
+    date: new Date().toISOString(),
+    amount,
+    before,
+    after
+  });
+  saveData();
+}
+
+export function updatePackageCustomPaymentRate(id, value) {
+  const d = getData();
+  const pkg = d.packages.find(entry => entry.id === id);
+  if (!pkg) return false;
+  if (value === null || value === undefined || value === '') {
+    pkg.customPaymentRate = null;
+  } else {
+    const parsedValue = Number(value);
+    pkg.customPaymentRate = Number.isFinite(parsedValue) ? parsedValue : null;
   }
+  saveData();
+  return true;
 }
 
 export function togglePackageActive(id) {
   const d = getData();
-  const pkg = d.packages.find(p => p.id === id);
-  if (pkg) {
-    setPackageActive(id, !pkg.active);
-  }
+  const pkg = d.packages.find(entry => entry.id === id);
+  if (pkg) setPackageActive(id, !pkg.active);
 }
 
 export function setPackageActive(id, active) {
   const d = getData();
-  const pkg = d.packages.find(p => p.id === id);
-  if (pkg) {
-    pkg.active = !!active;
-    pkg.archivedAt = pkg.active ? null : new Date().toISOString();
-    saveData();
-  }
+  const pkg = d.packages.find(entry => entry.id === id);
+  if (!pkg) return;
+  pkg.active = !!active;
+  pkg.archivedAt = pkg.active ? null : new Date().toISOString();
+  saveData();
 }
 
 export function updatePackageName(id, newName) {
   const d = getData();
-  const pkg = d.packages.find(p => p.id === id);
+  const pkg = d.packages.find(entry => entry.id === id);
   if (!pkg) return false;
-  
+
   const oldName = pkg.name;
   const trimmedNew = newName.trim();
-  if (oldName === trimmedNew) return false;
-  
-  // Check if target name already exists
-  if (d.packages.some(p => p.id !== id && p.name.toLowerCase() === trimmedNew.toLowerCase())) {
-     return false; // Already exists
+  if (!trimmedNew || oldName === trimmedNew) return false;
+  if (d.packages.some(entry => entry.id !== id && entry.name.toLowerCase() === trimmedNew.toLowerCase())) {
+    return false;
   }
-  
+
   pkg.name = trimmedNew;
-  
-  // Update all lessons
+
   for (const lesson of d.lessons) {
     if (lesson.title && lesson.title.toLowerCase() === oldName.toLowerCase()) {
-       lesson.title = pkg.name;
+      lesson.title = pkg.name;
     }
     if (Array.isArray(lesson.participants)) {
-       for (const participant of lesson.participants) {
-          const pName = participant.packageName || participant.name || '';
-          if (pName.toLowerCase() === oldName.toLowerCase()) {
-             if (participant.packageName) {
-                participant.packageName = pkg.name;
-             }
-             if (participant.name.toLowerCase() === oldName.toLowerCase()) {
-                participant.name = pkg.name;
-             }
+      for (const participant of lesson.participants) {
+        const packageName = participant.packageName || participant.name || '';
+        if (packageName.toLowerCase() === oldName.toLowerCase()) {
+          if (participant.packageName) participant.packageName = pkg.name;
+          if (participant.name.toLowerCase() === oldName.toLowerCase()) {
+            participant.name = pkg.name;
           }
-       }
+        }
+      }
     }
-    
-    // Also check instanceOverrides
     if (lesson.instanceOverrides) {
-       for (const override of Object.values(lesson.instanceOverrides)) {
-          if (override.title && override.title.toLowerCase() === oldName.toLowerCase()) {
-             override.title = pkg.name;
+      for (const override of Object.values(lesson.instanceOverrides)) {
+        if (override.title && override.title.toLowerCase() === oldName.toLowerCase()) {
+          override.title = pkg.name;
+        }
+        if (Array.isArray(override.participants)) {
+          for (const participant of override.participants) {
+            const packageName = participant.packageName || participant.name || '';
+            if (packageName.toLowerCase() === oldName.toLowerCase()) {
+              if (participant.packageName) participant.packageName = pkg.name;
+              if (participant.name && participant.name.toLowerCase() === oldName.toLowerCase()) {
+                participant.name = pkg.name;
+              }
+            }
           }
-          if (Array.isArray(override.participants)) {
-             for (const participant of override.participants) {
-                const pName = participant.packageName || participant.name || '';
-                if (pName.toLowerCase() === oldName.toLowerCase()) {
-                   if (participant.packageName) {
-                      participant.packageName = pkg.name;
-                   }
-                   if (participant.name && participant.name.toLowerCase() === oldName.toLowerCase()) {
-                      participant.name = pkg.name;
-                   }
-                }
-             }
-          }
-       }
+        }
+      }
     }
   }
-  
+
   saveData();
   return true;
 }
 
 export function deletePackage(id) {
   const d = getData();
-  d.packages = d.packages.filter(p => p.id !== id);
+  d.packages = d.packages.filter(entry => entry.id !== id);
   saveData();
 }
 
 export function getPackageByName(name) {
   const d = getData();
-  return d.packages.find(p => p.name.toLowerCase() === name.trim().toLowerCase());
+  return d.packages.find(entry => entry.name.toLowerCase() === name.trim().toLowerCase());
 }
 
 export function deductCredit(name, dateStr, startMinute) {
   const d = getData();
-  const pkg = d.packages.find(p => p.name.toLowerCase() === name.trim().toLowerCase());
-  if (pkg && pkg.active) {
-    if (!pkg.history) pkg.history = [];
-    pkg.hasPackageLessons = true;
-    const before = pkg.credits;
-    pkg.credits -= 1;
-    pkg.history.push({
-      date: new Date().toISOString(),
-      amount: -1,
-      before,
-      after: pkg.credits,
-      reason: 'manual_deduct',
-      lessonDate: dateStr,
-      lessonStartMinute: startMinute
-    });
-    saveData();
-  }
+  const pkg = d.packages.find(entry => entry.name.toLowerCase() === name.trim().toLowerCase());
+  if (!pkg || !pkg.active) return;
+  if (!pkg.history) pkg.history = [];
+  pkg.hasPackageLessons = true;
+  const before = pkg.credits;
+  pkg.credits -= 1;
+  pkg.history.push({
+    date: new Date().toISOString(),
+    amount: -1,
+    before,
+    after: pkg.credits,
+    reason: 'manual_deduct',
+    lessonDate: dateStr,
+    lessonStartMinute: startMinute
+  });
+  saveData();
 }
 
-// ── Instructor Management ─────────────────────────────────────────────
+export function addHorse(name) {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  const d = getData();
+  if (d.horses.includes(trimmed)) return false;
+  d.horses.push(trimmed);
+  saveData();
+  return true;
+}
+
+export function deleteHorse(name) {
+  const d = getData();
+  const next = d.horses.filter(entry => entry !== name);
+  if (next.length === d.horses.length) return false;
+  d.horses = next;
+  saveData();
+  return true;
+}
 
 export function addInstructor(name) {
   const d = getData();
   const trimmed = name.trim();
-  if (trimmed && !d.instructors.find(i => i.name.toLowerCase() === trimmed.toLowerCase())) {
-    const state = getData();
-    const colors = GROUP_COLORS;
-    const count = (state?.instructors || []).length;
-    const color = colors[count % colors.length];
-
-    d.instructors.push({ name: trimmed, color });
-    saveData();
-    return true;
+  if (!trimmed || d.instructors.find(instr => instr.name.toLowerCase() === trimmed.toLowerCase())) {
+    return false;
   }
-  return false;
+  const colors = GROUP_COLORS;
+  const color = colors[d.instructors.length % colors.length];
+  d.instructors.push({ name: trimmed, color });
+  saveData();
+  return true;
 }
 
 export function updateInstructorColor(name, color) {
   const d = getData();
-  const instr = d.instructors.find(i => i.name === name);
-  if (instr) {
-    instr.color = color;
-    saveData();
-  }
+  const instr = d.instructors.find(entry => entry.name === name);
+  if (!instr) return;
+  instr.color = color;
+  saveData();
 }
 
 export function deleteInstructor(name) {
   const d = getData();
-  d.instructors = d.instructors.filter(i => i.name !== name);
+  d.instructors = d.instructors.filter(entry => entry.name !== name);
   saveData();
 }
 
-// ── Group Management ───────────────────────────────────────────────────
-
 export const GROUP_COLORS = [
-  '#FF1744', // Red
-  '#F57C00', // Orange
-  '#FFD600', // Yellow
-  '#76FF03', // Lime
-  '#00E676', // Green
-  '#00E5FF', // Cyan
-  '#D500F9'  // Magenta
+  '#FF1744',
+  '#F57C00',
+  '#FFD600',
+  '#76FF03',
+  '#00E676',
+  '#00E5FF',
+  '#D500F9'
 ];
 
 export function getAutoGroupColor() {
@@ -1112,10 +1715,9 @@ export function getAutoGroupColor() {
 
 export function createGroup(name, color = null, { save = true } = {}) {
   const d = getData();
-  const id = generateGroupId();
-  const colorIdx = (d.groups.length) % GROUP_COLORS.length;
+  const colorIdx = d.groups.length % GROUP_COLORS.length;
   const group = {
-    id,
+    id: generateGroupId(),
     name: name.trim(),
     color: color || GROUP_COLORS[colorIdx]
   };
@@ -1126,7 +1728,7 @@ export function createGroup(name, color = null, { save = true } = {}) {
 
 export function updateGroup(id, updates, { save = true } = {}) {
   const d = getData();
-  const idx = d.groups.findIndex(g => g.id === id);
+  const idx = d.groups.findIndex(group => group.id === id);
   if (idx >= 0) {
     d.groups[idx] = {
       ...d.groups[idx],
@@ -1139,15 +1741,14 @@ export function updateGroup(id, updates, { save = true } = {}) {
 }
 
 export function getGroup(id) {
-  return getData().groups.find(g => g.id === id);
+  return getData().groups.find(group => group.id === id);
 }
 
 export function deleteGroup(id) {
   const d = getData();
-  d.groups = d.groups.filter(g => g.id !== id);
-  // Ungroup any lessons
-  d.lessons.forEach(l => {
-    if (l.groupId === id) l.groupId = null;
+  d.groups = d.groups.filter(group => group.id !== id);
+  d.lessons.forEach(lesson => {
+    if (lesson.groupId === id) lesson.groupId = null;
   });
   saveData();
 }
@@ -1164,12 +1765,44 @@ export function isDateClosed(dateStr) {
 export function toggleClosedDate(dateStr) {
   const d = getData();
   if (!Array.isArray(d.closedDates)) d.closedDates = [];
-
   if (d.closedDates.includes(dateStr)) {
-    d.closedDates = d.closedDates.filter(dStr => dStr !== dateStr);
+    d.closedDates = d.closedDates.filter(entry => entry !== dateStr);
   } else {
     d.closedDates.push(dateStr);
   }
-
   saveData();
+}
+
+export function importData(importedState) {
+  setDataState(importedState, { pending: true });
+  saveData();
+}
+
+export async function migrateLegacyAppState() {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+  if (!_isAdmin) {
+    throw new Error('You must be logged in as admin.');
+  }
+
+  const legacyRemoteState = await fetchLegacyAppState();
+  if (!legacyRemoteState || isStateEffectivelyEmpty(legacyRemoteState)) {
+    throw new Error('Legacy app_state is empty or missing.');
+  }
+
+  await clearRemoteNormalizedTables();
+  _persistedData = deepClone(createEmptyPersistedState());
+  setDataState(normalizeAppState(legacyRemoteState), { pending: true });
+  notifyListeners();
+  await saveData({ throwOnError: true });
+  await refreshFromRemote();
+
+  return {
+    lessons: _data.lessons.length,
+    packages: _data.packages.length,
+    horses: _data.horses.length,
+    instructors: _data.instructors.length,
+    groups: _data.groups.length,
+  };
 }

@@ -2,7 +2,8 @@ import { t, setLang, getLang } from '../i18n.js';
 import { el, icon, formatDate, getDatesInRange, setupModalSwipeToClose } from '../utils.js';
 import {
   getData, saveData, isAdmin, login, logout,
-  getLessonsForDate, GROUP_COLORS, updateInstructorColor, addInstructor, deleteInstructor
+  getLessonsForDate, GROUP_COLORS, updateInstructorColor, addInstructor, deleteInstructor,
+  addHorse, deleteHorse, importData, migrateLegacyAppState
 } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, getLessonParticipants } from '../services/LessonService.js';
@@ -791,8 +792,8 @@ export function buildSettingsView() {
     const chip = el('div', { className: 'settings-chip' },
       h,
       isAdmin() ? el('button', { className: 'remove-chip', onClick: () => {
-        data.horses = data.horses.filter(x => x !== h);
-        saveData(); render();
+        deleteHorse(h);
+        render();
       }}, icon('close')) : ''
     );
     horsesList.appendChild(chip);
@@ -806,7 +807,7 @@ export function buildSettingsView() {
     className: 'btn btn-primary btn-sm',
     onClick: () => {
       const name = horseInput.value.trim();
-      if (name && !data.horses.includes(name)) { data.horses.push(name); saveData(); render(); }
+      if (addHorse(name)) render();
     }
   }, icon('add')));
   horsesSection.appendChild(addHorseRow);
@@ -914,8 +915,8 @@ export function buildSettingsView() {
         reader.onload = (ev) => {
           try {
             const imported = JSON.parse(ev.target.result);
-            Object.assign(data, imported);
-            saveData(); render();
+            importData(imported);
+            render();
             showToast(t('dataImportedSuccessfully'), 'upload');
           } catch {
             showToast(t('invalidBackupFile'), 'error');
@@ -926,6 +927,25 @@ export function buildSettingsView() {
       input.click();
     }
   }, icon('upload'), t('importBackup')));
+
+  if (isAdmin()) {
+    dataSection.appendChild(el('button', {
+      className: 'btn btn-primary btn-sm',
+      style: { width: '100%', marginTop: '8px' },
+      onClick: async () => {
+        try {
+          const result = await migrateLegacyAppState();
+          render();
+          showToast(
+            `Migration complete: ${result.lessons} lessons, ${result.packages} clients, ${result.horses} horses`,
+            'check_circle'
+          );
+        } catch (error) {
+          showToast(error?.message || 'Migration failed', 'error');
+        }
+      }
+    }, icon('database'), 'Migrate Legacy Database'));
+  }
   container.appendChild(dataSection);
   }
 
