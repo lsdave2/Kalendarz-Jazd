@@ -78,6 +78,7 @@ export function buildMonthView() {
 
     const dayCell = el('div', {
       className: classes.join(' '),
+      'data-date': dateStr,
       onClick: () => {
         if (closed && !isAdmin()) {
           showToast(t('dayClosedToast'), 'lock');
@@ -289,6 +290,8 @@ function buildLessonTile(lesson, dateStr, startHour, pos, dayScale) {
 
   const tile = el('div', {
     className: `lesson-tile ${cancelled || (pkg && !pkg.active) ? 'status-inactive' : 'status-neutral'} ${isGroup ? 'group-session' : ''} ${past ? 'past' : ''} ${cancelled ? 'cancelled' : ''}`.trim(),
+    'data-date': dateStr,
+    'data-end-minute': String(lesson.startMinute + lesson.durationMinutes),
     style: {
       top: `${top}px`, height: `${h}px`, right: 'auto', overflow: 'hidden',
       left: tot > 1 ? `calc(${L}px + (100% - ${L + R}px) * ${col} / ${tot})` : `${L}px`,

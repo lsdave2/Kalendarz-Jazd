@@ -11,6 +11,8 @@ import { buildMonthView, buildDayView, calendarState, formatDateNice } from './v
 
 // ── State ──────────────────────────────────────────────────────────────
 let currentTab = 'calendar';
+let lastRenderKey = null;
+let lastRenderedDay = formatDate(new Date());
 
 // Navigation State Management
 function updateStateFromHistory(state) {
@@ -50,9 +52,39 @@ loadData();
 // ── Render Engine ──────────────────────────────────────────────────────
 const app = document.getElementById('app');
 
+function getRenderKey() {
+  const calendarKey = calendarState.selectedDate
+    ? `day:${calendarState.selectedDate}`
+    : `month:${calendarState.viewYear}-${calendarState.viewMonth}`;
+  return `${currentTab}|${calendarKey}|${isAdmin() ? 'admin' : 'guest'}`;
+}
+
+function refreshLiveUi() {
+  const today = formatDate(new Date());
+
+  document.querySelectorAll('.calendar-day[data-date]').forEach(dayCell => {
+    const dateStr = dayCell.dataset.date;
+    if (!dateStr) return;
+    dayCell.classList.toggle('today', dateStr === today);
+    dayCell.classList.toggle('past', dateStr < today);
+  });
+
+  document.querySelectorAll('.lesson-tile[data-date][data-end-minute]').forEach(tile => {
+    const dateStr = tile.dataset.date;
+    const endMinute = Number.parseInt(tile.dataset.endMinute || '', 10);
+    if (!dateStr || Number.isNaN(endMinute)) return;
+    const lessonEnd = new Date(`${dateStr}T00:00:00`);
+    lessonEnd.setMinutes(lessonEnd.getMinutes() + endMinute);
+    tile.classList.toggle('past', lessonEnd < new Date());
+  });
+}
+
 export function render() {
   ensureVisibleTab();
   document.title = t('appTitle');
+  const renderKey = getRenderKey();
+  const shouldRestoreScroll = lastRenderKey === renderKey;
+  const previousScrollY = shouldRestoreScroll ? window.scrollY : 0;
   app.innerHTML = '';
   
   if (!(currentTab === 'calendar' && calendarState.selectedDate)) {
@@ -84,6 +116,11 @@ export function render() {
 
   app.appendChild(page);
   app.appendChild(buildBottomNav());
+  lastRenderKey = renderKey;
+
+  if (shouldRestoreScroll) {
+    requestAnimationFrame(() => window.scrollTo({ top: previousScrollY, left: 0, behavior: 'auto' }));
+  }
 }
 
 // ── Header ─────────────────────────────────────────────────────────────
@@ -199,7 +236,13 @@ setInterval(() => {
   if (isAdmin()) {
     processPastLessonsForCredits();
   }
-  render();
+  const today = formatDate(new Date());
+  if (today !== lastRenderedDay) {
+    lastRenderedDay = today;
+    render();
+    return;
+  }
+  refreshLiveUi();
 }, 60000);
 
 async function promptAdminLogin() {
