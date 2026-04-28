@@ -6,13 +6,12 @@ This project is a Vite-based web application for managing horse riding lessons, 
 
 ## 🛠️ Data & Database Structure
 
-The entire application state (lessons, horses, packages, etc.) is stored in a **single JSON object** in Supabase.
+The app now stores data in **normalized Supabase tables** instead of a single JSON blob.
 
-*   **Table**: `app_state`
-*   **Column**: `state` (JSONB)
-*   **Target Row**: `id: 1`
+*   **Primary tables**: `lessons`, `packages`, `instructors`, `horses`, `groups`, `settings`
+*   **Legacy fallback**: `app_state` is only used for older data migration if normalized tables are empty
 
-Whenever you "Save" in the app, the entire local state is pushed to this single row. This makes synchronization between databases very straightforward.
+Whenever you "Save" in the app, the current local state is synchronized across the normalized tables.
 
 ---
 
@@ -55,7 +54,7 @@ You can clone your live data to your test database whenever you want a fresh tes
     ```bash
     npm run db:sync
     ```
-*The script reads the `app_state` (id: 1) from the Live project and overwrites row 1 in the Test project.*
+*The script copies the normalized tables from the Live project into the Test project. If the Live project only has legacy `app_state` data, the script falls back to copying that row instead.*
 
 ---
 

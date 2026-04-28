@@ -176,13 +176,64 @@ function normalizeDateString(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
+function getLessonHistoryKey(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  if (entry.reason !== 'lesson' && entry.reason !== 'lesson_cancel') return null;
+  if (!entry.lessonDate || entry.lessonStartMinute === undefined || entry.lessonStartMinute === null) {
+    return null;
+  }
+  return [
+    entry.reason,
+    entry.lessonId || '',
+    entry.lessonDate,
+    entry.lessonStartMinute
+  ].join('|');
+}
+
+function normalizeHistoryEntry(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const nextEntry = { ...entry };
+  const lessonHistoryKey = getLessonHistoryKey(nextEntry);
+  if (lessonHistoryKey) {
+    nextEntry.historyKey = lessonHistoryKey;
+  }
+  return nextEntry;
+}
+
+function getHistoryEntrySignature(entry) {
+  const normalizedEntry = normalizeHistoryEntry(entry);
+  if (!normalizedEntry) return null;
+  return normalizedEntry.historyKey || JSON.stringify(normalizedEntry);
+}
+
+function dedupeHistoryEntries(history = []) {
+  const dedupedHistory = [];
+  const seen = new Set();
+  let duplicateAmountTotal = 0;
+
+  for (const entry of history) {
+    const normalizedEntry = normalizeHistoryEntry(entry);
+    if (!normalizedEntry) continue;
+    const signature = getHistoryEntrySignature(normalizedEntry);
+    if (!signature) continue;
+    if (seen.has(signature)) {
+      duplicateAmountTotal += Number(normalizedEntry.amount) || 0;
+      continue;
+    }
+    seen.add(signature);
+    dedupedHistory.push(normalizedEntry);
+  }
+
+  return { history: dedupedHistory, duplicateAmountTotal };
+}
+
 function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
   if (!pkg || typeof pkg !== 'object') return null;
   const name = (pkg.name || '').trim();
   if (!name) return null;
-  const credits = Number.isFinite(pkg.credits) ? pkg.credits : (parseInt(pkg.credits, 10) || 0);
+  const rawCredits = Number.isFinite(pkg.credits) ? pkg.credits : (parseInt(pkg.credits, 10) || 0);
   const hasHistory = Array.isArray(pkg.history) && pkg.history.length > 0;
-  const history = Array.isArray(pkg.history) ? pkg.history.map(entry => {
+  const mappedHistory = Array.isArray(pkg.history) ? pkg.history.map(entry => {
     if (!entry || typeof entry !== 'object') return null;
     const nextEntry = { ...entry };
     if (nextEntry.lessonId !== undefined && lessonIdMap.has(String(nextEntry.lessonId))) {
@@ -190,6 +241,8 @@ function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
     }
     return nextEntry;
   }).filter(Boolean) : [];
+  const { history, duplicateAmountTotal } = dedupeHistoryEntries(mappedHistory);
+  const credits = rawCredits - duplicateAmountTotal;
   const rawCustomPaymentRate = pkg.customPaymentRate;
   const customPaymentRate = rawCustomPaymentRate === null
     || rawCustomPaymentRate === undefined
@@ -632,17 +685,21 @@ function jsonEqual(a, b) {
 }
 
 function getHistoryDiff(baseHistory = [], currentHistory = []) {
-  const baseSet = new Set(baseHistory.map(entry => JSON.stringify(entry)));
-  return currentHistory.filter(entry => !baseSet.has(JSON.stringify(entry)));
+  const baseSet = new Set(baseHistory.map(getHistoryEntrySignature).filter(Boolean));
+  return currentHistory.filter(entry => {
+    const signature = getHistoryEntrySignature(entry);
+    return signature && !baseSet.has(signature);
+  });
 }
 
 function mergeHistory(remoteHistory = [], localEntries = []) {
   const merged = [...remoteHistory];
-  const seen = new Set(remoteHistory.map(entry => JSON.stringify(entry)));
+  const seen = new Set(remoteHistory.map(getHistoryEntrySignature).filter(Boolean));
   for (const entry of localEntries) {
-    const signature = JSON.stringify(entry);
-    if (seen.has(signature)) continue;
-    merged.push(entry);
+    const normalizedEntry = normalizeHistoryEntry(entry);
+    const signature = getHistoryEntrySignature(normalizedEntry);
+    if (!signature || seen.has(signature)) continue;
+    merged.push(normalizedEntry);
     seen.add(signature);
   }
   return merged;
@@ -654,10 +711,25 @@ function pickMergedField(field, current, base, remote) {
 
 function mergePackageState(current, base, remote) {
   if (!remote) return current;
-  const localHistoryDelta = getHistoryDiff(base?.history || [], current.history || []);
+  const currentHistory = current.history || [];
+  const baseHistory = base?.history || [];
+  const remoteHistory = remote.history || [];
+  const localHistoryDelta = getHistoryDiff(baseHistory, currentHistory);
+  const uniqueLocalHistoryDelta = getHistoryDiff(remoteHistory, localHistoryDelta);
   const localCreditsDelta = (current.credits || 0) - (base?.credits || 0);
   const creditsChangedLocally = !jsonEqual(current.credits, base?.credits);
-  const historyChangedLocally = localHistoryDelta.length > 0 || !jsonEqual(current.history || [], base?.history || []);
+  const historyChangedLocally = localHistoryDelta.length > 0 || !jsonEqual(currentHistory, baseHistory);
+  const uniqueLocalCreditsDelta = uniqueLocalHistoryDelta.reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
+
+  let mergedCredits = remote.credits;
+  if (creditsChangedLocally && !historyChangedLocally) {
+    mergedCredits = current.credits;
+  } else if (creditsChangedLocally) {
+    mergedCredits = (Number(remote.credits) || 0) + uniqueLocalCreditsDelta;
+    if (uniqueLocalHistoryDelta.length === 0 && localCreditsDelta !== 0) {
+      mergedCredits = remote.credits;
+    }
+  }
 
   return normalizePackageEntry({
     ...remote,
@@ -667,8 +739,8 @@ function mergePackageState(current, base, remote) {
     archivedAt: pickMergedField('archivedAt', current, base, remote),
     hasPackageLessons: pickMergedField('hasPackageLessons', current, base, remote),
     customPaymentRate: pickMergedField('customPaymentRate', current, base, remote),
-    credits: creditsChangedLocally ? (Number(remote.credits) || 0) + localCreditsDelta : remote.credits,
-    history: historyChangedLocally ? mergeHistory(remote.history || [], localHistoryDelta) : (remote.history || []),
+    credits: mergedCredits,
+    history: historyChangedLocally ? mergeHistory(remoteHistory, uniqueLocalHistoryDelta) : remoteHistory,
   });
 }
 

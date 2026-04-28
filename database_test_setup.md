@@ -14,7 +14,7 @@ This guide explains how to use your new local testing environment. You can now r
 4. Copy the contents of your local [README_supabase.sql](file:///c:/Users/dawid/Desktop/ai%20slop/horse%20scheduler/README_supabase.sql) and paste it there.
 5. Click **Run**.
    > [!IMPORTANT]
-   > This creates the `app_state` table and **enables Row-Level Security (RLS)**. RLS is critical to prevent unauthorized access to your data.
+   > The SQL file in this repo is legacy-oriented and creates `app_state`. After the storage rework, your test project also needs the normalized tables used by the app: `lessons`, `packages`, `instructors`, `horses`, `groups`, and `settings`.
 
 ## 3. Configure Local Environment
 1. In your code editor, locate the folder `horse scheduler`.
@@ -35,7 +35,7 @@ Whenever you want to refresh your test database with the latest data from the li
    ```bash
    npm run db:sync
    ```
-3. The script will read the state from your Live project and overwrite the state in your Test project.
+3. The script will copy the normalized tables from your Live project into your Test project. If your Live project still only has legacy `app_state` data, it will fall back to syncing that row.
 
 > [!WARNING]
 > The `npm run db:sync` command completely overwrites the test data. Ensure you are happy to lose any local changes in your test database before running it.
