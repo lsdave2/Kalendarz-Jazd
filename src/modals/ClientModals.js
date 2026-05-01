@@ -158,30 +158,80 @@ export function openCreditHistoryModal(pkg) {
   modal.appendChild(actionRow);
 
   const customRateValue = Number.isFinite(Number(pkg.customPaymentRate)) ? String(pkg.customPaymentRate) : '';
-  const rateGroup = el('div', { className: 'form-group', style: { marginTop: '12px' } });
-  rateGroup.appendChild(el('label', {}, t('customPaymentRate')));
+  const rateGroup = el('div', { 
+    className: 'form-group', 
+    style: { marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' } 
+  });
+  
+  const rateLabel = el('label', { style: { marginBottom: '0', marginRight: '12px' } }, t('customPaymentRate'));
+  rateGroup.appendChild(rateLabel);
+  
   const rateInput = el('input', {
     className: 'form-input',
     type: 'number',
     min: '0',
     step: '0.01',
     placeholder: '140',
-    value: customRateValue
+    value: customRateValue,
+    style: { width: '80px', padding: '6px', textAlign: 'right', marginBottom: '0' }
   });
   rateGroup.appendChild(rateInput);
   modal.appendChild(rateGroup);
 
-  const rateHint = el('p', {
-    style: {
-      marginTop: '8px',
-      marginBottom: '0',
-      color: 'var(--text-secondary)',
-      fontSize: '0.8rem'
+  const upcomingLessonsList = [];
+  const today = new Date();
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const dateStr = formatDate(d);
+    const lessons = getLessonsForDate(dateStr);
+    
+    for (const l of lessons) {
+      if (isCustomLessonRecord(l)) continue;
+      
+      let isForClient = false;
+      if (!isGroupLessonRecord(l)) {
+        isForClient = (l.title || '').toLowerCase() === pkg.name.toLowerCase();
+      } else {
+        isForClient = l.participants.some(p => (p.packageName || p.name).toLowerCase() === pkg.name.toLowerCase());
+      }
+      
+      if (isForClient) {
+        upcomingLessonsList.push({ date: dateStr, lesson: l });
+      }
     }
-  }, t('customPaymentRateHint'));
-  modal.appendChild(rateHint);
+  }
 
-  const historyList = el('div', { className: 'history-list', style: { marginTop: '16px', maxHeight: '60vh', overflowY: 'auto' } });
+  if (upcomingLessonsList.length > 0) {
+    const upcomingContainer = el('div', { style: { marginTop: '16px' } });
+    upcomingContainer.appendChild(el('h4', { style: { marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' } }, t('upcomingLessons') || 'Upcoming Lessons'));
+    
+    const upcomingList = el('div', { className: 'history-list', style: { maxHeight: '20vh', overflowY: 'auto', marginBottom: '16px', background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px' } });
+    
+    for (const item of upcomingLessonsList) {
+      const row = el('div', { style: { padding: '8px 0', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } });
+      const left = el('div');
+      left.appendChild(el('div', { style: { fontWeight: '600' } }, `${formatDateNice(item.date)} ${minutesToTime(item.lesson.startMinute)}`));
+      
+      const typeDesc = item.lesson.lessonType === 'group' ? (t('groupLesson') || 'Group Lesson') : (t('individualLesson') || 'Individual Lesson');
+      left.appendChild(el('div', { style: { fontSize: '0.8rem', color: 'var(--text-secondary)' } }, typeDesc));
+      
+      row.appendChild(left);
+      upcomingList.appendChild(row);
+    }
+    
+    if (upcomingList.lastChild) {
+      upcomingList.lastChild.style.borderBottom = 'none';
+    }
+    
+    upcomingContainer.appendChild(upcomingList);
+    modal.appendChild(upcomingContainer);
+  }
+
+  const historyTitle = el('h4', { style: { marginTop: '16px', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' } }, t('creditHistory'));
+  modal.appendChild(historyTitle);
+
+  const historyList = el('div', { className: 'history-list', style: { maxHeight: '60vh', overflowY: 'auto' } });
 
   const history = pkg.history || [];
   if (history.length === 0) {

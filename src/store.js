@@ -588,14 +588,14 @@ function buildRemoteState(rows) {
 }
 
 async function fetchRemoteSnapshot() {
-  const [lessons, packages, instructors, horses, groups, settings] = await Promise.all(
+  const [lessons, packages, instructors, horses, groups, settings, expenses] = await Promise.all(
     REMOTE_TABLES.map(table => fetchRemoteRows(table))
   );
 
-  const hasData = [lessons, packages, instructors, horses, groups, settings].some(rows => rows.length > 0);
+  const hasData = [lessons, packages, instructors, horses, groups, settings, expenses].some(rows => rows.length > 0);
   return {
     hasData,
-    state: buildRemoteState({ lessons, packages, instructors, horses, groups, settings }),
+    state: buildRemoteState({ lessons, packages, instructors, horses, groups, settings, expenses }),
   };
 }
 

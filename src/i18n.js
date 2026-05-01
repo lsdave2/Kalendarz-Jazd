@@ -210,6 +210,7 @@ export const translations = {
     deleteExpenseConfirm: 'Delete this expense?',
     noExpensesInRange: 'No expenses in this period.',
     untitled: 'Untitled',
+    upcomingLessons: 'Upcoming lessons',
   },
   pl: {
     appTitle: 'Stajnia Rotmistrz 15',
@@ -422,6 +423,7 @@ export const translations = {
     deleteExpenseConfirm: 'Usunąć ten wydatek?',
     noExpensesInRange: 'Brak wydatków w tym okresie.',
     untitled: 'Bez tytułu',
+    upcomingLessons: 'Nadchodzące jazdy',
   }
 };
 
