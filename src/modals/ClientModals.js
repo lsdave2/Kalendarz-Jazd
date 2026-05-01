@@ -2,7 +2,7 @@ import { t } from '../i18n.js';
 import { el, icon, formatDate, minutesToTime, setupModalSwipeToClose } from '../utils.js';
 import { updatePackageName, addPackageCredits, getLessonsForDate, getData, setPackageActive, updatePackageCustomPaymentRate } from '../store.js';
 import { render, showToast } from '../main.js';
-import { isGroupLessonRecord } from '../services/LessonService.js';
+import { isGroupLessonRecord, isCustomLessonRecord } from '../services/LessonService.js';
 import { formatDateNice } from '../views/CalendarView.js';
 
 export function openEditClientModal(pkg, { onSaved } = {}) {
@@ -201,6 +201,8 @@ export function openCreditHistoryModal(pkg) {
         // Match by title/participants and start time
         const isSameTime = l.startMinute === record.lessonStartMinute;
         if (!isSameTime) return false;
+        
+        if (isCustomLessonRecord(l)) return false;
         
         // Match individual lesson title
         if (!isGroupLessonRecord(l)) {

@@ -2,7 +2,7 @@ import { t } from '../i18n.js';
 import { el } from '../utils.js';
 import { getData, getLessonsForDate } from '../store.js';
 import { render } from '../main.js';
-import { isGroupLessonRecord, getLessonParticipants } from '../services/LessonService.js';
+import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants } from '../services/LessonService.js';
 import { parseDate, getDatesInRange, getWeekRange } from '../utils.js';
 
 let horseViewRange = null;
@@ -56,7 +56,7 @@ export function buildHorsesView() {
     data.lessons.forEach(lesson => {
       if (!lesson || !lesson.date || !lesson.title) return;
       if (lesson.recurring && lesson.recurringUntil && lesson.date > lesson.recurringUntil) return;
-      const participantHorses = isGroupLessonRecord(lesson)
+      const participantHorses = isGroupLessonRecord(lesson) || isCustomLessonRecord(lesson)
         ? getLessonParticipants(lesson).map(p => p.horse).filter(Boolean)
         : (lesson.horse ? [lesson.horse] : []);
 

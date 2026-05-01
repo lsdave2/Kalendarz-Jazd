@@ -1,12 +1,13 @@
 import { t, setLang, getLang } from '../i18n.js';
 import { el, icon, formatDate, getDatesInRange, setupModalSwipeToClose } from '../utils.js';
 import {
-  getData, saveData, isAdmin, login, logout,
+  getData, saveData, isAdmin, login, logout, generateId,
   getLessonsForDate, GROUP_COLORS, updateInstructorColor, addInstructor, deleteInstructor,
-  addHorse, deleteHorse, importData, migrateLegacyAppState
+  addHorse, deleteHorse, importData, migrateLegacyAppState,
+  addExpense, updateExpense, deleteExpense
 } from '../store.js';
 import { render, showToast } from '../main.js';
-import { isGroupLessonRecord, getLessonParticipants } from '../services/LessonService.js';
+import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants } from '../services/LessonService.js';
 
 // ── Settings helpers ────────────────────────────────────────────────────
 const SETTINGS_KEY = 'horsebook_settings';
@@ -161,6 +162,27 @@ function computeRevenueReport({ from, to, rates }) {
         continue;
       }
 
+      if (isCustomLessonRecord(lesson)) {
+        for (const participant of getLessonParticipants(lesson)) {
+          const bucket = totals.individual;
+          const clientName = participant.name;
+          const rate = participant.customCost !== undefined ? participant.customCost : 140;
+          const amount = durationMultiplier * rate;
+          bucket.count += 1;
+          bucket.hours += durationMultiplier;
+          bucket.revenue += amount;
+          dayTotal += amount;
+          dayEntries.push({
+            clientName,
+            amount,
+            rate,
+            durationMultiplier,
+            lessonType: 'individual'
+          });
+        }
+        continue;
+      }
+
       const bucket = lesson.packageMode !== false ? totals.individualPackage : totals.individual;
       const clientName = lesson.title || '';
       const customRate = getCustomPaymentRate(clientName);
@@ -200,9 +222,20 @@ function computeInstructorPaymentReport({ instructor, from, to }) {
   for (const dateStr of dates) {
     const lessons = getLessonsForDate(dateStr);
     for (const lesson of lessons) {
-      if (lesson.instructor !== instructor) continue;
       const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
       if (isCancelled) continue;
+
+      if (isCustomLessonRecord(lesson)) {
+        for (const participant of getLessonParticipants(lesson)) {
+          if (participant.instructor === instructor) {
+            individualCount += 1;
+            individualDurationMinutes += lesson.durationMinutes || 0;
+          }
+        }
+        continue;
+      }
+
+      if (lesson.instructor !== instructor) continue;
 
       if (isGroupLessonRecord(lesson)) {
         const key = `${lesson.groupId || lesson.title || 'group'}|${dateStr}|${lesson.startMinute}|${lesson.durationMinutes}|${lesson.instructor}`;
@@ -641,6 +674,153 @@ function openRevenueReportModal() {
   document.body.appendChild(overlay);
 }
 
+function openExpensesReportModal() {
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
+
+  const modal = el('div', { className: 'modal' });
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
+  modal.appendChild(el('h3', {}, 'Expenses Reporting'));
+
+  const content = el('div', { className: 'expenses-content' });
+  modal.appendChild(content);
+
+  const renderExpenses = () => {
+    content.innerHTML = '';
+    const d = getData();
+    const expenses = d.expenses || [];
+
+    const list = el('div', { className: 'expenses-list' });
+    expenses.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(exp => {
+      const row = el('div', {
+        className: 'expense-row',
+        style: {
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '8px',
+          borderBottom: '1px solid var(--border-color)',
+          cursor: 'pointer'
+        },
+        onClick: () => openExpenseEditModal(exp, renderExpenses)
+      });
+      const left = el('div', {});
+      left.appendChild(el('div', { style: { fontWeight: 'bold' } }, exp.title || 'Untitled'));
+      left.appendChild(el('div', { style: { fontSize: '0.8rem', color: 'var(--text-muted)' } }, exp.date));
+      const right = el('div', { style: { fontWeight: 'bold' } }, formatCurrency(exp.cost));
+      
+      row.appendChild(left);
+      row.appendChild(right);
+      list.appendChild(row);
+    });
+
+    if (expenses.length === 0) {
+      list.appendChild(el('div', { style: { textAlign: 'center', padding: '16px', color: 'var(--text-muted)' } }, 'No expenses yet.'));
+    }
+
+    content.appendChild(list);
+
+    const btnRow = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
+    btnRow.appendChild(el('button', {
+      className: 'btn btn-primary',
+      style: { width: '100%' },
+      onClick: () => openExpenseEditModal(null, renderExpenses)
+    }, icon('add'), 'Add Expense'));
+    btnRow.appendChild(el('button', {
+      className: 'btn btn-secondary',
+      style: { width: '100%' },
+      onClick: () => closeModal()
+    }, t('close')));
+    content.appendChild(btnRow);
+  };
+
+  renderExpenses();
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
+function openExpenseEditModal(expense, onSave) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
+
+  const modal = el('div', { className: 'modal' });
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
+  modal.appendChild(el('h3', {}, expense ? 'Edit Expense' : 'Add Expense'));
+
+  const titleGroup = el('div', { className: 'form-group' });
+  titleGroup.appendChild(el('label', {}, 'Title'));
+  const titleInput = el('input', { className: 'form-input', type: 'text', value: expense?.title || '' });
+  titleGroup.appendChild(titleInput);
+  modal.appendChild(titleGroup);
+
+  const costGroup = el('div', { className: 'form-group' });
+  costGroup.appendChild(el('label', {}, 'Cost'));
+  const costInput = el('input', { className: 'form-input', type: 'number', step: '0.01', value: String(expense?.cost || '') });
+  costGroup.appendChild(costInput);
+  modal.appendChild(costGroup);
+
+  const dateGroup = el('div', { className: 'form-group' });
+  dateGroup.appendChild(el('label', {}, 'Date'));
+  const dateInput = el('input', { className: 'form-input', type: 'date', value: expense?.date || formatDate(new Date()) });
+  dateGroup.appendChild(dateInput);
+  modal.appendChild(dateGroup);
+
+  const descGroup = el('div', { className: 'form-group' });
+  descGroup.appendChild(el('label', {}, 'Description/Comments'));
+  const descInput = el('textarea', { className: 'form-input', style: { minHeight: '80px', resize: 'vertical' } });
+  descInput.value = expense?.description || '';
+  descGroup.appendChild(descInput);
+  modal.appendChild(descGroup);
+
+  const btnGroup = el('div', { className: 'btn-group', style: { marginTop: '16px' } });
+
+  btnGroup.appendChild(el('button', {
+    className: 'btn btn-primary',
+    style: { flex: '1' },
+    onClick: () => {
+      const data = {
+        title: titleInput.value.trim(),
+        cost: Number.parseFloat(costInput.value) || 0,
+        date: dateInput.value || formatDate(new Date()),
+        description: descInput.value.trim()
+      };
+      if (expense) {
+        updateExpense(expense.id, data);
+      } else {
+        addExpense(data);
+      }
+      closeModal();
+      if (onSave) onSave();
+    }
+  }, expense ? 'Save' : 'Add'));
+
+  if (expense) {
+    btnGroup.appendChild(el('button', {
+      className: 'btn btn-danger',
+      onClick: () => {
+        if (confirm('Delete this expense?')) {
+          deleteExpense(expense.id);
+          closeModal();
+          if (onSave) onSave();
+        }
+      }
+    }, icon('delete')));
+  }
+
+  modal.appendChild(btnGroup);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
 // ── Sub-builders ────────────────────────────────────────────────────────
 function buildDayScheduleSettings() {
   const { startHour, endHour } = getDayScheduleHours();
@@ -879,6 +1059,11 @@ export function buildSettingsView() {
     style: { width: '100%' },
     onClick: () => openRevenueReportModal()
   }, icon('request_quote'), t('generateRevenueReport')));
+  reportButtons.appendChild(el('button', {
+    className: 'btn btn-primary btn-sm',
+    style: { width: '100%' },
+    onClick: () => openExpensesReportModal()
+  }, icon('receipt_long'), 'Expenses Reporting'));
   reportSection.appendChild(reportButtons);
   container.appendChild(reportSection);
 

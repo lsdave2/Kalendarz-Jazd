@@ -6,7 +6,7 @@ import {
   GROUP_COLORS, saveData, processPastLessonsForCredits 
 } from '../store.js';
 import { render, showToast } from '../main.js';
-import { isGroupLessonRecord, getKnownClientNames } from '../services/LessonService.js';
+import { isGroupLessonRecord, isCustomLessonRecord, getKnownClientNames } from '../services/LessonService.js';
 import { getDayScheduleHours } from '../views/SettingsView.js';
 
 let editingLesson = null;
@@ -18,8 +18,9 @@ export function openLessonModal(dateStr, lesson = null) {
   const baseLesson = isEdit ? (data.lessons.find(l => l.id === lesson.id) || lesson) : null;
   const isRecurringInstance = !!(isEdit && lesson._recurringInstance && baseLesson?.recurring);
   const isGroupEdit = isGroupLessonRecord(lesson);
+  const isCustomEdit = isCustomLessonRecord(lesson);
   const clientNames = getKnownClientNames(data);
-  const initialType = isEdit && isGroupEdit ? 'group' : 'individual';
+  const initialType = isEdit && isGroupEdit ? 'group' : (isEdit && isCustomEdit ? 'custom' : 'individual');
 
   const overlay = el('div', { className: 'modal-overlay' });
   overlay.onclick = (e) => {
@@ -42,8 +43,10 @@ export function openLessonModal(dateStr, lesson = null) {
   const modeRow = el('div', { className: 'lesson-type-switch' });
   const individualModeBtn = el('button', { className: 'lesson-type-btn', type: 'button' }, t('individualLesson'));
   const groupModeBtn = el('button', { className: 'lesson-type-btn', type: 'button' }, t('groupLesson'));
+  const customModeBtn = el('button', { className: 'lesson-type-btn', type: 'button' }, t('customLesson'));
   modeRow.appendChild(individualModeBtn);
   modeRow.appendChild(groupModeBtn);
+  modeRow.appendChild(customModeBtn);
   content.appendChild(modeRow);
 
   const formHost = el('div');
@@ -52,6 +55,7 @@ export function openLessonModal(dateStr, lesson = null) {
   const commonSection = el('div');
   const individualSection = el('div');
   const groupSection = el('div');
+  const customSection = el('div');
 
   const knownClientsDatalist = el('datalist', { id: 'lesson-client-list' });
   for (const name of clientNames) {
@@ -225,11 +229,111 @@ export function openLessonModal(dateStr, lesson = null) {
     onClick: () => addParticipantRow()
   }, icon('add'), t('addParticipant'));
 
+  const customParticipantList = el('div', { className: 'group-participants' });
+  const customParticipantRows = [];
+
+  const addCustomParticipantRow = (participant = {}) => {
+    const row = el('div', { className: 'participant-row' });
+    
+    const nameInput = el('input', {
+      className: 'form-input participant-name-input',
+      type: 'text',
+      placeholder: t('enterClientName'),
+      value: participant.name || '',
+      list: 'lesson-client-list',
+      style: { flex: 1, minWidth: '0' }
+    });
+    
+    const cInstrSelect = el('select', { className: 'form-input participant-horse-select', style: { flex: 1, minWidth: '0' } });
+    cInstrSelect.appendChild(el('option', { value: '' }, t('noInstructor')));
+    for (const i of data.instructors) {
+      const opt = el('option', { value: i.name }, i.name);
+      if (participant.instructor === i.name) opt.selected = true;
+      cInstrSelect.appendChild(opt);
+    }
+    
+    const cHorseSelect = el('select', { className: 'form-input participant-horse-select', style: { flex: 1, minWidth: '0' } });
+    cHorseSelect.appendChild(el('option', { value: '' }, t('noHorse')));
+    for (const h of data.horses) {
+      const opt = el('option', { value: h }, h);
+      if (participant.horse === h) opt.selected = true;
+      cHorseSelect.appendChild(opt);
+    }
+
+    const costInputWrap = el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } });
+    const costInput = el('input', {
+      className: 'form-input',
+      type: 'number',
+      value: participant.customCost !== undefined ? participant.customCost : 140,
+      style: { width: '56px', textAlign: 'center', padding: '8px 4px' }
+    });
+    costInputWrap.appendChild(costInput);
+    costInputWrap.appendChild(el('span', { style: { color: 'var(--text-secondary)', fontWeight: '500' } }, 'zł'));
+
+    const removeBtn = el('button', {
+      className: 'btn btn-secondary btn-sm participant-remove-btn',
+      type: 'button',
+      onClick: () => {
+        if (customParticipantRows.length <= 1) return;
+        const index = customParticipantRows.findIndex(entry => entry.row === row);
+        if (index >= 0) customParticipantRows.splice(index, 1);
+        row.remove();
+      }
+    }, icon('close'));
+
+    const topRow = el('div', { className: 'participant-row-top', style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' } }, nameInput, costInputWrap);
+    const bottomRow = el('div', { className: 'participant-row-bottom', style: { display: 'flex', gap: '8px', alignItems: 'center' } }, cInstrSelect, cHorseSelect, removeBtn);
+
+    row.appendChild(topRow);
+    row.appendChild(bottomRow);
+
+    customParticipantRows.push({ row, nameInput, horseSelect: cHorseSelect, instrSelect: cInstrSelect, costInput });
+    customParticipantList.appendChild(row);
+  };
+
+  const initialCustomParticipants = isCustomEdit && Array.isArray(lesson?.participants) && lesson.participants.length > 0
+    ? lesson.participants
+    : [{ name: '', horse: '', instructor: '', customCost: 140 }];
+  for (const participant of initialCustomParticipants) {
+    addCustomParticipantRow(participant);
+  }
+
+  const addCustomParticipantButton = el('button', {
+    className: 'btn btn-secondary btn-sm',
+    type: 'button',
+    onClick: () => addCustomParticipantRow()
+  }, icon('add'), t('addParticipant'));
+
+  const customDescGroup = el('div', { className: 'form-group' });
+  const customDescLabel = el('label', {}, t('description'));
+  const customDescInput = el('textarea', { 
+    className: 'form-input', 
+    rows: '1', 
+    style: { resize: 'none', overflow: 'hidden' } 
+  });
+  
+  if (isCustomEdit && lesson.description) {
+    customDescInput.value = lesson.description;
+    setTimeout(() => {
+      customDescInput.style.height = 'auto';
+      customDescInput.style.height = (customDescInput.scrollHeight) + 'px';
+    }, 0);
+  }
+  
+  customDescInput.addEventListener('input', () => {
+    customDescInput.style.height = 'auto';
+    customDescInput.style.height = (customDescInput.scrollHeight) + 'px';
+  });
+
+  customDescGroup.appendChild(customDescLabel);
+  customDescGroup.appendChild(customDescInput);
+
   const renderForm = () => {
     formHost.innerHTML = '';
 
     individualSection.innerHTML = '';
     groupSection.innerHTML = '';
+    customSection.innerHTML = '';
     commonSection.innerHTML = '';
 
 
@@ -240,13 +344,15 @@ export function openLessonModal(dateStr, lesson = null) {
     scheduleRow.appendChild(durGroup);
     commonSection.appendChild(scheduleRow);
 
-    const instrGroup = el('div', { className: 'form-group' }, el('label', {}, t('instructor')), instrSelect);
-    commonSection.appendChild(instrGroup);
+    if (currentType !== 'custom') {
+      const instrGroup = el('div', { className: 'form-group' }, el('label', {}, t('instructor')), instrSelect);
+      commonSection.appendChild(instrGroup);
 
-    const recurRow = el('div', { className: 'toggle-row' });
-    recurRow.appendChild(el('span', {}, t('repeatWeekly')));
-    recurRow.appendChild(recurToggle);
-    commonSection.appendChild(recurRow);
+      const recurRow = el('div', { className: 'toggle-row' });
+      recurRow.appendChild(el('span', {}, t('repeatWeekly')));
+      recurRow.appendChild(recurToggle);
+      commonSection.appendChild(recurRow);
+    }
 
     individualSection.appendChild(el('div', { className: 'form-group' }, el('label', {}, t('clientName')), titleInput));
     individualSection.appendChild(el('div', { className: 'form-group' }, el('label', {}, t('horse')), horseSelect));
@@ -269,14 +375,21 @@ export function openLessonModal(dateStr, lesson = null) {
     participantBlock.appendChild(addParticipantButton);
     groupSection.appendChild(participantBlock);
 
+    customSection.appendChild(customDescGroup);
+    customSection.appendChild(el('div', { className: 'form-group' }, el('label', {}, t('groupClients')), customParticipantList));
+    customSection.appendChild(addCustomParticipantButton);
+
     formHost.appendChild(commonSection);
     formHost.appendChild(individualSection);
     formHost.appendChild(groupSection);
+    formHost.appendChild(customSection);
 
     individualSection.classList.toggle('is-hidden', currentType !== 'individual');
     groupSection.classList.toggle('is-hidden', currentType !== 'group');
+    customSection.classList.toggle('is-hidden', currentType !== 'custom');
     individualModeBtn.classList.toggle('active', currentType === 'individual');
     groupModeBtn.classList.toggle('active', currentType === 'group');
+    customModeBtn.classList.toggle('active', currentType === 'custom');
   };
 
   const setMode = (mode) => {
@@ -286,6 +399,7 @@ export function openLessonModal(dateStr, lesson = null) {
 
   individualModeBtn.addEventListener('click', () => setMode('individual'));
   groupModeBtn.addEventListener('click', () => setMode('group'));
+  customModeBtn.addEventListener('click', () => setMode('custom'));
 
   renderForm();
 
@@ -323,6 +437,38 @@ export function openLessonModal(dateStr, lesson = null) {
           recurring,
         },
         title,
+      };
+    }
+
+    if (currentType === 'custom') {
+      const participants = customParticipantRows.map(({ nameInput, horseSelect, instrSelect, costInput }) => ({
+        name: nameInput.value.trim(),
+        horse: horseSelect.value || null,
+        instructor: instrSelect.value || null,
+        customCost: parseFloat(costInput.value) || 0,
+        packageMode: false,
+      })).filter(p => p.name);
+
+      if (participants.length === 0) {
+        customParticipantRows[0]?.nameInput.focus();
+        return null;
+      }
+
+      return {
+        lessonData: {
+          lessonType: 'custom',
+          title: t('customLesson'),
+          description: customDescInput.value.trim(),
+          date: dateStr,
+          startMinute,
+          durationMinutes,
+          participants,
+          recurring: false,
+          groupId: null,
+          groupName: null,
+          groupColor: null,
+          packageMode: false,
+        }
       };
     }
 
@@ -391,6 +537,16 @@ export function openLessonModal(dateStr, lesson = null) {
         mutated = true;
       }
       if (mutated) saveData();
+      return isEdit ? 'updated' : 'created';
+    }
+
+    if (currentType === 'custom') {
+      if (isEdit) {
+        updateLesson(lesson.id, lessonData, { save: false });
+      } else {
+        addLesson(lessonData, { save: false });
+      }
+      saveData();
       return isEdit ? 'updated' : 'created';
     }
 

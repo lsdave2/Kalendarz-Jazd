@@ -140,7 +140,11 @@ function buildHeader() {
   if (calendarState.selectedDate) {
     const todayBtn = el('button', {
       className: 'header-btn',
-      onClick: () => { calendarState.selectedDate = null; render(); },
+      onClick: () => { 
+        calendarState.selectedDate = null; 
+        history.pushState({ tab: 'calendar', date: null }, '');
+        render(); 
+      },
       title: t('backToCalendar')
     }, icon('calendar_today'));
     header.querySelector('h1').prepend(todayBtn);

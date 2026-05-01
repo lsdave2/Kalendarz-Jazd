@@ -2,7 +2,7 @@ import { t } from '../i18n.js';
 import { el, icon, formatDate, parseDate, getDaysInMonth, getFirstDayOfMonth, monthName, dayName, isToday, isPast } from '../utils.js';
 import { getData, getLessonsForDate, isAdmin, isDateClosed, toggleClosedDate, updateLesson, processPastLessonsForCredits } from '../store.js';
 import { render, showToast } from '../main.js';
-import { isGroupLessonRecord, getLessonParticipants, getLessonDisplayName } from '../services/LessonService.js';
+import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants, getLessonDisplayName } from '../services/LessonService.js';
 import { openLessonModal } from '../modals/LessonModal.js';
 import { getDayScheduleHours } from './SettingsView.js';
 
@@ -28,7 +28,7 @@ function getSettings() {
 function calculateLessonMinHeight(lesson) {
   const padding = 12; // 6px top + 6px bottom
   const titleHeight = 22; // approx height of title row
-  if (isGroupLessonRecord(lesson)) {
+  if (isGroupLessonRecord(lesson) || isCustomLessonRecord(lesson)) {
     const participants = getLessonParticipants(lesson);
     const rowHeight = 18; // approx height per participant row
     return padding + titleHeight + (participants.length * rowHeight) + 4;
@@ -127,7 +127,11 @@ export function buildDayView(dateStr) {
   const closed = isDateClosed(dateStr);
 
   const headerMain = el('div', { className: 'day-header-main' },
-    el('button', { className: 'back-btn', onClick: () => { history.back(); } }, icon('arrow_back')),
+    el('button', { className: 'back-btn', onClick: () => { 
+      calendarState.selectedDate = null;
+      history.pushState({ tab: 'calendar', date: null }, '');
+      render(); 
+    } }, icon('arrow_back')),
     el('div', { className: 'day-header-text' },
       el('h2', {}, `${date.getDate()} ${monthName(date.getMonth())} ${date.getFullYear()}`),
       el('span', { className: 'day-subtitle' }, dayNames[date.getDay()])
@@ -275,7 +279,8 @@ function computeOverlapLayout(lessons) {
 
 function buildLessonTile(lesson, dateStr, startHour, pos, dayScale) {
   const isGroup = isGroupLessonRecord(lesson);
-  const pkg = isGroup ? null : (getData().packages || []).find(p => p.name.toLowerCase() === (lesson.title || '').toLowerCase());
+  const isCustom = isCustomLessonRecord(lesson);
+  const pkg = (isGroup || isCustom) ? null : (getData().packages || []).find(p => p.name.toLowerCase() === (lesson.title || '').toLowerCase());
   const ps = getLessonParticipants(lesson);
   const cancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
   const color = lesson?.groupColor || null;
@@ -289,7 +294,7 @@ function buildLessonTile(lesson, dateStr, startHour, pos, dayScale) {
   const L = DAY_SCHEDULE_LABEL_WIDTH, R = DAY_SCHEDULE_CONTENT_RIGHT;
 
   const tile = el('div', {
-    className: `lesson-tile ${cancelled || (pkg && !pkg.active) ? 'status-inactive' : 'status-neutral'} ${isGroup ? 'group-session' : ''} ${past ? 'past' : ''} ${cancelled ? 'cancelled' : ''}`.trim(),
+    className: `lesson-tile ${cancelled || (pkg && !pkg.active) ? 'status-inactive' : 'status-neutral'} ${isGroup || isCustom ? 'group-session' : ''} ${past ? 'past' : ''} ${cancelled ? 'cancelled' : ''}`.trim(),
     'data-date': dateStr,
     'data-end-minute': String(lesson.startMinute + lesson.durationMinutes),
     style: {
@@ -312,14 +317,18 @@ function buildLessonTile(lesson, dateStr, startHour, pos, dayScale) {
   tile.appendChild(titleRow);
 
   const meta = el('div', { className: 'tile-meta' });
-  if (isGroup) {
+  if (isGroup || isCustom) {
     const wrap = el('div', { className: 'tile-participants' });
     for (const p of ps) {
       const row = el('div', { className: 'tile-participant' });
       row.appendChild(el('span', { className: 'tile-participant-name' }, p.name));
       if (p.horse) row.appendChild(el('span', { className: 'tile-participant-horse' }, icon('horse'), p.horse));
+      if (isCustom && p.instructor) {
+        const pInstr = (getData().instructors || []).find(i => i.name === p.instructor);
+        row.appendChild(el('span', { className: 'tile-participant-package', style: pInstr?.color ? { color: pInstr.color, paddingLeft: '4px' } : { paddingLeft: '4px' } }, icon('person'), p.instructor));
+      }
       const pPkg = p.packageMode !== false ? (getData().packages || []).find(x => x.name.toLowerCase() === (p.packageName || p.name).toLowerCase()) : null;
-      if (isAdmin() && pPkg) {
+      if (isAdmin() && pPkg && !isCustom) {
         const c = !pPkg.active ? 'var(--text-muted)' : (pPkg.credits === 0 ? 'var(--text-muted)' : (pPkg.credits > 0 ? 'var(--green)' : 'var(--red)'));
         row.appendChild(el('span', { className: 'tile-participant-package', style: { color: c } }, t('packageLabelShort', { count: pPkg.credits })));
       }

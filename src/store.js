@@ -16,6 +16,7 @@ const defaultData = () => ({
   packages: [],
   groups: [],
   closedDates: [],
+  expenses: [],
   nextId: 1,
   nextGroupId: 1,
 });
@@ -28,6 +29,7 @@ function createEmptyPersistedState() {
     packages: [],
     groups: [],
     closedDates: [],
+    expenses: [],
     nextId: 1,
     nextGroupId: 1,
   };
@@ -164,8 +166,10 @@ function normalizeParticipants(participants) {
       const horse = participant?.horse || null;
       const packageName = (participant?.packageName || name).trim();
       const packageMode = participant?.packageMode !== false;
+      const instructor = participant?.instructor || null;
+      const customCost = participant?.customCost;
       if (!name) return null;
-      return { name, horse, packageName, packageMode };
+      return { name, horse, packageName, packageMode, instructor, customCost };
     })
     .filter(Boolean);
 }
@@ -370,6 +374,15 @@ function normalizeAppState(state) {
   normalizedState.closedDates = Array.isArray(normalizedState.closedDates)
     ? normalizedState.closedDates.filter(date => typeof date === 'string')
     : [];
+  normalizedState.expenses = Array.isArray(normalizedState.expenses)
+    ? normalizedState.expenses.map(expense => ({
+        id: expense.id || createUuid(),
+        title: expense.title || '',
+        cost: Number(expense.cost) || 0,
+        date: expense.date || formatDate(new Date()),
+        description: expense.description || '',
+      }))
+    : [];
 
   syncReferenceEntriesFromLessons(normalizedState);
 
@@ -444,6 +457,7 @@ function isStateEffectivelyEmpty(state) {
     (!state.packages || state.packages.length === 0) &&
     (!state.groups || state.groups.length === 0) &&
     (!state.closedDates || state.closedDates.length === 0) &&
+    (!state.expenses || state.expenses.length === 0) &&
     (!state.horses || state.horses.length === 0) &&
     (!state.instructors || state.instructors.length === 0)
   );
@@ -545,6 +559,7 @@ function buildRemoteState(rows) {
     packages,
     groups,
     closedDates: Array.isArray(settingsMap.get('closed_dates')) ? settingsMap.get('closed_dates') : [],
+    expenses: Array.isArray(settingsMap.get('expenses')) ? settingsMap.get('expenses') : [],
     nextId: Number(settingsMap.get('legacy_next_id')) || 1,
     nextGroupId: Number(settingsMap.get('legacy_next_group_id')) || 1,
   });
@@ -956,11 +971,13 @@ async function syncLessons(current, persisted) {
 async function syncSettings(current, persisted) {
   const currentRows = [
     { key: 'closed_dates', value: current.closedDates || [] },
+    { key: 'expenses', value: current.expenses || [] },
     { key: 'legacy_next_id', value: current.nextId || 1 },
     { key: 'legacy_next_group_id', value: current.nextGroupId || 1 },
   ];
   const persistedRows = [
     { key: 'closed_dates', value: persisted.closedDates || [] },
+    { key: 'expenses', value: persisted.expenses || [] },
     { key: 'legacy_next_id', value: persisted.nextId || 1 },
     { key: 'legacy_next_group_id', value: persisted.nextGroupId || 1 },
   ];
@@ -1111,6 +1128,7 @@ function syncPackageEntriesFromLessons() {
   };
 
   for (const lesson of d.lessons || []) {
+    if (lesson.lessonType === 'custom') continue;
     if (Array.isArray(lesson.participants) && lesson.participants.length > 0) {
       for (const participant of lesson.participants) {
         const participantName = (participant?.packageName || participant?.name || '').trim();
@@ -1878,3 +1896,33 @@ export async function migrateLegacyAppState() {
     groups: _data.groups.length,
   };
 }
+
+export function addExpense(expense) {
+  const d = getData();
+  const newExpense = {
+    id: generateId(),
+    title: expense.title || '',
+    cost: Number(expense.cost) || 0,
+    date: expense.date || formatDate(new Date()),
+    description: expense.description || '',
+  };
+  d.expenses.push(newExpense);
+  saveData();
+  return newExpense;
+}
+
+export function updateExpense(id, updates) {
+  const d = getData();
+  const idx = d.expenses.findIndex(e => e.id === id);
+  if (idx >= 0) {
+    d.expenses[idx] = { ...d.expenses[idx], ...updates };
+    saveData();
+  }
+}
+
+export function deleteExpense(id) {
+  const d = getData();
+  d.expenses = d.expenses.filter(e => e.id !== id);
+  saveData();
+}
+
