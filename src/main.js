@@ -5,8 +5,8 @@ import {
   loadData, subscribe, isAdmin, logout, processPastLessonsForCredits
 } from './store.js';
 import { buildPackagesView } from './views/PackagesView.js';
-import { buildHorsesView } from './views/HorsesView.js';
 import { buildSettingsView } from './views/SettingsView.js';
+import { buildFinancesView } from './views/FinancesView.js';
 import { buildMonthView, buildDayView, calendarState, formatDateNice } from './views/CalendarView.js';
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ window.addEventListener('popstate', (e) => {
 
 function isTabVisible(tabId) {
   if (tabId === 'packages') return isAdmin();
-  if (tabId === 'horses') return isAdmin();
+  if (tabId === 'finances') return isAdmin();
   return true;
 }
 
@@ -106,8 +106,8 @@ export function render() {
     case 'packages':
       page.appendChild(buildPackagesView());
       break;
-    case 'horses':
-      page.appendChild(buildHorsesView());
+    case 'finances':
+      page.appendChild(buildFinancesView());
       break;
     case 'settings':
       page.appendChild(buildSettingsView());
@@ -127,7 +127,7 @@ export function render() {
 function buildHeader() {
   const titleText = currentTab === 'calendar'
     ? (calendarState.selectedDate ? formatDateNice(calendarState.selectedDate) : t('appTitle'))
-    : currentTab === 'packages' ? t('clientsTab') : currentTab === 'horses' ? t('horsesTab') : t('settings');
+    : currentTab === 'packages' ? t('clientsTab') : currentTab === 'finances' ? t('financesTab') : t('settings');
   const titleIcon = currentTab === 'packages' ? 'groups' : 'calendar_month';
 
   const header = el('header', { className: 'app-header' },
@@ -164,7 +164,7 @@ function buildBottomNav() {
 
   if (admin) {
     tabs.push({ id: 'packages', icon: 'groups', label: t('clientsTab') });
-    tabs.push({ id: 'horses', icon: 'horse', label: t('horsesTab') });
+    tabs.push({ id: 'finances', icon: 'payments', label: t('financesTab') });
   }
 
   tabs.push({ id: 'settings', icon: 'settings', label: t('settings') });

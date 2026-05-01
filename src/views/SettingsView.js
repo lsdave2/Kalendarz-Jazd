@@ -1045,27 +1045,6 @@ export function buildSettingsView() {
   instrSection.appendChild(addInstrRow);
   container.appendChild(instrSection);
 
-  // ── Reports
-  const reportSection = el('div', { className: 'settings-section' });
-  reportSection.appendChild(el('h4', {}, t('reports')));
-  const reportButtons = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } });
-  reportButtons.appendChild(el('button', {
-    className: 'btn btn-primary btn-sm',
-    style: { width: '100%' },
-    onClick: () => openInstructorPaymentModal()
-  }, icon('payments'), t('generatePaymentReport')));
-  reportButtons.appendChild(el('button', {
-    className: 'btn btn-primary btn-sm',
-    style: { width: '100%' },
-    onClick: () => openRevenueReportModal()
-  }, icon('request_quote'), t('generateRevenueReport')));
-  reportButtons.appendChild(el('button', {
-    className: 'btn btn-primary btn-sm',
-    style: { width: '100%' },
-    onClick: () => openExpensesReportModal()
-  }, icon('receipt_long'), 'Expenses Reporting'));
-  reportSection.appendChild(reportButtons);
-  container.appendChild(reportSection);
 
   // ── Data management
   const dataSection = el('div', { className: 'settings-section' });

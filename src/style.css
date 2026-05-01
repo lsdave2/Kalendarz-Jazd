@@ -1747,3 +1747,88 @@ select.form-input {
   transform: scale(1.1);
 }
 
+/* ── Finances Tab ──────────────────────────────────────────────────── */
+.fin-container { display: flex; flex-direction: column; gap: 10px; }
+
+.fin-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.fin-section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; cursor: pointer;
+  transition: background var(--transition);
+}
+.fin-section-header:hover { background: var(--bg-card-hover); }
+.fin-section-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.85rem; font-weight: 700;
+}
+.fin-section-title .material-symbols-rounded { font-size: 20px; color: var(--accent); }
+.fin-section-arrow { font-size: 20px; color: var(--text-muted); transition: transform var(--transition); }
+.fin-section-body {
+  padding: 0 16px 16px;
+  transition: max-height 0.3s ease, opacity 0.2s ease, padding 0.3s ease;
+  max-height: 20000px; opacity: 1;
+}
+.fin-section.collapsed .fin-section-body {
+  max-height: 0; opacity: 0; padding: 0 16px; overflow: hidden;
+}
+
+.fin-rates-label {
+  font-size: 0.72rem; font-weight: 700; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;
+}
+
+/* Expense rows */
+.fin-exp-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background var(--transition);
+}
+.fin-exp-row:last-child { border-bottom: none; }
+.fin-exp-row:hover { background: var(--bg-card-hover); }
+.fin-exp-left { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fin-exp-title { font-size: 0.85rem; font-weight: 600; }
+.fin-exp-meta { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; color: var(--text-muted); }
+.fin-exp-cost { font-weight: 700; font-size: 0.88rem; white-space: nowrap; }
+.fin-exp-empty {
+  text-align: center; padding: 20px; color: var(--text-muted);
+  font-style: italic; font-size: 0.85rem;
+}
+.fin-exp-total {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; margin-bottom: 4px;
+  background: var(--bg-elevated); border-radius: var(--radius-xs);
+  font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);
+}
+.fin-exp-total-val { color: var(--accent); font-weight: 700; }
+
+/* Category badge */
+.fin-exp-cat-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 0.65rem; font-weight: 600;
+  padding: 2px 7px; border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.fin-exp-cat-badge .material-symbols-rounded { font-size: 12px; }
+
+/* Category picker */
+.fin-cat-picker {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;
+}
+.fin-cat-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 600;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  color: var(--text-secondary); transition: all var(--transition); cursor: pointer;
+}
+.fin-cat-chip:hover { background: var(--bg-card-hover); }
+.fin-cat-chip.active {
+  background: var(--accent-soft); color: var(--accent);
+  border-color: var(--border-accent);
+}
+.fin-cat-chip .material-symbols-rounded { font-size: 14px; }
+

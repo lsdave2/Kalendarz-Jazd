@@ -4,7 +4,7 @@ import { t } from './i18n.js';
 
 const LOCAL_DATA_KEY = 'horsebook_data';
 const LOCAL_PENDING_KEY = 'horsebook_pending_sync';
-const REMOTE_TABLES = ['lessons', 'packages', 'instructors', 'horses', 'groups', 'settings'];
+const REMOTE_TABLES = ['lessons', 'packages', 'instructors', 'horses', 'groups', 'settings', 'expenses'];
 
 const defaultData = () => ({
   horses: ['Rubin', 'Czempion', 'Cera', 'Muminek', 'Kadet', 'Sakwa', 'Fason', 'Carewicz', 'Grot', 'Siwa', 'Figa'],
@@ -376,11 +376,12 @@ function normalizeAppState(state) {
     : [];
   normalizedState.expenses = Array.isArray(normalizedState.expenses)
     ? normalizedState.expenses.map(expense => ({
-        id: expense.id || createUuid(),
+        id: isUuid(expense.id) ? expense.id : createUuid(),
         title: expense.title || '',
         cost: Number(expense.cost) || 0,
         date: expense.date || formatDate(new Date()),
         description: expense.description || '',
+        category: expense.category || 'other',
       }))
     : [];
 
@@ -465,7 +466,14 @@ function isStateEffectivelyEmpty(state) {
 
 async function fetchRemoteRows(table) {
   const { data, error } = await supabase.from(table).select('*');
-  if (error) throw error;
+  if (error) {
+    // If the table doesn't exist yet (e.g. expenses before migration), return empty
+    if (error.code === '42P01' || error.message?.includes('does not exist')) {
+      console.warn(`[store] Table '${table}' not found, returning empty`);
+      return [];
+    }
+    throw error;
+  }
   return data || [];
 }
 
@@ -552,6 +560,20 @@ function buildRemoteState(rows) {
     return [row.key, row.value];
   }));
 
+  const expenses = (rows.expenses || []).map(row => ({
+    id: row.id,
+    title: row.title || '',
+    cost: Number(row.cost) || 0,
+    date: row.date || formatDate(new Date()),
+    description: row.description || '',
+    category: row.category || 'other',
+  }));
+
+  // Fall back to settings JSON if expenses table is empty (migration scenario)
+  const expenseData = expenses.length > 0
+    ? expenses
+    : (Array.isArray(settingsMap.get('expenses')) ? settingsMap.get('expenses') : []);
+
   return normalizeAppState({
     horses,
     instructors,
@@ -559,7 +581,7 @@ function buildRemoteState(rows) {
     packages,
     groups,
     closedDates: Array.isArray(settingsMap.get('closed_dates')) ? settingsMap.get('closed_dates') : [],
-    expenses: Array.isArray(settingsMap.get('expenses')) ? settingsMap.get('expenses') : [],
+    expenses: expenseData,
     nextId: Number(settingsMap.get('legacy_next_id')) || 1,
     nextGroupId: Number(settingsMap.get('legacy_next_group_id')) || 1,
   });
@@ -971,13 +993,11 @@ async function syncLessons(current, persisted) {
 async function syncSettings(current, persisted) {
   const currentRows = [
     { key: 'closed_dates', value: current.closedDates || [] },
-    { key: 'expenses', value: current.expenses || [] },
     { key: 'legacy_next_id', value: current.nextId || 1 },
     { key: 'legacy_next_group_id', value: current.nextGroupId || 1 },
   ];
   const persistedRows = [
     { key: 'closed_dates', value: persisted.closedDates || [] },
-    { key: 'expenses', value: persisted.expenses || [] },
     { key: 'legacy_next_id', value: persisted.nextId || 1 },
     { key: 'legacy_next_group_id', value: persisted.nextGroupId || 1 },
   ];
@@ -990,6 +1010,31 @@ async function syncSettings(current, persisted) {
   }
 }
 
+async function syncExpenses(current, persisted) {
+  const currentById = new Map((current.expenses || []).map(e => [e.id, e]));
+  const persistedById = new Map((persisted.expenses || []).map(e => [e.id, e]));
+
+  for (const [id, expense] of currentById.entries()) {
+    const previous = persistedById.get(id);
+    if (previous && jsonEqual(expense, previous)) continue;
+    const { error } = await supabase.from('expenses').upsert({
+      id: expense.id,
+      title: expense.title || '',
+      cost: expense.cost || 0,
+      date: expense.date || formatDate(new Date()),
+      description: expense.description || '',
+      category: expense.category || 'other',
+    }, { onConflict: 'id' });
+    if (error) throw error;
+  }
+
+  for (const [id] of persistedById.entries()) {
+    if (currentById.has(id)) continue;
+    const { error } = await supabase.from('expenses').delete().eq('id', id);
+    if (error) throw error;
+  }
+}
+
 async function syncToSupabase() {
   await syncHorses(_data, _persistedData);
   await syncInstructors(_data, _persistedData);
@@ -997,6 +1042,7 @@ async function syncToSupabase() {
   await syncPackages(_data, _persistedData);
   await syncLessons(_data, _persistedData);
   await syncSettings(_data, _persistedData);
+  await syncExpenses(_data, _persistedData);
 }
 
 export function saveData({ throwOnError = false } = {}) {
@@ -1905,6 +1951,7 @@ export function addExpense(expense) {
     cost: Number(expense.cost) || 0,
     date: expense.date || formatDate(new Date()),
     description: expense.description || '',
+    category: expense.category || 'other',
   };
   d.expenses.push(newExpense);
   saveData();
