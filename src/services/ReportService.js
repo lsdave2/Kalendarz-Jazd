@@ -156,17 +156,14 @@ export function computeInstructorPaymentReport({ instructor, from, to }) {
 
       if (lesson.instructor !== instructor) continue;
 
-      if (isGroupLessonRecord(lesson)) {
+      if (lesson.lessonType === 'group' || isGroupLessonRecord(lesson)) {
         const key = `${lesson.groupId || lesson.title || 'group'}|${dateStr}|${lesson.startMinute}|${lesson.durationMinutes}|${lesson.instructor}`;
         const entry = groupSessions.get(key) || { participants: 0 };
-        entry.participants += getLessonParticipants(lesson).length;
-        groupSessions.set(key, entry);
-      } else if (lesson.groupId) {
-        const key = `${lesson.groupId}|${dateStr}|${lesson.startMinute}|${lesson.durationMinutes}|${lesson.instructor}`;
-        const entry = groupSessions.get(key) || { participants: 0 };
-        entry.participants += 1;
+        const count = isGroupLessonRecord(lesson) ? getLessonParticipants(lesson).length : 1;
+        entry.participants += count;
         groupSessions.set(key, entry);
       } else {
+        // Individual lesson (either lessonType === 'individual' or it's the default)
         individualCount++; individualDurationMinutes += lesson.durationMinutes || 0;
       }
     }

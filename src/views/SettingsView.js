@@ -147,6 +147,8 @@ function openInstructorPaymentModal() {
     grid.appendChild(el('div', { className: 'report-summary-value' }, String(report.customCount)));
     grid.appendChild(el('div', { className: 'report-summary-label' }, t('individualPay')));
     grid.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(individualPay)));
+    grid.appendChild(el('div', { className: 'report-summary-label' }, t('customPay')));
+    grid.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(customPay)));
     grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupPay')));
     grid.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(groupPay)));
     grid.appendChild(el('div', { className: 'report-summary-label total' }, t('totalPay')));

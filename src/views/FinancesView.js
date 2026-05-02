@@ -165,8 +165,9 @@ export function buildFinancesView() {
       });
       s.stats = rep;
       s.indPay = (rep.individualDurationMinutes / 60) * payIndRate;
+      s.customPay = (rep.customDurationMinutes / 60) * payIndRate;
       s.grpPay = rep.groupParticipants * payGrpRate;
-      s.amount = s.indPay + s.grpPay;
+      s.amount = s.indPay + s.customPay + s.grpPay;
       if (s.active) instrTotal += s.amount;
     }
 
@@ -378,6 +379,8 @@ function renderInstructorSection(body, instrStates, recalc) {
       details.appendChild(el('div', { className: 'report-summary-value' }, `${s.stats.customCount} (${formatDuration(s.stats.customDurationMinutes)})`));
       details.appendChild(el('div', { className: 'report-summary-label' }, t('individualPay')));
       details.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(s.indPay)));
+      details.appendChild(el('div', { className: 'report-summary-label' }, t('customPay')));
+      details.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(s.customPay)));
       details.appendChild(el('div', { className: 'report-summary-label' }, t('groupPay')));
       details.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(s.grpPay)));
       list.appendChild(details);
