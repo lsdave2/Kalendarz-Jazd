@@ -364,7 +364,7 @@ export function buildFinancesView() {
   // ── 4. Transactions ──────────────────────────────────────
   const expSec = buildSection(t('transactionsSection'), 'receipt_long', (body) => {
     expBody = body;
-  }, { collapsed: false });
+  }, { collapsed: true });
   expBody = expSec.body;
   container.appendChild(expSec.section);
 

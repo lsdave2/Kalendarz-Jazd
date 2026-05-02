@@ -596,14 +596,14 @@ function buildRemoteState(rows) {
 }
 
 async function fetchRemoteSnapshot() {
-  const [lessons, packages, instructors, horses, groups, settings, expenses] = await Promise.all(
+  const [lessons, packages, instructors, horses, groups, settings, expenses, incomes] = await Promise.all(
     REMOTE_TABLES.map(table => fetchRemoteRows(table))
   );
 
-  const hasData = [lessons, packages, instructors, horses, groups, settings, expenses].some(rows => rows.length > 0);
+  const hasData = [lessons, packages, instructors, horses, groups, settings, expenses, incomes].some(rows => rows.length > 0);
   return {
     hasData,
-    state: buildRemoteState({ lessons, packages, instructors, horses, groups, settings, expenses }),
+    state: buildRemoteState({ lessons, packages, instructors, horses, groups, settings, expenses, incomes }),
   };
 }
 
@@ -1032,6 +1032,30 @@ async function syncExpenses(current, persisted) {
   }
 }
 
+async function syncIncomes(current, persisted) {
+  const currentById = new Map((current.incomes || []).map(e => [e.id, e]));
+  const persistedById = new Map((persisted.incomes || []).map(e => [e.id, e]));
+
+  for (const [id, income] of currentById.entries()) {
+    const previous = persistedById.get(id);
+    if (previous && jsonEqual(income, previous)) continue;
+    const { error } = await supabase.from('incomes').upsert({
+      id: income.id,
+      title: income.title || '',
+      amount: income.cost || 0,
+      date: income.date || formatDate(new Date()),
+      description: income.description || '',
+    }, { onConflict: 'id' });
+    if (error) throw error;
+  }
+
+  for (const [id] of persistedById.entries()) {
+    if (currentById.has(id)) continue;
+    const { error } = await supabase.from('incomes').delete().eq('id', id);
+    if (error) throw error;
+  }
+}
+
 async function syncToSupabase() {
   await syncHorses(_data, _persistedData);
   await syncInstructors(_data, _persistedData);
@@ -1040,6 +1064,7 @@ async function syncToSupabase() {
   await syncLessons(_data, _persistedData);
   await syncSettings(_data, _persistedData);
   await syncExpenses(_data, _persistedData);
+  await syncIncomes(_data, _persistedData);
 }
 
 export function saveData({ throwOnError = false } = {}) {
