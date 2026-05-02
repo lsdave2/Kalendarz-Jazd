@@ -1483,7 +1483,7 @@ select.form-input {
 .report-summary-grid {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 10px 16px;
+  gap: 10px 24px;
   font-size: 0.92rem;
 }
 .report-summary-label {

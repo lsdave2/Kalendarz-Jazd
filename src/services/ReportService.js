@@ -1,6 +1,7 @@
 import { getDatesInRange } from '../utils.js';
 import { getData, getLessonsForDate } from '../store.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants } from './LessonService.js';
+import { t } from '../i18n.js';
 
 const SETTINGS_KEY = 'horsebook_settings';
 function getSettings() {
@@ -14,12 +15,12 @@ export function formatCurrency(amount) {
 }
 
 export function formatDuration(minutes) {
-  if (!Number.isFinite(minutes) || minutes <= 0) return '0m';
+  if (!Number.isFinite(minutes) || minutes <= 0) return `0${t('m')}`;
   const h = Math.floor(minutes / 60), m = minutes % 60;
   const parts = [];
-  if (h > 0) parts.push(`${h}h`);
-  if (m > 0) parts.push(`${m}m`);
-  return parts.join(' ') || '0m';
+  if (h > 0) parts.push(`${h}${t('h')}`);
+  if (m > 0) parts.push(`${m}${t('m')}`);
+  return parts.join(' ') || `0${t('m')}`;
 }
 
 export function parseRate(v) {
@@ -80,6 +81,7 @@ export function computeRevenueReport({ from, to, rates }) {
     individualPackage: { count: 0, hours: 0, revenue: 0 },
     group: { count: 0, hours: 0, revenue: 0 },
     groupPackage: { count: 0, hours: 0, revenue: 0 },
+    custom: { count: 0, hours: 0, revenue: 0 },
   };
   const days = [];
 
@@ -109,11 +111,11 @@ export function computeRevenueReport({ from, to, rates }) {
       if (isCustomLessonRecord(lesson)) {
         for (const p of getLessonParticipants(lesson)) {
           const cn = p.name;
-          const rate = p.customCost !== undefined ? p.customCost : 140;
-          const amount = dm * rate;
-          totals.individual.count++; totals.individual.hours += dm; totals.individual.revenue += amount;
+          const amount = p.customCost !== undefined ? p.customCost : 140;
+          const rate = dm > 0 ? amount / dm : 0;
+          totals.custom.count++; totals.custom.hours += dm; totals.custom.revenue += amount;
           dayTotal += amount;
-          dayEntries.push({ clientName: cn, amount, rate, durationMultiplier: dm, lessonType: 'individual' });
+          dayEntries.push({ clientName: cn, amount, rate, durationMultiplier: dm, lessonType: 'custom' });
         }
         continue;
       }
@@ -136,6 +138,7 @@ export function computeRevenueReport({ from, to, rates }) {
 export function computeInstructorPaymentReport({ instructor, from, to }) {
   const dates = getDatesInRange(from, to);
   let individualCount = 0, individualDurationMinutes = 0;
+  let customCount = 0, customDurationMinutes = 0;
   const groupSessions = new Map();
 
   for (const dateStr of dates) {
@@ -145,7 +148,7 @@ export function computeInstructorPaymentReport({ instructor, from, to }) {
       if (isCustomLessonRecord(lesson)) {
         for (const p of getLessonParticipants(lesson)) {
           if (p.instructor === instructor) {
-            individualCount++; individualDurationMinutes += lesson.durationMinutes || 0;
+            customCount++; customDurationMinutes += lesson.durationMinutes || 0;
           }
         }
         continue;
@@ -171,20 +174,12 @@ export function computeInstructorPaymentReport({ instructor, from, to }) {
 
   let groupParticipants = 0;
   for (const e of groupSessions.values()) groupParticipants += e.participants;
-  return { individualCount, individualDurationMinutes, groupLessonsCount: groupSessions.size, groupParticipants };
+  return { individualCount, individualDurationMinutes, groupLessonsCount: groupSessions.size, groupParticipants, customCount, customDurationMinutes };
 }
 
 export function computeInstructorPaymentAmount({ instructor, from, to, individualRate, groupRate }) {
   const r = computeInstructorPaymentReport({ instructor, from, to });
-  return (r.individualDurationMinutes / 60) * individualRate + r.groupParticipants * groupRate;
+  return (r.individualDurationMinutes / 60) * individualRate + (r.customDurationMinutes / 60) * individualRate + r.groupParticipants * groupRate;
 }
 
-export const EXPENSE_CATEGORIES = [
-  { id: 'feed', icon: 'grass', en: 'Feed', pl: 'Pasza' },
-  { id: 'vet', icon: 'medical_services', en: 'Vet', pl: 'Weterynarz' },
-  { id: 'maintenance', icon: 'construction', en: 'Maintenance', pl: 'Konserwacja' },
-  { id: 'equipment', icon: 'handyman', en: 'Equipment', pl: 'Sprzęt' },
-  { id: 'utilities', icon: 'bolt', en: 'Utilities', pl: 'Media' },
-  { id: 'transport', icon: 'local_shipping', en: 'Transport', pl: 'Transport' },
-  { id: 'other', icon: 'more_horiz', en: 'Other', pl: 'Inne' },
-];
+

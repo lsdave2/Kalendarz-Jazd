@@ -8,6 +8,12 @@ import {
 } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants } from '../services/LessonService.js';
+import {
+  formatCurrency, formatDuration, parseRate,
+  getPaymentReportRates, savePaymentReportRates,
+  getRevenueReportRates, saveRevenueReportRates,
+  computeRevenueReport, computeInstructorPaymentReport, computeInstructorPaymentAmount
+} from '../services/ReportService.js';
 
 // ── Settings helpers ────────────────────────────────────────────────────
 const SETTINGS_KEY = 'horsebook_settings';
@@ -38,235 +44,12 @@ export function getDayScheduleHours() {
   return { startHour, endHour };
 }
 
-// ── Instructor payment report ───────────────────────────────────────────
-function formatCurrency(amount) {
-  if (Number.isNaN(amount)) return '0 zł';
-  const fixed = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
-  return `${fixed} zł`;
-}
-
-function formatDuration(minutes) {
-  if (!Number.isFinite(minutes) || minutes <= 0) return `0 ${t('m')}`;
-  const wholeHours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  const parts = [];
-  if (wholeHours > 0) parts.push(`${wholeHours}${t('h')}`);
-  if (remainingMinutes > 0) parts.push(`${remainingMinutes}${t('m')}`);
-  return parts.length > 0 ? parts.join(' ') : `0 ${t('m')}`;
-}
-
-function parseRate(value) {
-  const rate = Number.parseFloat(value);
-  return Number.isFinite(rate) ? rate : 0;
-}
-
-function getPaymentReportRates() {
-  const settings = getSettings();
-  const individual = Number.parseFloat(settings.paymentReportIndividualRate);
-  const group = Number.parseFloat(settings.paymentReportGroupRate);
-  return {
-    individual: Number.isFinite(individual) ? individual : 60,
-    group: Number.isFinite(group) ? group : 30
-  };
-}
-
-function savePaymentReportRates(individual, group) {
-  const settings = getSettings();
-  settings.paymentReportIndividualRate = Number.isFinite(individual) ? individual : 60;
-  settings.paymentReportGroupRate = Number.isFinite(group) ? group : 30;
-  saveSettings(settings);
-}
-
-function getRevenueReportRates() {
-  const settings = getSettings();
-  return {
-    individual: Number.parseFloat(settings.revenueReportIndividualRate) || 140,
-    group: Number.parseFloat(settings.revenueReportGroupRate) || 110,
-    individualPackage: Number.parseFloat(settings.revenueReportIndividualPackageRate) || 110,
-    groupPackage: Number.parseFloat(settings.revenueReportGroupPackageRate) || 90
-  };
-}
-
-function saveRevenueReportRates(rates) {
-  const settings = getSettings();
-  settings.revenueReportIndividualRate = rates.individual;
-  settings.revenueReportGroupRate = rates.group;
-  settings.revenueReportIndividualPackageRate = rates.individualPackage;
-  settings.revenueReportGroupPackageRate = rates.groupPackage;
-  saveSettings(settings);
-}
+// Removed duplicated reporting logic - now using ReportService.js
 
 function createRevenueStatValue(count, revenue) {
   return el('div', { className: 'report-summary-stat' },
     el('div', { className: 'report-summary-stat-count' }, `${count}×`),
     el('div', { className: 'report-summary-stat-revenue' }, formatCurrency(revenue))
-  );
-}
-
-function getCustomPaymentRate(clientName) {
-  const name = (clientName || '').trim().toLowerCase();
-  if (!name) return null;
-  const data = getData();
-  const pkg = (data.packages || []).find(entry => (entry.name || '').trim().toLowerCase() === name);
-  const rate = Number.parseFloat(pkg?.customPaymentRate);
-  return Number.isFinite(rate) ? rate : null;
-}
-
-function getRevenueDefaultRate(lesson, participant, rates) {
-  if (participant) {
-    return participant.packageMode !== false ? rates.groupPackageRate : rates.groupRate;
-  }
-  return lesson.packageMode !== false ? rates.individualPackageRate : rates.individualRate;
-}
-
-function computeRevenueReport({ from, to, rates }) {
-  const dates = getDatesInRange(from, to);
-  const totals = {
-    individual: { count: 0, hours: 0, revenue: 0 },
-    individualPackage: { count: 0, hours: 0, revenue: 0 },
-    group: { count: 0, hours: 0, revenue: 0 },
-    groupPackage: { count: 0, hours: 0, revenue: 0 }
-  };
-  const days = [];
-
-  for (const dateStr of dates) {
-    const lessons = getLessonsForDate(dateStr);
-    const dayEntries = [];
-    let dayTotal = 0;
-
-    for (const lesson of lessons) {
-      const isCancelled = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(dateStr);
-      if (isCancelled) continue;
-
-      const durationMultiplier = Math.max((lesson.durationMinutes || 0) / 60, 0);
-
-      if (isGroupLessonRecord(lesson)) {
-        for (const participant of getLessonParticipants(lesson)) {
-          const bucket = participant.packageMode !== false ? totals.groupPackage : totals.group;
-          const clientName = participant.packageName || participant.name;
-          const customRate = getCustomPaymentRate(clientName);
-          const rate = customRate ?? getRevenueDefaultRate(lesson, participant, rates);
-          const amount = durationMultiplier * rate;
-          bucket.count += 1;
-          bucket.hours += durationMultiplier;
-          bucket.revenue += amount;
-          dayTotal += amount;
-          dayEntries.push({
-            clientName,
-            amount,
-            rate,
-            durationMultiplier,
-            lessonType: participant.packageMode !== false ? 'groupPackage' : 'group'
-          });
-        }
-        continue;
-      }
-
-      if (isCustomLessonRecord(lesson)) {
-        for (const participant of getLessonParticipants(lesson)) {
-          const bucket = totals.individual;
-          const clientName = participant.name;
-          const rate = participant.customCost !== undefined ? participant.customCost : 140;
-          const amount = durationMultiplier * rate;
-          bucket.count += 1;
-          bucket.hours += durationMultiplier;
-          bucket.revenue += amount;
-          dayTotal += amount;
-          dayEntries.push({
-            clientName,
-            amount,
-            rate,
-            durationMultiplier,
-            lessonType: 'individual'
-          });
-        }
-        continue;
-      }
-
-      const bucket = lesson.packageMode !== false ? totals.individualPackage : totals.individual;
-      const clientName = lesson.title || '';
-      const customRate = getCustomPaymentRate(clientName);
-      const rate = customRate ?? getRevenueDefaultRate(lesson, null, rates);
-      const amount = durationMultiplier * rate;
-      bucket.count += 1;
-      bucket.hours += durationMultiplier;
-      bucket.revenue += amount;
-      dayTotal += amount;
-      dayEntries.push({
-        clientName,
-        amount,
-        rate,
-        durationMultiplier,
-        lessonType: lesson.packageMode !== false ? 'individualPackage' : 'individual'
-      });
-    }
-
-    if (dayEntries.length > 0) {
-      days.push({
-        dateStr,
-        total: dayTotal,
-        entries: dayEntries
-      });
-    }
-  }
-
-  return { totals, days };
-}
-
-function computeInstructorPaymentReport({ instructor, from, to }) {
-  const dates = getDatesInRange(from, to);
-  let individualCount = 0;
-  let individualDurationMinutes = 0;
-  const groupSessions = new Map();
-
-  for (const dateStr of dates) {
-    const lessons = getLessonsForDate(dateStr);
-    for (const lesson of lessons) {
-      const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
-      if (isCancelled) continue;
-
-      if (isCustomLessonRecord(lesson)) {
-        for (const participant of getLessonParticipants(lesson)) {
-          if (participant.instructor === instructor) {
-            individualCount += 1;
-            individualDurationMinutes += lesson.durationMinutes || 0;
-          }
-        }
-        continue;
-      }
-
-      if (lesson.instructor !== instructor) continue;
-
-      if (isGroupLessonRecord(lesson)) {
-        const key = `${lesson.groupId || lesson.title || 'group'}|${dateStr}|${lesson.startMinute}|${lesson.durationMinutes}|${lesson.instructor}`;
-        const entry = groupSessions.get(key) || { participants: 0 };
-        entry.participants += getLessonParticipants(lesson).length;
-        groupSessions.set(key, entry);
-      } else if (lesson.groupId) {
-        const key = `${lesson.groupId}|${dateStr}|${lesson.startMinute}|${lesson.durationMinutes}|${lesson.instructor}`;
-        const entry = groupSessions.get(key) || { participants: 0 };
-        entry.participants += 1;
-        groupSessions.set(key, entry);
-      } else {
-        individualCount += 1;
-        individualDurationMinutes += lesson.durationMinutes || 0;
-      }
-    }
-  }
-
-  const groupLessonsCount = groupSessions.size;
-  let groupParticipants = 0;
-  for (const entry of groupSessions.values()) {
-    groupParticipants += entry.participants;
-  }
-  return { individualCount, individualDurationMinutes, groupLessonsCount, groupParticipants };
-}
-
-function computeInstructorPaymentAmount({ instructor, from, to, individualRate, groupRate }) {
-  const report = computeInstructorPaymentReport({ instructor, from, to });
-  return (
-    (report.individualDurationMinutes / 60) * individualRate +
-    report.groupParticipants * groupRate
   );
 }
 
@@ -344,8 +127,9 @@ function openInstructorPaymentModal() {
 
     const report = computeInstructorPaymentReport({ instructor, from, to });
     const individualPay = (report.individualDurationMinutes / 60) * (isNaN(individualRate) ? 0 : individualRate);
+    const customPay = (report.customDurationMinutes / 60) * (isNaN(individualRate) ? 0 : individualRate);
     const groupPay = report.groupParticipants * (isNaN(groupRate) ? 0 : groupRate);
-    const totalPay = individualPay + groupPay;
+    const totalPay = individualPay + customPay + groupPay;
 
     summary.innerHTML = '';
     summary.appendChild(el('div', { className: 'report-summary-title' }, t('reportSummary')));
@@ -359,6 +143,8 @@ function openInstructorPaymentModal() {
     grid.appendChild(el('div', { className: 'report-summary-value' }, String(report.groupLessonsCount)));
     grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupParticipants')));
     grid.appendChild(el('div', { className: 'report-summary-value' }, String(report.groupParticipants)));
+    grid.appendChild(el('div', { className: 'report-summary-label' }, t('customLesson')));
+    grid.appendChild(el('div', { className: 'report-summary-value' }, String(report.customCount)));
     grid.appendChild(el('div', { className: 'report-summary-label' }, t('individualPay')));
     grid.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(individualPay)));
     grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupPay')));
@@ -551,7 +337,8 @@ function openRevenueReportModal() {
     const grossRevenue = report.totals.individual.revenue
       + report.totals.group.revenue
       + report.totals.individualPackage.revenue
-      + report.totals.groupPackage.revenue;
+      + report.totals.groupPackage.revenue
+      + report.totals.custom.revenue;
     let instructorDeductions = 0;
     const selectedInstructorRows = [];
     for (const rowState of instructorRows) {
@@ -584,6 +371,8 @@ function openRevenueReportModal() {
       grid.appendChild(createRevenueStatValue(report.totals.individualPackage.count, report.totals.individualPackage.revenue));
       grid.appendChild(el('div', { className: 'report-summary-label' }, t('groupPackageLessonRevenue')));
       grid.appendChild(createRevenueStatValue(report.totals.groupPackage.count, report.totals.groupPackage.revenue));
+      grid.appendChild(el('div', { className: 'report-summary-label' }, t('customLessonRevenue')));
+      grid.appendChild(createRevenueStatValue(report.totals.custom.count, report.totals.custom.revenue));
       grid.appendChild(el('div', { className: 'report-summary-label' }, t('grossRevenue')));
       grid.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(grossRevenue)));
       grid.appendChild(el('div', { className: 'report-summary-label' }, t('instructorDeductions')));
@@ -614,7 +403,10 @@ function openRevenueReportModal() {
         const row = el('div', { className: 'report-entry-row' });
         const left = el('div', { className: 'report-entry-left' });
         left.appendChild(el('div', { className: 'report-entry-name' }, entry.clientName || t('client')));
-        left.appendChild(el('div', { className: 'report-entry-meta' }, `${formatDuration(Math.round(entry.durationMultiplier * 60))} × ${formatCurrency(entry.rate)}/h`));
+        const metaText = entry.lessonType === 'custom' 
+          ? t('custom') 
+          : `${t(entry.lessonType)} - ${formatDuration(Math.round(entry.durationMultiplier * 60))} × ${formatCurrency(entry.rate)}`;
+        left.appendChild(el('div', { className: 'report-entry-meta' }, metaText));
         row.appendChild(left);
         row.appendChild(el('div', { className: 'report-entry-amount' }, formatCurrency(entry.amount)));
         entriesWrap.appendChild(row);

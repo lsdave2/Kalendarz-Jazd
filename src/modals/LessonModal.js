@@ -394,6 +394,11 @@ export function openLessonModal(dateStr, lesson = null) {
 
   const setMode = (mode) => {
     currentType = mode;
+    if (mode === 'individual') {
+      if (titleInput.value === t('customLesson') || titleInput.value === t('groupLesson')) {
+        titleInput.value = '';
+      }
+    }
     renderForm();
   };
 

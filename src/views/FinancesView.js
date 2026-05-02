@@ -1,24 +1,12 @@
 import { t, getLang } from '../i18n.js';
 import { el, icon, formatDate, setupModalSwipeToClose } from '../utils.js';
-import { getData, addExpense, updateExpense, deleteExpense } from '../store.js';
+import { getData, addExpense, updateExpense, deleteExpense, addIncome, updateIncome, deleteIncome } from '../store.js';
 import {
   formatCurrency, formatDuration, parseRate,
   getPaymentReportRates, savePaymentReportRates,
   getRevenueReportRates, saveRevenueReportRates,
   computeRevenueReport, computeInstructorPaymentReport, computeInstructorPaymentAmount,
-  EXPENSE_CATEGORIES,
 } from '../services/ReportService.js';
-
-function getCatLabel(id) {
-  const lang = getLang();
-  const cat = EXPENSE_CATEGORIES.find(c => c.id === id);
-  return cat ? cat[lang] || cat.en : id;
-}
-
-function getCatIcon(id) {
-  const cat = EXPENSE_CATEGORIES.find(c => c.id === id);
-  return cat ? cat.icon : 'more_horiz';
-}
 
 function defaultFrom() {
   const d = new Date(); d.setDate(d.getDate() - 7);
@@ -44,56 +32,60 @@ function buildSection(titleText, iconName, contentBuilder, { collapsed = true } 
   return { section, body };
 }
 
-// ── Expense Edit Modal ──────────────────────────────────────────────
-function openExpenseEditModal(expense, onSave) {
+// ── Transaction Edit Modal ──────────────────────────────────────────
+function openTransactionEditModal(transaction, onSave) {
   const overlay = el('div', { className: 'modal-overlay' });
   overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
   const modal = el('div', { className: 'modal' });
   const handle = el('div', { className: 'modal-handle' });
   const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
   modal.appendChild(handle);
-  modal.appendChild(el('h3', {}, expense ? t('editExpense') : t('addExpense')));
+  modal.appendChild(el('h3', {}, transaction ? t('editTransaction') : t('addTransaction')));
+
+  const typeG = el('div', { className: 'form-group' });
+  typeG.appendChild(el('label', {}, t('transactionType')));
+  const typeRow = el('div', { className: 'fin-cat-picker' }); // Reuse class for layout
+  let selectedType = transaction?.type || 'expense';
+  const types = [
+    { id: 'expense', label: t('expense'), icon: 'remove_circle' },
+    { id: 'income', label: t('income'), icon: 'add_circle' }
+  ];
+  types.forEach(type => {
+    const chip = el('button', {
+      className: `fin-cat-chip ${type.id === selectedType ? 'active' : ''}`,
+      onClick: () => {
+        selectedType = type.id;
+        typeRow.querySelectorAll('.fin-cat-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+      }
+    }, icon(type.icon), type.label);
+    typeRow.appendChild(chip);
+  });
+  typeG.appendChild(typeRow);
+  modal.appendChild(typeG);
 
   const titleG = el('div', { className: 'form-group' });
-  titleG.appendChild(el('label', {}, t('expenseTitle')));
-  const titleInput = el('input', { className: 'form-input', type: 'text', value: expense?.title || '' });
+  titleG.appendChild(el('label', {}, t('transactionTitle')));
+  const titleInput = el('input', { className: 'form-input', type: 'text', value: transaction?.title || '' });
   titleG.appendChild(titleInput);
   modal.appendChild(titleG);
 
   const costG = el('div', { className: 'form-group' });
-  costG.appendChild(el('label', {}, t('expenseCost')));
-  const costInput = el('input', { className: 'form-input', type: 'number', step: '0.01', value: String(expense?.cost || '') });
+  costG.appendChild(el('label', {}, t('transactionValue')));
+  const costInput = el('input', { className: 'form-input', type: 'number', step: '0.01', value: String(transaction?.cost || '') });
   costG.appendChild(costInput);
   modal.appendChild(costG);
 
   const dateG = el('div', { className: 'form-group' });
   dateG.appendChild(el('label', {}, t('date')));
-  const dateInput = el('input', { className: 'form-input', type: 'date', value: expense?.date || formatDate(new Date()) });
+  const dateInput = el('input', { className: 'form-input', type: 'date', value: transaction?.date || formatDate(new Date()) });
   dateG.appendChild(dateInput);
   modal.appendChild(dateG);
-
-  const catG = el('div', { className: 'form-group' });
-  catG.appendChild(el('label', {}, t('expenseCategory')));
-  const catRow = el('div', { className: 'fin-cat-picker' });
-  let selectedCat = expense?.category || 'other';
-  EXPENSE_CATEGORIES.forEach(cat => {
-    const chip = el('button', {
-      className: `fin-cat-chip ${cat.id === selectedCat ? 'active' : ''}`,
-      onClick: () => {
-        selectedCat = cat.id;
-        catRow.querySelectorAll('.fin-cat-chip').forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
-      }
-    }, icon(cat.icon), getCatLabel(cat.id));
-    catRow.appendChild(chip);
-  });
-  catG.appendChild(catRow);
-  modal.appendChild(catG);
 
   const descG = el('div', { className: 'form-group' });
   descG.appendChild(el('label', {}, t('description')));
   const descInput = el('textarea', { className: 'form-input', style: { minHeight: '60px', resize: 'vertical' } });
-  descInput.value = expense?.description || '';
+  descInput.value = transaction?.description || '';
   descG.appendChild(descInput);
   modal.appendChild(descG);
 
@@ -102,14 +94,32 @@ function openExpenseEditModal(expense, onSave) {
     const data = {
       title: titleInput.value.trim(), cost: Number.parseFloat(costInput.value) || 0,
       date: dateInput.value || formatDate(new Date()), description: descInput.value.trim(),
-      category: selectedCat,
+      type: selectedType,
     };
-    if (expense) updateExpense(expense.id, data); else addExpense(data);
+    if (transaction) {
+      if (selectedType === transaction.type) {
+        if (selectedType === 'income') updateIncome(transaction.id, data);
+        else updateExpense(transaction.id, data);
+      } else {
+        // Type changed: delete from old, add to new
+        if (transaction.type === 'income') deleteIncome(transaction.id);
+        else deleteExpense(transaction.id);
+        if (selectedType === 'income') addIncome(data);
+        else addExpense(data);
+      }
+    } else {
+      if (selectedType === 'income') addIncome(data);
+      else addExpense(data);
+    }
     closeModal(); if (onSave) onSave();
-  }}, expense ? t('saveKey') : t('add')));
-  if (expense) {
+  }}, transaction ? t('saveKey') : t('add')));
+  if (transaction) {
     btnG.appendChild(el('button', { className: 'btn btn-danger', onClick: () => {
-      if (confirm(t('deleteExpenseConfirm'))) { deleteExpense(expense.id); closeModal(); if (onSave) onSave(); }
+      if (confirm(t('deleteTransactionConfirm'))) {
+        if (transaction.type === 'income') deleteIncome(transaction.id);
+        else deleteExpense(transaction.id);
+        closeModal(); if (onSave) onSave();
+      }
     }}, icon('delete')));
   }
   btnG.appendChild(el('button', { className: 'btn btn-secondary', onClick: () => closeModal() }, t('cancel')));
@@ -145,7 +155,8 @@ export function buildFinancesView() {
       rates: { individualRate: indRate, groupRate: grpRate, individualPackageRate: indPkgRate, groupPackageRate: grpPkgRate },
     });
     const gross = rr.totals.individual.revenue + rr.totals.group.revenue
-      + rr.totals.individualPackage.revenue + rr.totals.groupPackage.revenue;
+      + rr.totals.individualPackage.revenue + rr.totals.groupPackage.revenue
+      + rr.totals.custom.revenue;
 
     let instrTotal = 0;
     for (const s of instrStates) {
@@ -159,9 +170,15 @@ export function buildFinancesView() {
       if (s.active) instrTotal += s.amount;
     }
 
-    const expenses = (data.expenses || []).filter(e => e.date >= fromVal && e.date <= toVal);
-    const expTotal = expenses.reduce((s, e) => s + (e.cost || 0), 0);
-    const net = gross - instrTotal - expTotal;
+    const rangeExp = (data.expenses || []).filter(e => e.date >= fromVal && e.date <= toVal);
+    const rangeInc = (data.incomes || []).filter(e => e.date >= fromVal && e.date <= toVal);
+    const transactions = [
+      ...rangeExp.map(e => ({ ...e, type: 'expense' })),
+      ...rangeInc.map(i => ({ ...i, type: 'income' }))
+    ];
+    const expTotal = rangeExp.reduce((s, e) => s + (e.cost || 0), 0);
+    const incTotal = rangeInc.reduce((s, i) => s + (i.cost || 0), 0);
+    const net = gross + incTotal - instrTotal - expTotal;
 
     // Update instructor section
     if (instrBody) {
@@ -182,15 +199,19 @@ export function buildFinancesView() {
       revG.appendChild(mkStat(rr.totals.individualPackage.count, rr.totals.individualPackage.revenue));
       revG.appendChild(el('div', { className: 'report-summary-label' }, t('groupPackageLessonRevenue')));
       revG.appendChild(mkStat(rr.totals.groupPackage.count, rr.totals.groupPackage.revenue));
+      revG.appendChild(el('div', { className: 'report-summary-label' }, t('customLessonRevenue')));
+      revG.appendChild(mkStat(rr.totals.custom.count, rr.totals.custom.revenue));
       plBody.appendChild(revG);
 
       const plG = el('div', { className: 'report-summary-grid' });
       plG.appendChild(el('div', { className: 'report-summary-label' }, t('grossRevenue')));
       plG.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(gross)));
-      plG.appendChild(el('div', { className: 'report-summary-label' }, t('instructorDeductions')));
-      plG.appendChild(el('div', { className: 'report-summary-value' }, `−${formatCurrency(instrTotal)}`));
-      plG.appendChild(el('div', { className: 'report-summary-label' }, t('expensesTotal')));
-      plG.appendChild(el('div', { className: 'report-summary-value' }, `−${formatCurrency(expTotal)}`));
+      plG.appendChild(el('div', { className: 'report-summary-label' }, t('incomeTotal') + ':'));
+      plG.appendChild(el('div', { className: 'report-summary-value' }, `+ ${formatCurrency(incTotal)}`));
+      plG.appendChild(el('div', { className: 'report-summary-label' }, t('instructorDeductions') + ':'));
+      plG.appendChild(el('div', { className: 'report-summary-value' }, `− ${formatCurrency(instrTotal)}`));
+      plG.appendChild(el('div', { className: 'report-summary-label' }, t('expensesTotal') + ':'));
+      plG.appendChild(el('div', { className: 'report-summary-value' }, `− ${formatCurrency(expTotal)}`));
       plG.appendChild(el('div', { className: 'report-summary-label total' }, t('netProfit')));
       plG.appendChild(el('div', { className: 'report-summary-value total' }, formatCurrency(net)));
       plBody.appendChild(plG);
@@ -218,7 +239,10 @@ export function buildFinancesView() {
             const entryRow = el('div', { className: 'report-entry-row' });
             const left = el('div', { className: 'report-entry-left' });
             left.appendChild(el('div', { className: 'report-entry-name' }, entry.clientName || t('client')));
-            left.appendChild(el('div', { className: 'report-entry-meta' }, `${t(entry.lessonType)} - ${formatDuration(entry.durationMultiplier * 60)} × ${formatCurrency(entry.rate)}`));
+            const metaText = entry.lessonType === 'custom' 
+              ? t(entry.lessonType) 
+              : `${t(entry.lessonType)} - ${formatDuration(entry.durationMultiplier * 60)} × ${formatCurrency(entry.rate)}`;
+            left.appendChild(el('div', { className: 'report-entry-meta' }, metaText));
             entryRow.appendChild(left);
             entryRow.appendChild(el('div', { className: 'report-entry-amount' }, formatCurrency(entry.amount)));
             entriesList.appendChild(entryRow);
@@ -230,10 +254,10 @@ export function buildFinancesView() {
       }
     }
 
-    // Update expenses list
+    // Update transactions list
     if (expBody) {
       expBody.innerHTML = '';
-      renderExpensesList(expBody, expenses, recalc);
+      renderTransactionsList(expBody, transactions, recalc);
     }
   }
 
@@ -275,8 +299,8 @@ export function buildFinancesView() {
   plBody = plSec.body;
   container.appendChild(plSec.section);
 
-  // ── 4. Expenses ──────────────────────────────────────────
-  const expSec = buildSection(t('expensesSection'), 'receipt_long', (body) => {
+  // ── 4. Transactions ──────────────────────────────────────
+  const expSec = buildSection(t('transactionsSection'), 'receipt_long', (body) => {
     expBody = body;
   }, { collapsed: false });
   expBody = expSec.body;
@@ -350,6 +374,8 @@ function renderInstructorSection(body, instrStates, recalc) {
       details.appendChild(el('div', { className: 'report-summary-value' }, `${s.stats.individualCount} (${formatDuration(s.stats.individualDurationMinutes)})`));
       details.appendChild(el('div', { className: 'report-summary-label' }, t('groupLessons')));
       details.appendChild(el('div', { className: 'report-summary-value' }, `${s.stats.groupLessonsCount} (${s.stats.groupParticipants} ${t('groupParticipants')})`));
+      details.appendChild(el('div', { className: 'report-summary-label' }, t('customLesson')));
+      details.appendChild(el('div', { className: 'report-summary-value' }, `${s.stats.customCount} (${formatDuration(s.stats.customDurationMinutes)})`));
       details.appendChild(el('div', { className: 'report-summary-label' }, t('individualPay')));
       details.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(s.indPay)));
       details.appendChild(el('div', { className: 'report-summary-label' }, t('groupPay')));
@@ -360,34 +386,59 @@ function renderInstructorSection(body, instrStates, recalc) {
   body.appendChild(list);
 }
 
-function renderExpensesList(body, expenses, recalc) {
-  const sorted = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
+function renderTransactionsList(body, transactions, recalc) {
+  const sorted = [...transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+  
   if (sorted.length > 0) {
-    const total = sorted.reduce((s, e) => s + (e.cost || 0), 0);
-    body.appendChild(el('div', { className: 'fin-exp-total' },
-      el('span', {}, t('expensesTotal')),
-      el('span', { className: 'fin-exp-total-val' }, formatCurrency(total))
-    ));
+    const expTotal = sorted.filter(e => e.type !== 'income').reduce((s, e) => s + (e.cost || 0), 0);
+    const incTotal = sorted.filter(e => e.type === 'income').reduce((s, e) => s + (e.cost || 0), 0);
+    
+    const summary = el('div', { className: 'fin-exp-total', style: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' } });
+    
+    const incRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '16px', color: 'var(--success)' } });
+    incRow.appendChild(el('span', {}, t('incomeTotal') + ':'));
+    incRow.appendChild(el('span', { className: 'fin-exp-total-val' }, formatCurrency(incTotal)));
+    summary.appendChild(incRow);
+    
+    const expRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '16px', color: 'var(--danger)' } });
+    expRow.appendChild(el('span', {}, t('expensesTotal') + ':'));
+    expRow.appendChild(el('span', { className: 'fin-exp-total-val' }, formatCurrency(expTotal)));
+    summary.appendChild(expRow);
+    
+    body.appendChild(summary);
   }
+
   const list = el('div', { className: 'expenses-list' });
-  sorted.forEach(exp => {
-    const row = el('div', { className: 'fin-exp-row', onClick: () => openExpenseEditModal(exp, recalc) });
+  sorted.forEach(tran => {
+    const isInc = tran.type === 'income';
+    const row = el('div', { className: 'fin-exp-row', onClick: () => openTransactionEditModal(tran, recalc) });
     const left = el('div', { className: 'fin-exp-left' });
-    left.appendChild(el('div', { className: 'fin-exp-title' }, exp.title || t('untitled')));
+    left.appendChild(el('div', { className: 'fin-exp-title' }, tran.title || t('untitled')));
     const meta = el('div', { className: 'fin-exp-meta' });
-    meta.appendChild(el('span', {}, exp.date));
-    meta.appendChild(el('span', { className: 'fin-exp-cat-badge' }, icon(getCatIcon(exp.category)), getCatLabel(exp.category || 'other')));
+    meta.appendChild(el('span', {}, tran.date));
+    meta.appendChild(el('span', { 
+      style: { 
+        color: isInc ? 'var(--success)' : 'var(--danger)',
+        fontSize: '0.75rem',
+        fontWeight: '600',
+        textTransform: 'uppercase'
+      } 
+    }, isInc ? t('income') : t('expense')));
     left.appendChild(meta);
     row.appendChild(left);
-    row.appendChild(el('div', { className: 'fin-exp-cost' }, formatCurrency(exp.cost)));
+    row.appendChild(el('div', { 
+      className: 'fin-exp-cost', 
+      style: { color: isInc ? 'var(--success)' : 'var(--danger)' } 
+    }, (isInc ? '+' : '−') + formatCurrency(tran.cost)));
     list.appendChild(row);
   });
+
   if (sorted.length === 0) {
-    list.appendChild(el('div', { className: 'fin-exp-empty' }, t('noExpensesInRange')));
+    list.appendChild(el('div', { className: 'fin-exp-empty' }, t('noTransactionsInRange')));
   }
   body.appendChild(list);
   body.appendChild(el('button', {
     className: 'btn btn-primary btn-sm', style: { width: '100%', marginTop: '12px' },
-    onClick: () => openExpenseEditModal(null, recalc)
-  }, icon('add'), t('addExpense')));
+    onClick: () => openTransactionEditModal(null, recalc)
+  }, icon('add'), t('addTransaction')));
 }

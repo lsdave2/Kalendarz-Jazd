@@ -4,7 +4,7 @@ import { t } from './i18n.js';
 
 const LOCAL_DATA_KEY = 'horsebook_data';
 const LOCAL_PENDING_KEY = 'horsebook_pending_sync';
-const REMOTE_TABLES = ['lessons', 'packages', 'instructors', 'horses', 'groups', 'settings', 'expenses'];
+const REMOTE_TABLES = ['lessons', 'packages', 'instructors', 'horses', 'groups', 'settings', 'expenses', 'incomes'];
 
 const defaultData = () => ({
   horses: ['Rubin', 'Czempion', 'Cera', 'Muminek', 'Kadet', 'Sakwa', 'Fason', 'Carewicz', 'Grot', 'Siwa', 'Figa'],
@@ -17,6 +17,7 @@ const defaultData = () => ({
   groups: [],
   closedDates: [],
   expenses: [],
+  incomes: [],
   nextId: 1,
   nextGroupId: 1,
 });
@@ -30,6 +31,7 @@ function createEmptyPersistedState() {
     groups: [],
     closedDates: [],
     expenses: [],
+    incomes: [],
     nextId: 1,
     nextGroupId: 1,
   };
@@ -381,7 +383,15 @@ function normalizeAppState(state) {
         cost: Number(expense.cost) || 0,
         date: expense.date || formatDate(new Date()),
         description: expense.description || '',
-        category: expense.category || 'other',
+      }))
+    : [];
+  normalizedState.incomes = Array.isArray(normalizedState.incomes)
+    ? normalizedState.incomes.map(income => ({
+        id: isUuid(income.id) ? income.id : createUuid(),
+        title: income.title || '',
+        cost: Number(income.cost || income.amount) || 0,
+        date: income.date || formatDate(new Date()),
+        description: income.description || '',
       }))
     : [];
 
@@ -557,7 +567,13 @@ function buildRemoteState(rows) {
     cost: Number(row.cost) || 0,
     date: row.date || formatDate(new Date()),
     description: row.description || '',
-    category: row.category || 'other',
+  }));
+  const incomes = (rows.incomes || []).map(row => ({
+    id: row.id,
+    title: row.title || '',
+    cost: Number(row.cost || row.amount) || 0,
+    date: row.date || formatDate(new Date()),
+    description: row.description || '',
   }));
 
   // Fall back to settings JSON if expenses table is empty (migration scenario)
@@ -573,6 +589,7 @@ function buildRemoteState(rows) {
     groups,
     closedDates: Array.isArray(settingsMap.get('closed_dates')) ? settingsMap.get('closed_dates') : [],
     expenses: expenseData,
+    incomes: incomes,
     nextId: Number(settingsMap.get('legacy_next_id')) || 1,
     nextGroupId: Number(settingsMap.get('legacy_next_group_id')) || 1,
   });
@@ -1892,7 +1909,6 @@ export function addExpense(expense) {
     cost: Number(expense.cost) || 0,
     date: expense.date || formatDate(new Date()),
     description: expense.description || '',
-    category: expense.category || 'other',
   };
   d.expenses.push(newExpense);
   saveData();
@@ -1911,6 +1927,35 @@ export function updateExpense(id, updates) {
 export function deleteExpense(id) {
   const d = getData();
   d.expenses = d.expenses.filter(e => e.id !== id);
+  saveData();
+}
+
+export function addIncome(income) {
+  const d = getData();
+  const newIncome = {
+    id: generateId(),
+    title: income.title || '',
+    cost: Number(income.cost) || 0,
+    date: income.date || formatDate(new Date()),
+    description: income.description || '',
+  };
+  d.incomes.push(newIncome);
+  saveData();
+  return newIncome;
+}
+
+export function updateIncome(id, updates) {
+  const d = getData();
+  const idx = d.incomes.findIndex(e => e.id === id);
+  if (idx >= 0) {
+    d.incomes[idx] = { ...d.incomes[idx], ...updates };
+    saveData();
+  }
+}
+
+export function deleteIncome(id) {
+  const d = getData();
+  d.incomes = d.incomes.filter(e => e.id !== id);
   saveData();
 }
 
