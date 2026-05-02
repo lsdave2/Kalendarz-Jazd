@@ -477,16 +477,7 @@ async function fetchRemoteRows(table) {
   return data || [];
 }
 
-async function fetchLegacyAppState() {
-  try {
-    const { data, error } = await supabase.from('app_state').select('state').eq('id', 1).maybeSingle();
-    if (error) throw error;
-    return data?.state || null;
-  } catch (error) {
-    console.warn('[store] Legacy app_state lookup failed', error);
-    return null;
-  }
-}
+
 
 function clearMeta() {
   _meta.horses.clear();
@@ -675,23 +666,12 @@ export async function loadData() {
     setupRealtime();
 
     let snapshot = await fetchRemoteSnapshot();
-    let legacyMigrationState = null;
-
-    if (!snapshot.hasData) {
-      const legacyRemoteState = await fetchLegacyAppState();
-      if (legacyRemoteState && !isStateEffectivelyEmpty(legacyRemoteState)) {
-        legacyMigrationState = normalizeAppState(legacyRemoteState);
-      }
-    }
 
     if (hasPendingLocalCache && cachedLocalState) {
       _persistedData = deepClone(snapshot.state);
       setDataState(cachedLocalState, { pending: true });
     } else if (snapshot.hasData) {
       setDataState(snapshot.state, { persisted: true, pending: false });
-    } else if (legacyMigrationState) {
-      _persistedData = deepClone(createEmptyPersistedState());
-      setDataState(legacyMigrationState, { pending: true });
     } else if (cachedLocalState) {
       setDataState(cachedLocalState, { pending: !!_isAdmin });
       _persistedData = deepClone(createEmptyPersistedState());
@@ -1091,19 +1071,7 @@ export function saveData({ throwOnError = false } = {}) {
   return _saveChain;
 }
 
-async function clearRemoteNormalizedTables() {
-  const deleteAllById = async (table, key) => {
-    const { error } = await supabase.from(table).delete().not(key, 'is', null);
-    if (error) throw error;
-  };
 
-  await deleteAllById('lessons', 'id');
-  await deleteAllById('packages', 'id');
-  await deleteAllById('groups', 'id');
-  await deleteAllById('instructors', 'id');
-  await deleteAllById('horses', 'id');
-  await deleteAllById('settings', 'key');
-}
 
 function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate = true } = {}) {
   const d = getData();
@@ -1914,34 +1882,7 @@ export function importData(importedState) {
   saveData();
 }
 
-export async function migrateLegacyAppState() {
-  if (!supabase) {
-    throw new Error('Supabase is not configured.');
-  }
-  if (!_isAdmin) {
-    throw new Error('You must be logged in as admin.');
-  }
 
-  const legacyRemoteState = await fetchLegacyAppState();
-  if (!legacyRemoteState || isStateEffectivelyEmpty(legacyRemoteState)) {
-    throw new Error('Legacy app_state is empty or missing.');
-  }
-
-  await clearRemoteNormalizedTables();
-  _persistedData = deepClone(createEmptyPersistedState());
-  setDataState(normalizeAppState(legacyRemoteState), { pending: true });
-  notifyListeners();
-  await saveData({ throwOnError: true });
-  await refreshFromRemote();
-
-  return {
-    lessons: _data.lessons.length,
-    packages: _data.packages.length,
-    horses: _data.horses.length,
-    instructors: _data.instructors.length,
-    groups: _data.groups.length,
-  };
-}
 
 export function addExpense(expense) {
   const d = getData();

@@ -3,7 +3,7 @@ import { el, icon, formatDate, getDatesInRange, setupModalSwipeToClose } from '.
 import {
   getData, saveData, isAdmin, login, logout, generateId,
   getLessonsForDate, GROUP_COLORS, updateInstructorColor, addInstructor, deleteInstructor,
-  addHorse, deleteHorse, importData, migrateLegacyAppState,
+  addHorse, deleteHorse, importData,
   addExpense, updateExpense, deleteExpense
 } from '../store.js';
 import { render, showToast } from '../main.js';
@@ -1092,24 +1092,7 @@ export function buildSettingsView() {
     }
   }, icon('upload'), t('importBackup')));
 
-  if (isAdmin()) {
-    dataSection.appendChild(el('button', {
-      className: 'btn btn-primary btn-sm',
-      style: { width: '100%', marginTop: '8px' },
-      onClick: async () => {
-        try {
-          const result = await migrateLegacyAppState();
-          render();
-          showToast(
-            `Migration complete: ${result.lessons} lessons, ${result.packages} clients, ${result.horses} horses`,
-            'check_circle'
-          );
-        } catch (error) {
-          showToast(error?.message || 'Migration failed', 'error');
-        }
-      }
-    }, icon('database'), 'Migrate Legacy Database'));
-  }
+
   container.appendChild(dataSection);
   }
 

@@ -205,8 +205,7 @@ export function openCreditHistoryModal(pkg) {
   if (upcomingLessonsList.length > 0) {
     const upcomingContainer = el('div', { style: { marginTop: '16px' } });
     upcomingContainer.appendChild(el('h4', { style: { marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' } }, t('upcomingLessons') || 'Upcoming Lessons'));
-    
-    const upcomingList = el('div', { className: 'history-list', style: { maxHeight: '20vh', overflowY: 'auto', marginBottom: '16px', background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px' } });
+    const upcomingList = el('div', { className: 'history-list', style: { marginBottom: '16px', background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px' } });
     
     for (const item of upcomingLessonsList) {
       const row = el('div', { style: { padding: '8px 0', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } });
@@ -231,7 +230,7 @@ export function openCreditHistoryModal(pkg) {
   const historyTitle = el('h4', { style: { marginTop: '16px', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' } }, t('creditHistory'));
   modal.appendChild(historyTitle);
 
-  const historyList = el('div', { className: 'history-list', style: { maxHeight: '60vh', overflowY: 'auto' } });
+  const historyList = el('div', { className: 'history-list', style: { maxHeight: '260px', overflowY: 'auto', paddingRight: '8px' } });
 
   const history = pkg.history || [];
   if (history.length === 0) {
