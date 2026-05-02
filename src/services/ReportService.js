@@ -135,20 +135,34 @@ export function computeRevenueReport({ from, to, rates }) {
   return { totals, days };
 }
 
-export function computeInstructorPaymentReport({ instructor, from, to }) {
+export function computeInstructorPaymentReport({ instructor, from, to, individualRate = 0, groupRate = 0 }) {
   const dates = getDatesInRange(from, to);
   let individualCount = 0, individualDurationMinutes = 0;
   let customCount = 0, customDurationMinutes = 0;
   const groupSessions = new Map();
+  const days = [];
 
   for (const dateStr of dates) {
-    for (const lesson of getLessonsForDate(dateStr)) {
+    const dayEntries = [];
+    let dayTotal = 0;
+    const lessons = getLessonsForDate(dateStr);
+
+    for (const lesson of lessons) {
       if (lesson.cancelledDates && lesson.cancelledDates.includes(dateStr)) continue;
+      const dm = Math.max((lesson.durationMinutes || 0) / 60, 0);
 
       if (isCustomLessonRecord(lesson)) {
         for (const p of getLessonParticipants(lesson)) {
           if (p.instructor === instructor) {
             customCount++; customDurationMinutes += lesson.durationMinutes || 0;
+            const amount = dm * individualRate;
+            dayTotal += amount;
+            dayEntries.push({
+              clientName: p.name,
+              lessonType: 'custom',
+              durationMinutes: lesson.durationMinutes || 0,
+              amount: amount
+            });
           }
         }
         continue;
@@ -159,19 +173,56 @@ export function computeInstructorPaymentReport({ instructor, from, to }) {
       if (lesson.lessonType === 'group' || isGroupLessonRecord(lesson)) {
         const key = `${lesson.groupId || lesson.title || 'group'}|${dateStr}|${lesson.startMinute}|${lesson.durationMinutes}|${lesson.instructor}`;
         const entry = groupSessions.get(key) || { participants: 0 };
-        const count = isGroupLessonRecord(lesson) ? getLessonParticipants(lesson).length : 1;
+        const participants = getLessonParticipants(lesson);
+        const count = isGroupLessonRecord(lesson) ? participants.length : 1;
         entry.participants += count;
         groupSessions.set(key, entry);
+
+        if (isGroupLessonRecord(lesson)) {
+          for (const p of participants) {
+            const amount = groupRate;
+            dayTotal += amount;
+            dayEntries.push({
+              clientName: p.packageName || p.name,
+              lessonType: p.packageMode !== false ? 'groupPackage' : 'group',
+              amount: amount
+            });
+          }
+        } else {
+          const amount = groupRate;
+          dayTotal += amount;
+          dayEntries.push({
+            clientName: lesson.title || 'Group',
+            lessonType: 'group',
+            amount: amount
+          });
+        }
       } else {
-        // Individual lesson (either lessonType === 'individual' or it's the default)
+        // Individual lesson
         individualCount++; individualDurationMinutes += lesson.durationMinutes || 0;
+        const amount = dm * individualRate;
+        dayTotal += amount;
+        dayEntries.push({
+          clientName: lesson.title || 'Individual',
+          lessonType: lesson.packageMode !== false ? 'individualPackage' : 'individual',
+          durationMinutes: lesson.durationMinutes || 0,
+          amount: amount
+        });
       }
+    }
+    if (dayEntries.length > 0) {
+      days.push({ dateStr, entries: dayEntries, total: dayTotal });
     }
   }
 
   let groupParticipants = 0;
   for (const e of groupSessions.values()) groupParticipants += e.participants;
-  return { individualCount, individualDurationMinutes, groupLessonsCount: groupSessions.size, groupParticipants, customCount, customDurationMinutes };
+  return {
+    individualCount, individualDurationMinutes,
+    groupLessonsCount: groupSessions.size, groupParticipants,
+    customCount, customDurationMinutes,
+    days
+  };
 }
 
 export function computeInstructorPaymentAmount({ instructor, from, to, individualRate, groupRate }) {

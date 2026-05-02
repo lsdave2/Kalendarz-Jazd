@@ -128,6 +128,66 @@ function openTransactionEditModal(transaction, onSave) {
   document.body.appendChild(overlay);
 }
 
+// ── Instructor Detailed Report Modal ──────────────────────────────
+function openInstructorDetailedReportModal(instructorName, report) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  const modal = el('div', { className: 'modal', style: { maxHeight: '90vh', display: 'flex', flexDirection: 'column' } });
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
+  
+  modal.appendChild(el('h3', { style: { marginBottom: '4px' } }, t('detailedReport')));
+  modal.appendChild(el('div', { style: { color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '16px' } }, instructorName));
+
+  const content = el('div', { style: { flex: '1', overflowY: 'auto', paddingRight: '4px' } });
+  
+  if (!report.days || report.days.length === 0) {
+    content.appendChild(el('div', { className: 'fin-exp-empty' }, t('noLessonsInRange')));
+  } else {
+    const daysList = el('div', { className: 'report-day-list', style: { display: 'flex', flexDirection: 'column', gap: '12px' } });
+    for (const day of report.days) {
+      const dayDiv = el('div', { className: 'report-day-section' });
+      const dayHeader = el('div', { className: 'report-day-header' });
+      dayHeader.appendChild(el('div', { className: 'report-day-title' }, day.dateStr));
+      dayHeader.appendChild(el('div', { className: 'report-day-total' }, formatCurrency(day.total)));
+      dayDiv.appendChild(dayHeader);
+      
+      const entriesList = el('div', { className: 'report-day-entries' });
+      for (const entry of day.entries) {
+        const entryRow = el('div', { className: 'report-entry-row' });
+        const left = el('div', { className: 'report-entry-left' });
+        left.appendChild(el('div', { className: 'report-entry-name' }, entry.clientName || t('client')));
+        
+        let metaText = t(entry.lessonType);
+        if (entry.durationMinutes) {
+          metaText += ` - ${formatDuration(entry.durationMinutes)}`;
+        }
+        left.appendChild(el('div', { className: 'report-entry-meta' }, metaText));
+        
+        entryRow.appendChild(left);
+        entryRow.appendChild(el('div', { className: 'report-entry-amount' }, formatCurrency(entry.amount)));
+        entriesList.appendChild(entryRow);
+      }
+      dayDiv.appendChild(entriesList);
+      daysList.appendChild(dayDiv);
+    }
+    content.appendChild(daysList);
+  }
+  
+  modal.appendChild(content);
+
+  const closeBtn = el('button', { 
+    className: 'btn btn-secondary', 
+    style: { marginTop: '16px', width: '100%' }, 
+    onClick: () => closeModal() 
+  }, t('closeKey'));
+  modal.appendChild(closeBtn);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
 // ── Main View ───────────────────────────────────────────────────────
 export function buildFinancesView() {
   const container = el('div', { className: 'fin-container' });
@@ -161,7 +221,8 @@ export function buildFinancesView() {
     let instrTotal = 0;
     for (const s of instrStates) {
       const rep = computeInstructorPaymentReport({
-        instructor: s.name, from: fromVal, to: toVal
+        instructor: s.name, from: fromVal, to: toVal,
+        individualRate: payIndRate, groupRate: payGrpRate
       });
       s.stats = rep;
       s.indPay = (rep.individualDurationMinutes / 60) * payIndRate;
@@ -384,6 +445,13 @@ function renderInstructorSection(body, instrStates, recalc) {
       details.appendChild(el('div', { className: 'report-summary-label' }, t('groupPay')));
       details.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(s.grpPay)));
       list.appendChild(details);
+
+      const detailedBtn = el('button', {
+        className: 'btn btn-secondary btn-sm',
+        style: { width: '100%', marginBottom: '12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' },
+        onClick: () => openInstructorDetailedReportModal(s.name, s.stats)
+      }, icon('description'), t('detailedReport'));
+      list.appendChild(detailedBtn);
     }
   }
   body.appendChild(list);

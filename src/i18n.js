@@ -221,6 +221,8 @@ export const translations = {
     netProfit: 'Net profit',
     untitled: 'Untitled',
     upcomingLessons: 'Upcoming lessons',
+    noLessonsInRange: 'No lessons in this period.',
+    closeKey: 'Close',
   },
   pl: {
     appTitle: 'Stajnia Rotmistrz 15',
@@ -444,6 +446,8 @@ export const translations = {
     netProfit: 'Zysk netto',
     untitled: 'Bez tytułu',
     upcomingLessons: 'Nadchodzące jazdy',
+    noLessonsInRange: 'Brak jazd w tym okresie.',
+    closeKey: 'Zamknij',
   }
 };
 
