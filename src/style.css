@@ -593,11 +593,6 @@ input, select, textarea { font-family: inherit; }
   text-overflow: ellipsis;
   flex: 1;
 }
-.tile-title .recurring-icon {
-  font-size: 14px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
 .tile-meta {
   font-size: 0.65rem;
   color: var(--text-secondary);
