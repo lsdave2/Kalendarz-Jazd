@@ -84,7 +84,8 @@ export function render() {
   ensureVisibleTab();
   document.title = t('appTitle');
   const renderKey = getRenderKey();
-  const shouldRestoreScroll = lastRenderKey === renderKey;
+  const isUpdate = lastRenderKey === renderKey;
+  const shouldRestoreScroll = isUpdate;
   const previousScrollY = shouldRestoreScroll ? window.scrollY : 0;
   app.innerHTML = '';
   
@@ -93,7 +94,8 @@ export function render() {
   }
 
   const page = el('div', {
-    className: `page ${currentTab === 'calendar' && calendarState.selectedDate ? 'day-view' : ''}`.trim()
+    className: `page ${currentTab === 'calendar' && calendarState.selectedDate ? 'day-view' : ''}`.trim(),
+    style: isUpdate ? { animation: 'none' } : {}
   });
 
   switch (currentTab) {

@@ -671,16 +671,23 @@ export async function logout() {
 
 export async function loadData() {
   _isLoading = true;
-  notifyListeners();
 
   const cachedLocalState = readLocalState();
   const hasPendingLocalCache = readPendingFlag();
 
+  // Instantly populate the store from local cache if it exists.
+  // This ensures the UI is populated instantly upon refresh while the 
+  // fresh data is being fetched from Supabase in the background.
+  if (cachedLocalState) {
+    setDataState(cachedLocalState, { pending: hasPendingLocalCache });
+  }
+  
+  // First notification to trigger a render with cached data (or empty state if first load)
+  notifyListeners();
+
   if (!supabase) {
-    setDataState(cachedLocalState || defaultData(), {
-      persisted: true,
-      pending: false,
-    });
+    // If no Supabase, the current state is the persisted state
+    setDataState(_data, { persisted: true, pending: false });
     _isLoading = false;
     processPastLessonsForCredits();
     notifyListeners();
@@ -688,14 +695,16 @@ export async function loadData() {
   }
 
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    _isAdmin = !!session;
+    // Parallelize session check and data fetch to minimize the loading gap
+    const [sessionResponse, snapshot] = await Promise.all([
+      supabase.auth.getSession(),
+      fetchRemoteSnapshot()
+    ]);
+    
+    _isAdmin = !!sessionResponse.data?.session;
     setupRealtime();
 
-    let snapshot = await fetchRemoteSnapshot();
-
-    // Non-admins should never be "trapped" in a pending local state.
-    // If they have local changes, we discard them in favor of the latest server data.
+    // Reconcile remote data with local state
     if (_isAdmin && hasPendingLocalCache && cachedLocalState) {
       _persistedData = deepClone(snapshot.state);
       setDataState(cachedLocalState, { pending: true });
@@ -709,6 +718,7 @@ export async function loadData() {
     }
   } catch (error) {
     console.error('[store] Failed to load Supabase data', error);
+    // Fallback logic consistent with original implementation
     setDataState(cachedLocalState || defaultData(), {
       persisted: !cachedLocalState,
       pending: _isAdmin && !!cachedLocalState,
