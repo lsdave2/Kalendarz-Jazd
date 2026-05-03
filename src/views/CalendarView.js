@@ -366,7 +366,7 @@ function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute) {
   const titleRow = el('div', { className: 'tile-title' });
   if (color) titleRow.appendChild(el('span', { className: 'tile-group-dot', style: { background: color } }));
   titleRow.appendChild(el('span', { className: 'tile-title-text' }, getLessonDisplayName(lesson)));
-  if (!isGroup && lesson.recurring) titleRow.appendChild(icon('repeat', 'recurring-icon'));
+  if (lesson.recurring) titleRow.appendChild(icon('repeat', 'recurring-icon'));
   if (lesson.instructor && !isCustom) titleRow.appendChild(el('span', { className: 'tile-instructor tile-instructor-badge', style: instr?.color ? { color: instr.color } : {} }, icon('person'), lesson.instructor));
   tile.appendChild(titleRow);
 

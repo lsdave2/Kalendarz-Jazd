@@ -589,6 +589,9 @@ input, select, textarea { font-family: inherit; }
 .tile-title-text {
   min-width: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
 }
 .tile-title .recurring-icon {
   font-size: 14px;
@@ -673,7 +676,10 @@ input, select, textarea { font-family: inherit; }
 .tile-participant-name {
   font-weight: 600;
   color: var(--text-primary);
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tile-participant-horse {
   display: inline-flex;
