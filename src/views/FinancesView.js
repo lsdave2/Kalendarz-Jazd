@@ -466,14 +466,14 @@ function renderTransactionsList(body, transactions, recalc) {
     
     const summary = el('div', { className: 'fin-exp-total', style: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' } });
     
-    const incRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '16px', color: 'var(--success)' } });
+    const incRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '16px' } });
     incRow.appendChild(el('span', {}, t('incomeTotal') + ':'));
-    incRow.appendChild(el('span', { className: 'fin-exp-total-val' }, formatCurrency(incTotal)));
+    incRow.appendChild(el('span', { className: 'fin-exp-total-val', style: { color: 'var(--green)' } }, formatCurrency(incTotal)));
     summary.appendChild(incRow);
     
-    const expRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '16px', color: 'var(--danger)' } });
+    const expRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '16px' } });
     expRow.appendChild(el('span', {}, t('expensesTotal') + ':'));
-    expRow.appendChild(el('span', { className: 'fin-exp-total-val' }, formatCurrency(expTotal)));
+    expRow.appendChild(el('span', { className: 'fin-exp-total-val', style: { color: 'var(--red)' } }, formatCurrency(expTotal)));
     summary.appendChild(expRow);
     
     body.appendChild(summary);
@@ -487,19 +487,11 @@ function renderTransactionsList(body, transactions, recalc) {
     left.appendChild(el('div', { className: 'fin-exp-title' }, tran.title || t('untitled')));
     const meta = el('div', { className: 'fin-exp-meta' });
     meta.appendChild(el('span', {}, tran.date));
-    meta.appendChild(el('span', { 
-      style: { 
-        color: isInc ? 'var(--success)' : 'var(--danger)',
-        fontSize: '0.75rem',
-        fontWeight: '600',
-        textTransform: 'uppercase'
-      } 
-    }, isInc ? t('income') : t('expense')));
     left.appendChild(meta);
     row.appendChild(left);
     row.appendChild(el('div', { 
       className: 'fin-exp-cost', 
-      style: { color: isInc ? 'var(--success)' : 'var(--danger)' } 
+      style: { color: isInc ? 'var(--green)' : 'var(--red)' } 
     }, (isInc ? '+' : '−') + formatCurrency(tran.cost)));
     list.appendChild(row);
   });

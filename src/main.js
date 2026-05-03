@@ -2,7 +2,8 @@ import './style.css';
 import { t } from './i18n.js';
 import { el, icon, formatDate } from './utils.js';
 import {
-  loadData, subscribe, isAdmin, logout, processPastLessonsForCredits
+  loadData, subscribe, isAdmin, logout, processPastLessonsForCredits,
+  isSaving, hasPendingChanges
 } from './store.js';
 import { buildPackagesView } from './views/PackagesView.js';
 import { buildSettingsView } from './views/SettingsView.js';
@@ -152,6 +153,7 @@ function buildHeader() {
 
   return header;
 }
+
 
 // ── Bottom Nav ─────────────────────────────────────────────────────────
 function buildBottomNav() {

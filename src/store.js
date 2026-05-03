@@ -1,6 +1,7 @@
 import { formatDate, parseDate } from './utils.js';
 import { supabase } from './supabase.js';
 import { t } from './i18n.js';
+import { logAction } from './services/AuditService.js';
 
 const LOCAL_DATA_KEY = 'horsebook_data';
 const LOCAL_PENDING_KEY = 'horsebook_pending_sync';
@@ -41,6 +42,7 @@ let _data = defaultData();
 let _persistedData = defaultData();
 let _isAdmin = false;
 let _isLoading = true;
+let _isSaving = false;
 let _hasPendingLocalChanges = false;
 let _saveChain = Promise.resolve();
 let _realtimeChannel = null;
@@ -83,6 +85,14 @@ export function isAdmin() {
 
 export function isLoading() {
   return _isLoading;
+}
+
+export function isSaving() {
+  return _isSaving;
+}
+
+export function hasPendingChanges() {
+  return _hasPendingLocalChanges;
 }
 
 export function subscribe(fn) {
@@ -830,12 +840,14 @@ async function syncHorses(current, persisted) {
   for (const horse of currentSet) {
     if (persistedSet.has(horse)) continue;
     const { error } = await supabase.from('horses').insert({ name: horse });
+    logAction('ADD_HORSE', { name: horse });
     if (error && error.code !== '23505') throw error;
   }
 
   for (const horse of persistedSet) {
     if (currentSet.has(horse)) continue;
     const { error } = await supabase.from('horses').delete().eq('name', horse);
+    logAction('DELETE_HORSE', { name: horse });
     if (error) throw error;
   }
 }
@@ -851,6 +863,7 @@ async function syncInstructors(current, persisted) {
         name,
         color: instr.color,
       });
+      logAction('ADD_INSTRUCTOR', { name, color: instr.color });
       if (error && error.code !== '23505') throw error;
       continue;
     }
@@ -858,12 +871,14 @@ async function syncInstructors(current, persisted) {
     const { error } = await supabase.from('instructors').update({
       color: instr.color,
     }).eq('name', name);
+    logAction('UPDATE_INSTRUCTOR', { name, color: instr.color });
     if (error) throw error;
   }
 
   for (const [name] of persistedByName.entries()) {
     if (currentByName.has(name)) continue;
     const { error } = await supabase.from('instructors').delete().eq('name', name);
+    logAction('DELETE_INSTRUCTOR', { name });
     if (error) throw error;
   }
 }
@@ -911,7 +926,7 @@ async function syncPackages(current, persisted) {
           active: existingByName.active,
           archivedAt: existingByName.archived_at,
           history: existingByName.history,
-          customPaymentRate: existingByName.custom_payment_rate,
+          custom_payment_rate: existingByName.custom_payment_rate,
           hasPackageLessons: existingByName.has_package_lessons,
         });
         const mergedPkg = mergePackageState(pkg, null, remotePkg);
@@ -939,7 +954,7 @@ async function syncPackages(current, persisted) {
         active: latestRow.active,
         archivedAt: latestRow.archived_at,
         history: latestRow.history,
-        customPaymentRate: latestRow.custom_payment_rate,
+        customPayment_rate: latestRow.custom_payment_rate,
         hasPackageLessons: latestRow.has_package_lessons,
       }) : null
     );
@@ -1068,52 +1083,56 @@ async function syncToSupabase() {
 }
 
 export function saveData({ throwOnError = false } = {}) {
+  _isSaving = true;
   notifyListeners();
   _saveChain = _saveChain.then(async () => {
-    _data = normalizeAppState(_data);
-    const hasDiff = !jsonEqual(_data, _persistedData);
-    _hasPendingLocalChanges = hasDiff;
-    persistLocalState({ pending: hasDiff });
-
-    if (!hasDiff) {
-      if (_needsRemoteRefresh) {
-        _needsRemoteRefresh = false;
-        await refreshFromRemote();
-      }
-      return;
-    }
-
-    if (!supabase || !_isAdmin) {
-      if (!_isAdmin) {
-        console.warn('[store] saveData skipped Supabase sync - no active admin session.');
-      }
-      return;
-    }
-
     try {
-      await syncToSupabase();
-      _persistedData = deepClone(_data);
-      _hasPendingLocalChanges = false;
-      persistLocalState({ pending: false });
-      if (_needsRemoteRefresh) {
-        _needsRemoteRefresh = false;
-        await refreshFromRemote();
+      _data = normalizeAppState(_data);
+      const hasDiff = !jsonEqual(_data, _persistedData);
+      _hasPendingLocalChanges = hasDiff;
+      persistLocalState({ pending: hasDiff });
+
+      if (!hasDiff) {
+        if (_needsRemoteRefresh) {
+          _needsRemoteRefresh = false;
+          await refreshFromRemote();
+        }
+        return;
       }
-    } catch (error) {
-      console.error('[store] Failed to save to Supabase', error);
-      _hasPendingLocalChanges = true;
-      persistLocalState({ pending: true });
-      dispatchStoreError(error?.message ? t('syncFailed', { error: error.message }) : t('syncConnectionError'));
-      if (throwOnError) {
-        throw error;
+
+      if (!supabase || !_isAdmin) {
+        if (!_isAdmin) {
+          console.warn('[store] saveData skipped Supabase sync - no active admin session.');
+        }
+        return;
       }
+
+      try {
+        await syncToSupabase();
+        _persistedData = deepClone(_data);
+        _hasPendingLocalChanges = false;
+        persistLocalState({ pending: false });
+        if (_needsRemoteRefresh) {
+          _needsRemoteRefresh = false;
+          await refreshFromRemote();
+        }
+      } catch (error) {
+        console.error('[store] Failed to save to Supabase', error);
+        _hasPendingLocalChanges = true;
+        persistLocalState({ pending: true });
+        dispatchStoreError(error?.message ? t('syncFailed', { error: error.message }) : t('syncConnectionError'));
+        if (throwOnError) {
+          throw error;
+        }
+      }
+    } finally {
+      _isSaving = false;
+      notifyListeners();
     }
   });
 
   return _saveChain;
 }
-
-
 
 function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate = true } = {}) {
   const d = getData();
@@ -1132,6 +1151,7 @@ function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate =
       customPaymentRate: null,
       hasPackageLessons: !!hasPackageLessons
     });
+    logAction('ADD_PACKAGE', { name: trimmed });
     return true;
   }
 
@@ -1151,6 +1171,7 @@ function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate =
   if (reactivate && pkg.active === false) {
     pkg.active = true;
     pkg.archivedAt = null;
+    logAction('SET_PACKAGE_ACTIVE', { id: pkg.id, active: true });
     changed = true;
   }
   if (pkg.hasPackageLessons !== true && hasPackageLessons) {
@@ -1345,6 +1366,7 @@ export function addLesson(lesson, { save = true } = {}) {
     ...lesson
   });
   d.lessons.push(newLesson);
+  logAction('ADD_LESSON', newLesson);
   if (save) saveData();
   return newLesson;
 }
@@ -1354,6 +1376,7 @@ export function updateLesson(id, updates, { save = true } = {}) {
   const idx = d.lessons.findIndex(lesson => lesson.id === id);
   if (idx >= 0) {
     d.lessons[idx] = normalizeLesson({ ...d.lessons[idx], ...updates });
+    logAction('UPDATE_LESSON', { id, updates });
     if (save) saveData();
   }
 }
@@ -1445,6 +1468,7 @@ export function deleteLesson(id) {
   }
 
   d.lessons = d.lessons.filter(entry => entry.id !== id);
+  logAction('DELETE_LESSON', { id, title: lesson.title });
   saveData();
 }
 
@@ -1661,6 +1685,7 @@ export function updatePackageCredits(id, credits) {
   if (!pkg) return;
   pkg.credits = credits;
   pkg.hasPackageLessons = true;
+  logAction('UPDATE_PACKAGE_CREDITS', { id, credits });
   saveData();
 }
 
@@ -1679,6 +1704,7 @@ export function addPackageCredits(id, amount) {
     before,
     after
   });
+  logAction('ADD_PACKAGE_CREDITS', { id, amount, after });
   saveData();
 }
 
@@ -1692,6 +1718,7 @@ export function updatePackageCustomPaymentRate(id, value) {
     const parsedValue = Number(value);
     pkg.customPaymentRate = Number.isFinite(parsedValue) ? parsedValue : null;
   }
+  logAction('UPDATE_PACKAGE_RATE', { id, rate: pkg.customPaymentRate });
   saveData();
   return true;
 }
@@ -1708,6 +1735,7 @@ export function setPackageActive(id, active) {
   if (!pkg) return;
   pkg.active = !!active;
   pkg.archivedAt = pkg.active ? null : new Date().toISOString();
+  logAction('SET_PACKAGE_ACTIVE', { id, active: pkg.active });
   saveData();
 }
 
@@ -1724,6 +1752,7 @@ export function updatePackageName(id, newName) {
   }
 
   pkg.name = trimmedNew;
+  logAction('UPDATE_PACKAGE_NAME', { id, oldName, newName: pkg.name });
 
   for (const lesson of d.lessons) {
     if (lesson.title && lesson.title.toLowerCase() === oldName.toLowerCase()) {
@@ -1767,6 +1796,7 @@ export function updatePackageName(id, newName) {
 export function deletePackage(id) {
   const d = getData();
   d.packages = d.packages.filter(entry => entry.id !== id);
+  logAction('DELETE_PACKAGE', { id });
   saveData();
 }
 
@@ -1916,11 +1946,13 @@ export function toggleClosedDate(dateStr) {
   } else {
     d.closedDates.push(dateStr);
   }
+  logAction('TOGGLE_CLOSED_DATE', { date: dateStr, active: d.closedDates.includes(dateStr) });
   saveData();
 }
 
 export function importData(importedState) {
   setDataState(importedState, { pending: true });
+  logAction('IMPORT_DATA', { timestamp: new Date().toISOString() });
   saveData();
 }
 
@@ -1936,6 +1968,7 @@ export function addExpense(expense) {
     description: expense.description || '',
   };
   d.expenses.push(newExpense);
+  logAction('ADD_EXPENSE', newExpense);
   saveData();
   return newExpense;
 }
@@ -1945,6 +1978,7 @@ export function updateExpense(id, updates) {
   const idx = d.expenses.findIndex(e => e.id === id);
   if (idx >= 0) {
     d.expenses[idx] = { ...d.expenses[idx], ...updates };
+    logAction('UPDATE_EXPENSE', { id, updates });
     saveData();
   }
 }
@@ -1952,6 +1986,7 @@ export function updateExpense(id, updates) {
 export function deleteExpense(id) {
   const d = getData();
   d.expenses = d.expenses.filter(e => e.id !== id);
+  logAction('DELETE_EXPENSE', { id });
   saveData();
 }
 
@@ -1965,6 +2000,7 @@ export function addIncome(income) {
     description: income.description || '',
   };
   d.incomes.push(newIncome);
+  logAction('ADD_INCOME', newIncome);
   saveData();
   return newIncome;
 }
@@ -1974,6 +2010,7 @@ export function updateIncome(id, updates) {
   const idx = d.incomes.findIndex(e => e.id === id);
   if (idx >= 0) {
     d.incomes[idx] = { ...d.incomes[idx], ...updates };
+    logAction('UPDATE_INCOME', { id, updates });
     saveData();
   }
 }
@@ -1981,6 +2018,7 @@ export function updateIncome(id, updates) {
 export function deleteIncome(id) {
   const d = getData();
   d.incomes = d.incomes.filter(e => e.id !== id);
+  logAction('DELETE_INCOME', { id });
   saveData();
 }
 

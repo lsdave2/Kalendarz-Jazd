@@ -4,7 +4,8 @@ import {
   getData, saveData, isAdmin, login, logout, generateId,
   getLessonsForDate, GROUP_COLORS, updateInstructorColor, addInstructor, deleteInstructor,
   addHorse, deleteHorse, importData,
-  addExpense, updateExpense, deleteExpense
+  addExpense, updateExpense, deleteExpense,
+  isSaving, hasPendingChanges
 } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants } from '../services/LessonService.js';
@@ -14,6 +15,7 @@ import {
   getRevenueReportRates, saveRevenueReportRates,
   computeRevenueReport, computeInstructorPaymentReport, computeInstructorPaymentAmount
 } from '../services/ReportService.js';
+import { downloadAuditLog } from '../services/AuditService.js';
 
 // ── Settings helpers ────────────────────────────────────────────────────
 const SETTINGS_KEY = 'horsebook_settings';
@@ -22,6 +24,28 @@ function getSettings() {
 }
 function saveSettings(settings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function buildSyncIndicator() {
+  if (!isAdmin()) return el('div');
+  const saving = isSaving();
+  const pending = hasPendingChanges();
+  let stateIcon = 'cloud_done';
+  let stateClass = 'sync-done';
+  let label = t('allSaved') || 'All changes saved';
+  if (saving) {
+    stateIcon = 'cloud_upload';
+    stateClass = 'sync-saving';
+    label = t('saving') || 'Saving to cloud...';
+  } else if (pending) {
+    stateIcon = 'cloud_off';
+    stateClass = 'sync-pending';
+    label = t('pendingSync') || 'Changes pending (offline)';
+  }
+  return el('div', { className: `settings-sync-status ${stateClass}` },
+    icon(stateIcon),
+    el('span', {}, label)
+  );
 }
 
 function formatHourOption(hour) {
@@ -690,6 +714,10 @@ export function buildSettingsView() {
   const data = getData();
   const settings = getSettings();
 
+  if (isAdmin()) {
+    container.appendChild(buildSyncIndicator());
+  }
+
   // ── Auth Section
   const authSection = el('div', { className: 'settings-section' });
   if (isAdmin()) {
@@ -885,6 +913,13 @@ export function buildSettingsView() {
       input.click();
     }
   }, icon('upload'), t('importBackup')));
+
+  dataSection.appendChild(el('div', { style: { height: '1px', background: 'var(--border)', margin: '12px 0' } }));
+  dataSection.appendChild(el('button', {
+    className: 'btn btn-secondary btn-sm',
+    style: { width: '100%' },
+    onClick: () => downloadAuditLog()
+  }, icon('description'), 'Download Action Log (Local)'));
 
 
   container.appendChild(dataSection);

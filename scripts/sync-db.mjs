@@ -9,6 +9,8 @@ const TABLES = [
   { name: 'packages', key: 'id' },
   { name: 'lessons', key: 'id' },
   { name: 'settings', key: 'key' },
+  { name: 'expenses', key: 'id' },
+  { name: 'incomes', key: 'id' },
 ];
 
 const LEGACY_TABLE = { name: 'app_state', key: 'id' };
