@@ -135,7 +135,8 @@ function buildHeader() {
     el('h1', {},
       icon(titleIcon),
       titleText
-    )
+    ),
+    currentTab === 'settings' ? buildSyncIndicator() : null
   );
 
   if (calendarState.selectedDate) {
@@ -154,6 +155,32 @@ function buildHeader() {
   return header;
 }
 
+
+function buildSyncIndicator() {
+  if (!isAdmin()) return el('div');
+
+  const saving = isSaving();
+  const pending = hasPendingChanges();
+  
+  let stateIcon = 'cloud_done';
+  let stateClass = 'sync-done';
+  let tooltip = t('allSaved') || 'All changes saved';
+
+  if (saving) {
+    stateIcon = 'cloud_upload';
+    stateClass = 'sync-saving';
+    tooltip = t('saving') || 'Saving to cloud...';
+  } else if (pending) {
+    stateIcon = 'cloud_off';
+    stateClass = 'sync-pending';
+    tooltip = t('pendingSync') || 'Changes pending (offline)';
+  }
+
+  return el('div', { 
+    className: `sync-indicator ${stateClass}`,
+    title: tooltip
+  }, icon(stateIcon));
+}
 
 // ── Bottom Nav ─────────────────────────────────────────────────────────
 function buildBottomNav() {

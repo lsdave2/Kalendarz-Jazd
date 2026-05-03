@@ -152,21 +152,6 @@ input, select, textarea { font-family: inherit; }
   color: var(--text-muted);
   opacity: 0.6;
 }
-.settings-sync-status {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--bg-card);
-  border-radius: var(--radius-md);
-  margin-bottom: 24px;
-  border: 1px solid var(--border-color);
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-.settings-sync-status .material-symbols-rounded {
-  font-size: 22px;
-}
 @keyframes sync-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.6; transform: scale(0.92); }

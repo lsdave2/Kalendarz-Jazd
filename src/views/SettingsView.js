@@ -4,8 +4,7 @@ import {
   getData, saveData, isAdmin, login, logout, generateId,
   getLessonsForDate, GROUP_COLORS, updateInstructorColor, addInstructor, deleteInstructor,
   addHorse, deleteHorse, importData,
-  addExpense, updateExpense, deleteExpense,
-  isSaving, hasPendingChanges
+  addExpense, updateExpense, deleteExpense
 } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants } from '../services/LessonService.js';
@@ -26,27 +25,6 @@ function saveSettings(settings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
-function buildSyncIndicator() {
-  if (!isAdmin()) return el('div');
-  const saving = isSaving();
-  const pending = hasPendingChanges();
-  let stateIcon = 'cloud_done';
-  let stateClass = 'sync-done';
-  let label = t('allSaved') || 'All changes saved';
-  if (saving) {
-    stateIcon = 'cloud_upload';
-    stateClass = 'sync-saving';
-    label = t('saving') || 'Saving to cloud...';
-  } else if (pending) {
-    stateIcon = 'cloud_off';
-    stateClass = 'sync-pending';
-    label = t('pendingSync') || 'Changes pending (offline)';
-  }
-  return el('div', { className: `settings-sync-status ${stateClass}` },
-    icon(stateIcon),
-    el('span', {}, label)
-  );
-}
 
 function formatHourOption(hour) {
   return `${String(hour).padStart(2, '0')}:00`;
@@ -713,10 +691,6 @@ export function buildSettingsView() {
   const container = el('div');
   const data = getData();
   const settings = getSettings();
-
-  if (isAdmin()) {
-    container.appendChild(buildSyncIndicator());
-  }
 
   // ── Auth Section
   const authSection = el('div', { className: 'settings-section' });

@@ -694,7 +694,9 @@ export async function loadData() {
 
     let snapshot = await fetchRemoteSnapshot();
 
-    if (hasPendingLocalCache && cachedLocalState) {
+    // Non-admins should never be "trapped" in a pending local state.
+    // If they have local changes, we discard them in favor of the latest server data.
+    if (_isAdmin && hasPendingLocalCache && cachedLocalState) {
       _persistedData = deepClone(snapshot.state);
       setDataState(cachedLocalState, { pending: true });
     } else if (snapshot.hasData) {
@@ -709,7 +711,7 @@ export async function loadData() {
     console.error('[store] Failed to load Supabase data', error);
     setDataState(cachedLocalState || defaultData(), {
       persisted: !cachedLocalState,
-      pending: !!cachedLocalState,
+      pending: _isAdmin && !!cachedLocalState,
     });
   }
 
@@ -1089,8 +1091,9 @@ export function saveData({ throwOnError = false } = {}) {
     try {
       _data = normalizeAppState(_data);
       const hasDiff = !jsonEqual(_data, _persistedData);
-      _hasPendingLocalChanges = hasDiff;
-      persistLocalState({ pending: hasDiff });
+      // Only admins can have "pending" local changes that need syncing.
+      _hasPendingLocalChanges = _isAdmin ? hasDiff : false;
+      persistLocalState({ pending: _hasPendingLocalChanges });
 
       if (!hasDiff) {
         if (_needsRemoteRefresh) {
