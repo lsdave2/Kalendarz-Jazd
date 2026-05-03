@@ -938,7 +938,7 @@ async function syncPackages(current, persisted) {
           active: existingByName.active,
           archivedAt: existingByName.archived_at,
           history: existingByName.history,
-          custom_payment_rate: existingByName.custom_payment_rate,
+          customPaymentRate: existingByName.custom_payment_rate,
           hasPackageLessons: existingByName.has_package_lessons,
         });
         const mergedPkg = mergePackageState(pkg, null, remotePkg);
@@ -966,7 +966,7 @@ async function syncPackages(current, persisted) {
         active: latestRow.active,
         archivedAt: latestRow.archived_at,
         history: latestRow.history,
-        customPayment_rate: latestRow.custom_payment_rate,
+        customPaymentRate: latestRow.custom_payment_rate,
         hasPackageLessons: latestRow.has_package_lessons,
       }) : null
     );
@@ -1047,7 +1047,6 @@ async function syncExpenses(current, persisted) {
       cost: expense.cost || 0,
       date: expense.date || formatDate(new Date()),
       description: expense.description || '',
-      category: expense.category || 'other',
     }, { onConflict: 'id' });
     if (error) throw error;
   }
