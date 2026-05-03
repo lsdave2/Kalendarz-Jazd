@@ -210,9 +210,45 @@ export function buildDayView(dateStr) {
   endLabel.style.top = `${(scheduleEndHour - START_HOUR) * slotH}px`;
   schedule.appendChild(endLabel);
 
-  const layout = computeOverlapLayout(visibleLessons);
-  for (const l of visibleLessons) {
-    schedule.appendChild(buildLessonTile(l, dateStr, START_HOUR, layout.get(l.id), dayScale));
+  const clusters = computeOverlapLayout(visibleLessons);
+  for (const cluster of clusters) {
+    const slotH = DAY_SCHEDULE_SLOT_HEIGHT * dayScale;
+    const top = ((cluster.minStart / 60) - START_HOUR) * slotH;
+    const clusterHeight = ((cluster.maxEnd - cluster.minStart) / 60) * slotH;
+    
+    const clusterEl = el('div', { 
+      className: 'lesson-cluster',
+      style: {
+        position: 'absolute',
+        top: `${top}px`,
+        height: `${clusterHeight}px`,
+        left: `${DAY_SCHEDULE_LABEL_WIDTH}px`,
+        right: `${DAY_SCHEDULE_CONTENT_RIGHT}px`,
+        display: 'flex',
+        gap: '2px'
+      }
+    });
+
+    for (const colLessons of cluster.cols) {
+      const colEl = el('div', { 
+        className: 'lesson-column',
+        style: {
+          flex: '1 1 auto',
+          minWidth: '0',
+          position: 'relative',
+          height: '100%'
+        }
+      });
+      
+      let lastEnd = cluster.minStart;
+      for (const l of colLessons) {
+        const tile = buildLessonTile(l, dateStr, START_HOUR, dayScale, lastEnd);
+        colEl.appendChild(tile);
+        lastEnd = l.startMinute + l.durationMinutes;
+      }
+      clusterEl.appendChild(colEl);
+    }
+    schedule.appendChild(clusterEl);
   }
   container.appendChild(schedule);
 
@@ -251,33 +287,49 @@ export function buildDayView(dateStr) {
 }
 
 function computeOverlapLayout(lessons) {
-  if (lessons.length === 0) return new Map();
+  if (lessons.length === 0) return [];
   const sorted = [...lessons].sort((a, b) => (a.startMinute !== b.startMinute) ? a.startMinute - b.startMinute : b.durationMinutes - a.durationMinutes);
   const clusters = [];
-  let cur = [sorted[0]], end = sorted[0].startMinute + sorted[0].durationMinutes;
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].startMinute < end) { cur.push(sorted[i]); end = Math.max(end, sorted[i].startMinute + sorted[i].durationMinutes); }
-    else { clusters.push(cur); cur = [sorted[i]]; end = sorted[i].startMinute + sorted[i].durationMinutes; }
+  if (sorted.length > 0) {
+    let cur = [sorted[0]], end = sorted[0].startMinute + sorted[0].durationMinutes;
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].startMinute < end) {
+        cur.push(sorted[i]);
+        end = Math.max(end, sorted[i].startMinute + sorted[i].durationMinutes);
+      } else {
+        clusters.push(cur);
+        cur = [sorted[i]];
+        end = sorted[i].startMinute + sorted[i].durationMinutes;
+      }
+    }
+    clusters.push(cur);
   }
-  clusters.push(cur);
-  const map = new Map();
+
+  const result = [];
   for (const cluster of clusters) {
     const cols = [];
+    let minStart = Infinity;
+    let maxEnd = -Infinity;
     for (const l of cluster) {
+      minStart = Math.min(minStart, l.startMinute);
+      maxEnd = Math.max(maxEnd, l.startMinute + l.durationMinutes);
       let placed = false;
       for (let c = 0; c < cols.length; c++) {
-        if (l.startMinute >= (cols[c][cols[c].length - 1].startMinute + cols[c][cols[c].length - 1].durationMinutes)) {
-          cols[c].push(l); placed = true; map.set(l.id, { col: c, totalCols: 0 }); break;
+        const last = cols[c][cols[c].length - 1];
+        if (l.startMinute >= (last.startMinute + last.durationMinutes)) {
+          cols[c].push(l);
+          placed = true;
+          break;
         }
       }
-      if (!placed) { cols.push([l]); map.set(l.id, { col: cols.length - 1, totalCols: 0 }); }
+      if (!placed) cols.push([l]);
     }
-    for (const l of cluster) map.get(l.id).totalCols = cols.length;
+    result.push({ cols, minStart, maxEnd });
   }
-  return map;
+  return result;
 }
 
-function buildLessonTile(lesson, dateStr, startHour, pos, dayScale) {
+function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute) {
   const isGroup = isGroupLessonRecord(lesson);
   const isCustom = isCustomLessonRecord(lesson);
   const pkg = (isGroup || isCustom) ? null : (getData().packages || []).find(p => p.name.toLowerCase() === (lesson.title || '').toLowerCase());
@@ -288,32 +340,34 @@ function buildLessonTile(lesson, dateStr, startHour, pos, dayScale) {
   lEnd.setMinutes(lEnd.getMinutes() + lesson.startMinute + lesson.durationMinutes);
   const past = lEnd < new Date();
   const slotH = DAY_SCHEDULE_SLOT_HEIGHT * dayScale;
-  const top = ((lesson.startMinute / 60) - startHour) * slotH;
+  
+  // Position relative to the previous lesson in the same column (or cluster start)
+  const marginTop = ((lesson.startMinute - prevEndMinute) / 60) * slotH;
   const h = Math.max((lesson.durationMinutes / 60) * slotH, 24);
-  const col = pos ? pos.col : 0, tot = pos ? pos.totalCols : 1;
-  const L = DAY_SCHEDULE_LABEL_WIDTH, R = DAY_SCHEDULE_CONTENT_RIGHT;
 
   const tile = el('div', {
     className: `lesson-tile ${cancelled || (pkg && !pkg.active) ? 'status-inactive' : 'status-neutral'} ${isGroup || isCustom ? 'group-session' : ''} ${past ? 'past' : ''} ${cancelled ? 'cancelled' : ''}`.trim(),
     'data-date': dateStr,
     'data-end-minute': String(lesson.startMinute + lesson.durationMinutes),
     style: {
-      top: `${top}px`, height: `${h}px`, right: 'auto', overflow: 'hidden',
-      left: tot > 1 ? `calc(${L}px + (100% - ${L + R}px) * ${col} / ${tot})` : `${L}px`,
-      width: tot > 1 ? `calc((100% - ${L + R}px) / ${tot} - 2px)` : `calc(100% - ${L + R}px)`,
+      marginTop: `${marginTop}px`, 
+      height: `${h}px`,
       borderColor: color ? `${color}66` : undefined,
-      background: color ? `linear-gradient(135deg, ${color}26, ${color}0c)` : undefined
+      background: color ? `linear-gradient(135deg, ${color}26, ${color}0c)` : undefined,
+      position: 'relative', // Override absolute from CSS
+      width: 'auto',
+      minWidth: '100%',
+      flexShrink: '0'
     },
     onClick: e => { if (!e.target.closest('.dragging') && isAdmin()) openLessonModal(dateStr, lesson); }
   });
-  tile._layoutPos = pos;
 
   const instr = (getData().instructors || []).find(i => i.name === lesson.instructor);
   const titleRow = el('div', { className: 'tile-title' });
   if (color) titleRow.appendChild(el('span', { className: 'tile-group-dot', style: { background: color } }));
   titleRow.appendChild(el('span', { className: 'tile-title-text' }, getLessonDisplayName(lesson)));
   if (!isGroup && lesson.recurring) titleRow.appendChild(icon('repeat', 'recurring-icon'));
-  if (lesson.instructor) titleRow.appendChild(el('span', { className: 'tile-instructor tile-instructor-badge', style: instr?.color ? { color: instr.color } : {} }, icon('person'), lesson.instructor));
+  if (lesson.instructor && !isCustom) titleRow.appendChild(el('span', { className: 'tile-instructor tile-instructor-badge', style: instr?.color ? { color: instr.color } : {} }, icon('person'), lesson.instructor));
   tile.appendChild(titleRow);
 
   const meta = el('div', { className: 'tile-meta' });
@@ -346,11 +400,11 @@ function buildLessonTile(lesson, dateStr, startHour, pos, dayScale) {
   }
   tile.appendChild(meta);
   if (cancelled) { tile.style.opacity = '0.6'; tile.style.textDecoration = 'line-through'; }
-  if (!cancelled && isAdmin()) makeDraggable(tile, lesson, dateStr, dayScale);
+  if (!cancelled && isAdmin()) makeDraggable(tile, lesson, dateStr, dayScale, prevEndMinute);
   return tile;
 }
 
-function makeDraggable(tileEl, lesson, dateStr, dayScale) {
+function makeDraggable(tileEl, lesson, dateStr, dayScale, prevEndMinute) {
   const { startHour, endHour } = getDayScheduleHours();
   let sy = 0, sm = lesson.startMinute, drag = false, lp = false, off = 0, lpt = null;
   const onStart = (cy, isT) => { sy = cy; sm = lesson.startMinute; drag = false; lp = !isT; if (isT) lpt = setTimeout(() => { lp = true; tileEl.classList.add('long-press-ready'); if (navigator.vibrate) navigator.vibrate(50); }, 500); };
@@ -362,15 +416,32 @@ function makeDraggable(tileEl, lesson, dateStr, dayScale) {
     if (isT && e && e.cancelable) e.preventDefault();
     tileEl.classList.add('dragging'); tileEl.classList.remove('long-press-ready');
     const slotH = DAY_SCHEDULE_SLOT_HEIGHT * dayScale;
+    const clusterTop = Number.parseFloat(tileEl.closest('.lesson-cluster')?.style.top || 0);
     off = Math.round((dy * (60 / slotH)) / 15) * 15;
     const n = Math.max(0, Math.min(sm + off, (endHour - 1) * 60));
-    tileEl.style.top = `${((n / 60) - startHour) * slotH}px`;
+    // During drag, we use absolute positioning to avoid affecting other tiles in the flex column
+    tileEl.style.position = 'absolute';
+    tileEl.style.width = `${tileEl.offsetWidth}px`;
+    tileEl.style.top = `${((n / 60) - startHour) * slotH - clusterTop}px`;
+    tileEl.style.marginTop = '0';
+    tileEl.style.zIndex = '1000';
   };
   const onEnd = () => {
     clearTimeout(lpt); tileEl.classList.remove('long-press-ready');
     if (drag) {
       const snapped = Math.round(Math.max(0, Math.min(sm + off, (endHour - 1) * 60)) / 15) * 15;
-      if (snapped !== sm) { updateLesson(lesson.id, { startMinute: snapped }); processPastLessonsForCredits(); render(); }
+      if (snapped !== sm) { 
+        updateLesson(lesson.id, { startMinute: snapped }); 
+        processPastLessonsForCredits(); 
+        render(); 
+      } else {
+        // Reset styles if we didn't move
+        tileEl.style.position = 'relative';
+        tileEl.style.width = 'auto';
+        tileEl.style.top = 'auto';
+        tileEl.style.marginTop = `${((lesson.startMinute - prevEndMinute) / 60) * (DAY_SCHEDULE_SLOT_HEIGHT * dayScale)}px`;
+        tileEl.style.zIndex = '';
+      }
     }
     tileEl.classList.remove('dragging'); drag = false; lp = false;
   };

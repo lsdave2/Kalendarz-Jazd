@@ -449,6 +449,10 @@ input, select, textarea { font-family: inherit; }
   position: relative;
 }
 
+.lesson-column {
+  min-width: 0;
+}
+
 /* Quarter line markers */
 .hour-line,
 .quarter-line {
@@ -501,8 +505,6 @@ input, select, textarea { font-family: inherit; }
 
 /* ── Lesson Tile ────────────────────────────────────────────────────── */
 .lesson-tile {
-  position: absolute;
-  /* left and width set dynamically by JS layout algorithm */
   border-radius: var(--radius-sm);
   padding: 6px 8px;
   cursor: grab;
@@ -513,6 +515,7 @@ input, select, textarea { font-family: inherit; }
   min-height: 28px;
   user-select: none;
   -webkit-user-select: none;
+  box-sizing: border-box;
 }
 .lesson-tile:active { cursor: grabbing; }
 .lesson-tile:hover {
@@ -530,8 +533,9 @@ input, select, textarea { font-family: inherit; }
   align-items: flex-start;
 }
 .lesson-tile .tile-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   white-space: nowrap;
 }
 
@@ -584,8 +588,6 @@ input, select, textarea { font-family: inherit; }
 }
 .tile-title-text {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tile-title .recurring-icon {
@@ -662,14 +664,16 @@ input, select, textarea { font-family: inherit; }
 }
 .tile-participant {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px 6px;
   align-items: center;
   line-height: 1.2;
+  white-space: nowrap;
 }
 .tile-participant-name {
   font-weight: 600;
   color: var(--text-primary);
+  flex-shrink: 0;
 }
 .tile-participant-horse {
   display: inline-flex;

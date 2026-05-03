@@ -473,6 +473,8 @@ export function openLessonModal(dateStr, lesson = null) {
           groupName: null,
           groupColor: null,
           packageMode: false,
+          instructor: null,
+          horse: null,
         }
       };
     }
