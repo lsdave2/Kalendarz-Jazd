@@ -14,6 +14,8 @@ import { buildMonthView, buildDayView, calendarState, formatDateNice } from './v
 let currentTab = 'calendar';
 let lastRenderKey = null;
 let lastRenderedDay = formatDate(new Date());
+let pendingScrollRestoreY = null;
+let pendingScrollRestoreFrame = null;
 
 // Navigation State Management
 function updateStateFromHistory(state) {
@@ -32,6 +34,7 @@ window.addEventListener('popstate', (e) => {
   // If a modal is open, it should have its own popstate listener that handles its closing.
   // We only handle view transitions here.
   if (e.state && e.state.modalOpen) return;
+  if (document.querySelector('.modal-overlay')) return;
   updateStateFromHistory(e.state);
 });
 
@@ -86,7 +89,13 @@ export function render() {
   const renderKey = getRenderKey();
   const isUpdate = lastRenderKey === renderKey;
   const shouldRestoreScroll = isUpdate;
-  const previousScrollY = shouldRestoreScroll ? window.scrollY : 0;
+  const previousScrollY = shouldRestoreScroll
+    ? (pendingScrollRestoreY ?? window.scrollY)
+    : 0;
+  if (pendingScrollRestoreFrame !== null) {
+    cancelAnimationFrame(pendingScrollRestoreFrame);
+    pendingScrollRestoreFrame = null;
+  }
   app.innerHTML = '';
   
   if (!(currentTab === 'calendar' && calendarState.selectedDate)) {
@@ -122,7 +131,14 @@ export function render() {
   lastRenderKey = renderKey;
 
   if (shouldRestoreScroll) {
-    requestAnimationFrame(() => window.scrollTo({ top: previousScrollY, left: 0, behavior: 'auto' }));
+    pendingScrollRestoreY = previousScrollY;
+    pendingScrollRestoreFrame = requestAnimationFrame(() => {
+      window.scrollTo({ top: pendingScrollRestoreY ?? 0, left: 0, behavior: 'auto' });
+      pendingScrollRestoreY = null;
+      pendingScrollRestoreFrame = null;
+    });
+  } else {
+    pendingScrollRestoreY = null;
   }
 }
 

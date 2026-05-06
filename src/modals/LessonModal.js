@@ -741,8 +741,7 @@ function openMoveLessonModal(lesson, dateStr, isRecurringInstance, baseLesson, c
           recurring: false,
           recurringUntil: null,
           instanceOverrides: {},
-          cancelledDates: [],
-          deductedDates: []
+          cancelledDates: []
         };
         // Clean up internal flags
         delete newLessonData._recurringInstance;

@@ -309,7 +309,6 @@ function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
 function normalizeLesson(lesson, lessonIdMap = new Map(), groupMetadataById = new Map()) {
   const normalized = {
     cancelledDates: [],
-    deductedDates: [],
     lessonType: 'individual',
     instanceOverrides: {},
     ...lesson
@@ -322,9 +321,7 @@ function normalizeLesson(lesson, lessonIdMap = new Map(), groupMetadataById = ne
   }
 
   if (!Array.isArray(normalized.cancelledDates)) normalized.cancelledDates = [];
-  if (!Array.isArray(normalized.deductedDates)) normalized.deductedDates = [];
   normalized.cancelledDates = normalized.cancelledDates.filter(date => typeof date === 'string');
-  normalized.deductedDates = normalized.deductedDates.filter(date => typeof date === 'string');
 
   if (normalized.packageMode === undefined) {
     normalized.packageMode = !!(normalized.participants?.length > 0);
@@ -688,7 +685,6 @@ function buildRemoteState(rows) {
     groupColor: row.group_color || null,
     participants: Array.isArray(row.participants) ? row.participants : [],
     cancelledDates: Array.isArray(row.cancelled_dates) ? row.cancelled_dates : [],
-    deductedDates: Array.isArray(row.deducted_dates) ? row.deducted_dates : [],
     instanceOverrides: row.instance_overrides && typeof row.instance_overrides === 'object' ? row.instance_overrides : {},
   }));
 
@@ -968,7 +964,6 @@ function buildLessonRow(lesson, horseIdByName, instructorIdByName) {
     group_color: lesson.groupColor || null,
     participants: lesson.participants || [],
     cancelled_dates: lesson.cancelledDates || [],
-    deducted_dates: lesson.deductedDates || [],
     instance_overrides: lesson.instanceOverrides || {},
   };
 }
@@ -1562,7 +1557,6 @@ export function updateLessonInstance(id, dateStr, updates, { save = true } = {})
       'recurring',
       'recurringUntil',
       'cancelledDates',
-      'deductedDates',
       'instanceOverrides',
       '_recurringInstance',
       '_instanceDate'
