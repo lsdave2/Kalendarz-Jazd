@@ -190,3 +190,49 @@ export function setupModalSwipeToClose(modal, overlay, handle, onClosed) {
 
   return { closeModal, isDragging: () => isDragging };
 }
+
+export function openConfirmModal({
+  title,
+  message,
+  confirmLabel,
+  cancelLabel,
+  confirmIcon = 'delete',
+  destructive = true,
+  onConfirm
+} = {}) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
+
+  const modal = el('div', { className: 'modal', style: { maxWidth: '320px', margin: 'auto' } });
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+
+  modal.appendChild(handle);
+  modal.appendChild(el('h3', { style: { marginTop: '10px' } }, title || t('deleteKey')));
+  modal.appendChild(el('p', {
+    style: { marginBottom: '20px', color: 'var(--text-secondary)' }
+  }, message || ''));
+
+  const btnRow = el('div', { className: 'btn-group modal-actions' });
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-secondary',
+    onClick: () => closeModal()
+  }, cancelLabel || t('cancel')));
+
+  btnRow.appendChild(el('button', {
+    className: `btn ${destructive ? 'btn-danger' : 'btn-primary'}`,
+    style: { marginLeft: 'auto' },
+    onClick: () => {
+      if (typeof onConfirm === 'function') onConfirm();
+      closeModal();
+    }
+  }, icon(confirmIcon), confirmLabel || t('deleteKey')));
+
+  modal.appendChild(btnRow);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  setTimeout(() => modal.focus(), 10);
+}

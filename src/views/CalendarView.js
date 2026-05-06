@@ -1,6 +1,6 @@
 import { t } from '../i18n.js';
 import { el, icon, formatDate, parseDate, getDaysInMonth, getFirstDayOfMonth, monthName, dayName, isToday, isPast } from '../utils.js';
-import { getData, getLessonsForDate, isAdmin, isDateClosed, toggleClosedDate, updateLesson, processPastLessonsForCredits } from '../store.js';
+import { getData, getLessonsForDate, isAdmin, isDateClosed, toggleClosedDate, updateLesson, updateLessonInstance, processPastLessonsForCredits } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants, getLessonDisplayName } from '../services/LessonService.js';
 import { openLessonModal } from '../modals/LessonModal.js';
@@ -430,7 +430,11 @@ function makeDraggable(tileEl, lesson, dateStr, dayScale, prevEndMinute) {
     if (drag) {
       const snapped = Math.round(Math.max(0, Math.min(sm + off, (endHour - 1) * 60)) / 15) * 15;
       if (snapped !== sm) { 
-        updateLesson(lesson.id, { startMinute: snapped }); 
+        if (lesson._recurringInstance && lesson._instanceDate) {
+          updateLessonInstance(lesson.id, lesson._instanceDate, { startMinute: snapped });
+        } else {
+          updateLesson(lesson.id, { startMinute: snapped });
+        }
         processPastLessonsForCredits(); 
         render(); 
       } else {

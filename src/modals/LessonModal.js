@@ -1,5 +1,5 @@
 import { t } from '../i18n.js';
-import { el, icon, minutesToTime, setupModalSwipeToClose } from '../utils.js';
+import { el, icon, minutesToTime, openConfirmModal, setupModalSwipeToClose } from '../utils.js';
 import { 
   getData, addLesson, updateLesson, deleteLesson, updateLessonInstance, 
   ensurePackageEntry, getPackageByName, getAutoGroupColor, toggleCancelLessonInstance,
@@ -636,10 +636,23 @@ export function openLessonModal(dateStr, lesson = null) {
     btnGroup.appendChild(el('button', {
       className: 'btn btn-danger btn-sm',
       onClick: () => {
-        deleteLesson(lesson.id);
-        closeModal();
-        showToast(t('lessonDeleted'), 'delete');
-        render();
+        const confirmMessage = isRecurringInstance || lesson.recurring
+          ? t('deleteSeriesConfirm')
+          : t('deleteLessonConfirm');
+        openConfirmModal({
+          title: t('deleteKey'),
+          message: confirmMessage,
+          confirmLabel: t('deleteKey'),
+          cancelLabel: t('cancel'),
+          confirmIcon: 'delete',
+          destructive: true,
+          onConfirm: () => {
+            deleteLesson(lesson.id);
+            closeModal();
+            showToast(t('lessonDeleted'), 'delete');
+            render();
+          }
+        });
       }
     }, icon('delete'), t('deleteKey')));
 
