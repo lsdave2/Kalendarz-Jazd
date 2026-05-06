@@ -224,23 +224,45 @@ function getHistoryEntrySignature(entry) {
 
 function dedupeHistoryEntries(history = []) {
   const dedupedHistory = [];
-  const seen = new Set();
   let duplicateAmountTotal = 0;
+  let previousSignature = null;
 
   for (const entry of history) {
     const normalizedEntry = normalizeHistoryEntry(entry);
     if (!normalizedEntry) continue;
     const signature = getHistoryEntrySignature(normalizedEntry);
     if (!signature) continue;
-    if (seen.has(signature)) {
+    // Only collapse immediately repeated entries. Lesson credits can legitimately
+    // alternate between the same occurrence being deducted, refunded, and deducted
+    // again after a cancel/restore cycle, so non-consecutive matches are real history.
+    if (signature === previousSignature) {
       duplicateAmountTotal += Number(normalizedEntry.amount) || 0;
       continue;
     }
-    seen.add(signature);
+    previousSignature = signature;
     dedupedHistory.push(normalizedEntry);
   }
 
   return { history: dedupedHistory, duplicateAmountTotal };
+}
+
+function sumHistoryAmounts(history = []) {
+  return history.reduce((sum, entry) => sum + (Number(entry?.amount) || 0), 0);
+}
+
+function getPackageManualHistory(pkg, lessonIdMap = new Map()) {
+  const sourceHistory = Array.isArray(pkg?.manualHistory)
+    ? pkg.manualHistory
+    : (Array.isArray(pkg?.history) ? pkg.history.filter(entry => !isLessonReason(entry)) : []);
+
+  return sourceHistory.map(entry => {
+    if (!entry || typeof entry !== 'object') return null;
+    const nextEntry = { ...entry };
+    if (nextEntry.lessonId !== undefined && lessonIdMap.has(String(nextEntry.lessonId))) {
+      nextEntry.lessonId = lessonIdMap.get(String(nextEntry.lessonId));
+    }
+    return nextEntry;
+  }).filter(Boolean);
 }
 
 function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
@@ -248,8 +270,7 @@ function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
   const name = (pkg.name || '').trim();
   if (!name) return null;
   const rawCredits = Number.isFinite(pkg.credits) ? pkg.credits : (parseInt(pkg.credits, 10) || 0);
-  const hasHistory = Array.isArray(pkg.history) && pkg.history.length > 0;
-  const mappedHistory = Array.isArray(pkg.history) ? pkg.history.map(entry => {
+  const rawHistory = Array.isArray(pkg.history) ? pkg.history.map(entry => {
     if (!entry || typeof entry !== 'object') return null;
     const nextEntry = { ...entry };
     if (nextEntry.lessonId !== undefined && lessonIdMap.has(String(nextEntry.lessonId))) {
@@ -257,8 +278,13 @@ function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
     }
     return nextEntry;
   }).filter(Boolean) : [];
-  const { history, duplicateAmountTotal } = dedupeHistoryEntries(mappedHistory);
-  const credits = rawCredits - duplicateAmountTotal;
+  const { history: rawNormalizedHistory } = dedupeHistoryEntries(rawHistory);
+  const manualHistorySource = getPackageManualHistory({ ...pkg, history: rawNormalizedHistory }, lessonIdMap);
+  const { history: manualHistory } = dedupeHistoryEntries(manualHistorySource);
+  const openingCredits = Number.isFinite(Number(pkg.openingCredits))
+    ? Number(pkg.openingCredits)
+    : rawCredits - sumHistoryAmounts(rawNormalizedHistory);
+  const credits = openingCredits + sumHistoryAmounts(manualHistory);
   const rawCustomPaymentRate = pkg.customPaymentRate;
   const customPaymentRate = rawCustomPaymentRate === null
     || rawCustomPaymentRate === undefined
@@ -272,9 +298,11 @@ function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
     credits,
     active: pkg.active !== false,
     archivedAt: typeof pkg.archivedAt === 'string' && pkg.archivedAt.trim() ? pkg.archivedAt : null,
-    history,
+    openingCredits,
+    manualHistory,
+    history: manualHistory,
     customPaymentRate: Number.isFinite(customPaymentRate) ? customPaymentRate : null,
-    hasPackageLessons: pkg.hasPackageLessons === true || hasHistory || credits !== 0,
+    hasPackageLessons: pkg.hasPackageLessons === true || rawNormalizedHistory.length > 0 || credits !== 0,
   };
 }
 
@@ -406,8 +434,123 @@ function normalizeAppState(state) {
     : [];
 
   syncReferenceEntriesFromLessons(normalizedState);
+  recomputePackageCreditState(normalizedState);
 
   return normalizedState;
+}
+
+function buildDerivedLessonHistoryByPackage(state, now = new Date()) {
+  const historyByPackage = new Map();
+
+  const pushEntry = (packageName, entry) => {
+    const key = (packageName || '').trim().toLowerCase();
+    if (!key) return;
+    if (!historyByPackage.has(key)) historyByPackage.set(key, []);
+    historyByPackage.get(key).push(entry);
+  };
+
+  const buildInstanceEntry = (lesson, dateStr, instanceLesson) => {
+    const startMinute = Number(instanceLesson.startMinute) || 0;
+    const durationMinutes = Number(instanceLesson.durationMinutes) || 0;
+    const instanceEnd = parseDate(dateStr);
+    instanceEnd.setMinutes(instanceEnd.getMinutes() + startMinute + durationMinutes);
+    if (instanceEnd >= now) return;
+    if (Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(dateStr)) return;
+
+    if (Array.isArray(instanceLesson.participants) && instanceLesson.participants.length > 0) {
+      const uniqueNames = [...new Set(
+        instanceLesson.participants
+          .filter(participant => participant?.packageMode !== false)
+          .map(participant => (participant?.packageName || participant?.name || '').trim())
+          .filter(Boolean)
+      )];
+      for (const name of uniqueNames) {
+        pushEntry(name, {
+          date: instanceEnd.toISOString(),
+          amount: -1,
+          reason: 'lesson',
+          lessonDate: dateStr,
+          lessonStartMinute: startMinute,
+          lessonId: lesson.id,
+          derived: true,
+        });
+      }
+      return;
+    }
+
+    if (instanceLesson.packageMode === false) return;
+    const packageName = (instanceLesson.title || lesson.title || '').trim();
+    if (!packageName) return;
+    pushEntry(packageName, {
+      date: instanceEnd.toISOString(),
+      amount: -1,
+      reason: 'lesson',
+      lessonDate: dateStr,
+      lessonStartMinute: startMinute,
+      lessonId: lesson.id,
+      derived: true,
+    });
+  };
+
+  const getInstanceLesson = (lesson, dateStr) => {
+    const override = lesson.instanceOverrides?.[dateStr];
+    return override ? { ...lesson, ...override } : lesson;
+  };
+
+  for (const lesson of state.lessons || []) {
+    if (!lesson.recurring) {
+      buildInstanceEntry(lesson, lesson.date, lesson);
+      continue;
+    }
+
+    if (lesson.recurringUntil && lesson.date > lesson.recurringUntil) continue;
+    let currentInstance = parseDate(lesson.date);
+    const recurrenceEnd = lesson.recurringUntil ? parseDate(lesson.recurringUntil) : now;
+    const loopEnd = recurrenceEnd < now ? recurrenceEnd : now;
+
+    while (currentInstance <= loopEnd) {
+      const dateStr = formatDate(currentInstance);
+      const instanceLesson = getInstanceLesson(lesson, dateStr);
+      buildInstanceEntry(lesson, dateStr, instanceLesson);
+      currentInstance.setDate(currentInstance.getDate() + 7);
+    }
+  }
+
+  return historyByPackage;
+}
+
+function recomputePackageCreditState(state) {
+  const derivedHistoryByPackage = buildDerivedLessonHistoryByPackage(state);
+
+  for (const pkg of state.packages || []) {
+    const manualHistory = getPackageManualHistory(pkg);
+    const derivedHistory = derivedHistoryByPackage.get((pkg.name || '').trim().toLowerCase()) || [];
+    const combinedHistory = [...manualHistory, ...derivedHistory].sort((a, b) => {
+      const timeDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      const lessonDateA = a.lessonDate || '';
+      const lessonDateB = b.lessonDate || '';
+      if (lessonDateA !== lessonDateB) return lessonDateA.localeCompare(lessonDateB);
+      const minuteA = Number(a.lessonStartMinute) || 0;
+      const minuteB = Number(b.lessonStartMinute) || 0;
+      if (minuteA !== minuteB) return minuteA - minuteB;
+      return String(a.reason || '').localeCompare(String(b.reason || ''));
+    });
+
+    let runningCredits = Number(pkg.openingCredits) || 0;
+    pkg.manualHistory = manualHistory;
+    pkg.history = combinedHistory.map(entry => {
+      const amount = Number(entry.amount) || 0;
+      const nextEntry = {
+        ...entry,
+        before: runningCredits,
+        after: runningCredits + amount,
+      };
+      runningCredits += amount;
+      return nextEntry;
+    });
+    pkg.credits = runningCredits;
+  }
 }
 
 function syncReferenceEntriesFromLessons(state) {
@@ -740,23 +883,37 @@ function jsonEqual(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+function buildHistorySignatureCounts(history = []) {
+  const counts = new Map();
+  for (const entry of history) {
+    const signature = getHistoryEntrySignature(entry);
+    if (!signature) continue;
+    counts.set(signature, (counts.get(signature) || 0) + 1);
+  }
+  return counts;
+}
+
 function getHistoryDiff(baseHistory = [], currentHistory = []) {
-  const baseSet = new Set(baseHistory.map(getHistoryEntrySignature).filter(Boolean));
+  const remainingBaseCounts = buildHistorySignatureCounts(baseHistory);
   return currentHistory.filter(entry => {
     const signature = getHistoryEntrySignature(entry);
-    return signature && !baseSet.has(signature);
+    if (!signature) return false;
+    const remaining = remainingBaseCounts.get(signature) || 0;
+    if (remaining > 0) {
+      remainingBaseCounts.set(signature, remaining - 1);
+      return false;
+    }
+    return true;
   });
 }
 
 function mergeHistory(remoteHistory = [], localEntries = []) {
   const merged = [...remoteHistory];
-  const seen = new Set(remoteHistory.map(getHistoryEntrySignature).filter(Boolean));
   for (const entry of localEntries) {
     const normalizedEntry = normalizeHistoryEntry(entry);
     const signature = getHistoryEntrySignature(normalizedEntry);
-    if (!signature || seen.has(signature)) continue;
+    if (!signature) continue;
     merged.push(normalizedEntry);
-    seen.add(signature);
   }
   return merged;
 }
@@ -767,25 +924,15 @@ function pickMergedField(field, current, base, remote) {
 
 function mergePackageState(current, base, remote) {
   if (!remote) return current;
-  const currentHistory = current.history || [];
-  const baseHistory = base?.history || [];
-  const remoteHistory = remote.history || [];
+  const currentHistory = getPackageManualHistory(current);
+  const baseHistory = getPackageManualHistory(base || {});
+  const remoteHistory = getPackageManualHistory(remote);
   const localHistoryDelta = getHistoryDiff(baseHistory, currentHistory);
   const uniqueLocalHistoryDelta = getHistoryDiff(remoteHistory, localHistoryDelta);
-  const localCreditsDelta = (current.credits || 0) - (base?.credits || 0);
-  const creditsChangedLocally = !jsonEqual(current.credits, base?.credits);
+  const creditsChangedLocally = !jsonEqual(current?.openingCredits, base?.openingCredits);
   const historyChangedLocally = localHistoryDelta.length > 0 || !jsonEqual(currentHistory, baseHistory);
-  const uniqueLocalCreditsDelta = uniqueLocalHistoryDelta.reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
-
-  let mergedCredits = remote.credits;
-  if (creditsChangedLocally && !historyChangedLocally) {
-    mergedCredits = current.credits;
-  } else if (creditsChangedLocally) {
-    mergedCredits = (Number(remote.credits) || 0) + uniqueLocalCreditsDelta;
-    if (uniqueLocalHistoryDelta.length === 0 && localCreditsDelta !== 0) {
-      mergedCredits = remote.credits;
-    }
-  }
+  const mergedOpeningCredits = creditsChangedLocally ? current.openingCredits : remote.openingCredits;
+  const mergedManualHistory = historyChangedLocally ? mergeHistory(remoteHistory, uniqueLocalHistoryDelta) : remoteHistory;
 
   return normalizePackageEntry({
     ...remote,
@@ -795,8 +942,10 @@ function mergePackageState(current, base, remote) {
     archivedAt: pickMergedField('archivedAt', current, base, remote),
     hasPackageLessons: pickMergedField('hasPackageLessons', current, base, remote),
     customPaymentRate: pickMergedField('customPaymentRate', current, base, remote),
-    credits: mergedCredits,
-    history: historyChangedLocally ? mergeHistory(remoteHistory, uniqueLocalHistoryDelta) : remoteHistory,
+    openingCredits: mergedOpeningCredits,
+    credits: (Number(mergedOpeningCredits) || 0) + sumHistoryAmounts(mergedManualHistory),
+    history: mergedManualHistory,
+    manualHistory: mergedManualHistory,
   });
 }
 
@@ -825,13 +974,14 @@ function buildLessonRow(lesson, horseIdByName, instructorIdByName) {
 }
 
 function buildPackageRow(pkg) {
+  const manualHistory = getPackageManualHistory(pkg);
   return {
     id: pkg.id,
     name: pkg.name,
-    credits: pkg.credits || 0,
+    credits: (Number(pkg.openingCredits) || 0) + sumHistoryAmounts(manualHistory),
     active: pkg.active !== false,
     archived_at: pkg.archivedAt || null,
-    history: pkg.history || [],
+    history: manualHistory,
     custom_payment_rate: pkg.customPaymentRate ?? null,
     has_package_lessons: pkg.hasPackageLessons === true,
   };
@@ -1121,6 +1271,7 @@ export function saveData({ throwOnError = false } = {}) {
 
       try {
         await syncToSupabase();
+        _data = normalizeAppState(_data);
         _persistedData = deepClone(_data);
         _hasPendingLocalChanges = false;
         persistLocalState({ pending: false });
@@ -1440,47 +1591,9 @@ export function deleteLesson(id) {
   const lesson = d.lessons.find(entry => entry.id === id);
   if (!lesson) return;
 
-  const affectedClientNames = [];
-  if (Array.isArray(lesson.participants) && lesson.participants.length > 0) {
-    lesson.participants.forEach(participant => {
-      const name = (participant.packageName || participant.name || '').trim();
-      if (name) affectedClientNames.push(name.toLowerCase());
-    });
-  } else if (lesson.title) {
-    affectedClientNames.push(lesson.title.trim().toLowerCase());
-  }
-
-  const uniqueClients = [...new Set(affectedClientNames)];
-  for (const clientName of uniqueClients) {
-    const pkg = d.packages.find(entry => entry.name.toLowerCase() === clientName);
-    if (pkg && pkg.history) {
-      let creditDelta = 0;
-      const originalHistoryLength = pkg.history.length;
-
-      pkg.history = pkg.history.filter(record => {
-        if (!isLessonReason(record)) return true;
-
-        const isIdMatch = record.lessonId === id;
-        const isLegacyMatch = !record.lessonId
-          && record.lessonDate
-          && (lesson.date === record.lessonDate || (lesson.deductedDates && lesson.deductedDates.includes(record.lessonDate)))
-          && record.lessonStartMinute === lesson.startMinute;
-
-        if (isIdMatch || isLegacyMatch) {
-          creditDelta -= record.amount;
-          return false;
-        }
-        return true;
-      });
-
-      if (pkg.history.length !== originalHistoryLength) {
-        pkg.credits += creditDelta;
-      }
-    }
-  }
-
   d.lessons = d.lessons.filter(entry => entry.id !== id);
   logAction('DELETE_LESSON', { id, title: lesson.title });
+  recomputePackageCreditState(d);
   saveData();
 }
 
@@ -1543,143 +1656,26 @@ export function processPastLessonsForCredits() {
   if (!_data) return;
   const packageSyncChanged = syncPackageEntriesFromLessons();
   const archiveChanged = autoArchiveDormantClients();
-  const now = new Date();
-  let changed = packageSyncChanged || archiveChanged;
-
-  const getInstanceLesson = (lesson, instanceDate) => {
-    const override = lesson.instanceOverrides?.[instanceDate];
-    return override ? { ...lesson, ...override } : lesson;
-  };
-
-  for (const lesson of _data.lessons) {
-    if (!lesson.deductedDates) lesson.deductedDates = [];
-    if (!lesson.cancelledDates) lesson.cancelledDates = [];
-
-    const checkInstance = (dStr, instanceLesson) => {
-      const startMinute = instanceLesson.startMinute;
-      const durationMinutes = instanceLesson.durationMinutes;
-      const instanceEnd = parseDate(dStr);
-      instanceEnd.setMinutes(instanceEnd.getMinutes() + startMinute + durationMinutes);
-
-      const isPast = instanceEnd < now;
-      const isCancelled = lesson.cancelledDates.includes(dStr);
-
-      if (Array.isArray(instanceLesson.participants) && instanceLesson.participants.length > 0) {
-        const isDeducted = lesson.deductedDates.includes(dStr);
-        const uniqueNames = [...new Set(
-          instanceLesson.participants
-            .filter(participant => participant?.packageMode !== false)
-            .map(participant => (participant?.packageName || participant?.name || '').trim())
-            .filter(Boolean)
-        )];
-        if (uniqueNames.length === 0) return;
-        if (isPast && !isCancelled && !isDeducted) {
-          for (const name of uniqueNames) {
-            const pkg = _data.packages.find(entry => entry.name.toLowerCase() === name.toLowerCase());
-            if (!pkg || !pkg.active) continue;
-            if (!pkg.history) pkg.history = [];
-            const before = pkg.credits;
-            pkg.credits -= 1;
-            pkg.history.push({
-              date: new Date().toISOString(),
-              amount: -1,
-              before,
-              after: pkg.credits,
-              reason: 'lesson',
-              lessonDate: dStr,
-              lessonStartMinute: startMinute,
-              lessonId: lesson.id
-            });
-          }
-          lesson.deductedDates.push(dStr);
-          changed = true;
-        } else if ((!isPast || isCancelled) && isDeducted) {
-          for (const name of uniqueNames) {
-            const pkg = _data.packages.find(entry => entry.name.toLowerCase() === name.toLowerCase());
-            if (!pkg || !pkg.active) continue;
-            if (!pkg.history) pkg.history = [];
-            const before = pkg.credits;
-            pkg.credits += 1;
-            pkg.history.push({
-              date: new Date().toISOString(),
-              amount: 1,
-              before,
-              after: pkg.credits,
-              reason: 'lesson_cancel',
-              lessonDate: dStr,
-              lessonStartMinute: startMinute,
-              lessonId: lesson.id
-            });
-          }
-          lesson.deductedDates = lesson.deductedDates.filter(entry => entry !== dStr);
-          changed = true;
-        }
-        return;
-      }
-
-      if (instanceLesson.packageMode === false) return;
-
-      const pkg = _data.packages.find(entry => entry.name.toLowerCase() === lesson.title.toLowerCase());
-      if (!pkg || !pkg.active) return;
-
-      if (isPast && !isCancelled && !lesson.deductedDates.includes(dStr)) {
-        if (!pkg.history) pkg.history = [];
-        const before = pkg.credits;
-        pkg.credits -= 1;
-        pkg.history.push({
-          date: new Date().toISOString(),
-          amount: -1,
-          before,
-          after: pkg.credits,
-          reason: 'lesson',
-          lessonDate: dStr,
-          lessonStartMinute: startMinute,
-          lessonId: lesson.id
-        });
-        lesson.deductedDates.push(dStr);
-        changed = true;
-      } else if ((!isPast || isCancelled) && lesson.deductedDates.includes(dStr)) {
-        if (!pkg.history) pkg.history = [];
-        const before = pkg.credits;
-        pkg.credits += 1;
-        pkg.history.push({
-          date: new Date().toISOString(),
-          amount: 1,
-          before,
-          after: pkg.credits,
-          reason: 'lesson_cancel',
-          lessonDate: dStr,
-          lessonStartMinute: startMinute,
-          lessonId: lesson.id
-        });
-        lesson.deductedDates = lesson.deductedDates.filter(entry => entry !== dStr);
-        changed = true;
-      }
-    };
-
-    if (!lesson.recurring) {
-      checkInstance(lesson.date, lesson);
-    } else {
-      if (lesson.recurringUntil && lesson.date > lesson.recurringUntil) continue;
-      let currentInstance = parseDate(lesson.date);
-      const boundDate = new Date();
-      boundDate.setDate(boundDate.getDate() + 7);
-      const recurringUntil = lesson.recurringUntil ? parseDate(lesson.recurringUntil) : null;
-
-      while (currentInstance < boundDate) {
-        if (recurringUntil && currentInstance > recurringUntil) break;
-        const dStr = formatDate(currentInstance);
-        const instanceLesson = getInstanceLesson(lesson, dStr);
-        checkInstance(dStr, instanceLesson);
-
-        const instanceEnd = new Date(currentInstance);
-        instanceEnd.setMinutes(instanceEnd.getMinutes() + instanceLesson.startMinute + instanceLesson.durationMinutes);
-        if (instanceEnd >= now) break;
-
-        currentInstance.setDate(currentInstance.getDate() + 7);
-      }
-    }
-  }
+  const beforeSnapshot = JSON.stringify(
+    (_data.packages || []).map(pkg => ({
+      id: pkg.id,
+      credits: pkg.credits,
+      openingCredits: pkg.openingCredits,
+      history: pkg.history,
+      manualHistory: pkg.manualHistory,
+    }))
+  );
+  recomputePackageCreditState(_data);
+  const afterSnapshot = JSON.stringify(
+    (_data.packages || []).map(pkg => ({
+      id: pkg.id,
+      credits: pkg.credits,
+      openingCredits: pkg.openingCredits,
+      history: pkg.history,
+      manualHistory: pkg.manualHistory,
+    }))
+  );
+  const changed = packageSyncChanged || archiveChanged || beforeSnapshot !== afterSnapshot;
 
   if (changed) {
     saveData();
@@ -1695,9 +1691,10 @@ export function updatePackageCredits(id, credits) {
   const d = getData();
   const pkg = d.packages.find(entry => entry.id === id);
   if (!pkg) return;
-  pkg.credits = credits;
+  pkg.openingCredits = (Number(credits) || 0) - sumHistoryAmounts(getPackageManualHistory(pkg));
   pkg.hasPackageLessons = true;
   logAction('UPDATE_PACKAGE_CREDITS', { id, credits });
+  recomputePackageCreditState(d);
   saveData();
 }
 
@@ -1705,18 +1702,16 @@ export function addPackageCredits(id, amount) {
   const d = getData();
   const pkg = d.packages.find(entry => entry.id === id);
   if (!pkg) return;
-  if (!pkg.history) pkg.history = [];
+  if (!Array.isArray(pkg.manualHistory)) {
+    pkg.manualHistory = getPackageManualHistory(pkg);
+  }
   pkg.hasPackageLessons = true;
-  const before = pkg.credits;
-  const after = before + amount;
-  pkg.credits = after;
-  pkg.history.push({
+  pkg.manualHistory.push({
     date: new Date().toISOString(),
     amount,
-    before,
-    after
   });
-  logAction('ADD_PACKAGE_CREDITS', { id, amount, after });
+  recomputePackageCreditState(d);
+  logAction('ADD_PACKAGE_CREDITS', { id, amount, after: pkg.credits });
   saveData();
 }
 
@@ -1821,19 +1816,18 @@ export function deductCredit(name, dateStr, startMinute) {
   const d = getData();
   const pkg = d.packages.find(entry => entry.name.toLowerCase() === name.trim().toLowerCase());
   if (!pkg || !pkg.active) return;
-  if (!pkg.history) pkg.history = [];
+  if (!Array.isArray(pkg.manualHistory)) {
+    pkg.manualHistory = getPackageManualHistory(pkg);
+  }
   pkg.hasPackageLessons = true;
-  const before = pkg.credits;
-  pkg.credits -= 1;
-  pkg.history.push({
+  pkg.manualHistory.push({
     date: new Date().toISOString(),
     amount: -1,
-    before,
-    after: pkg.credits,
     reason: 'manual_deduct',
     lessonDate: dateStr,
     lessonStartMinute: startMinute
   });
+  recomputePackageCreditState(d);
   saveData();
 }
 
