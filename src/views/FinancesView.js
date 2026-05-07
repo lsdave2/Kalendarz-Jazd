@@ -8,17 +8,26 @@ import {
   computeRevenueReport, computeInstructorPaymentReport, computeInstructorPaymentAmount,
 } from '../services/ReportService.js';
 
+const sectionState = {
+  instructorPaymentsCollapsed: false,
+  summaryCollapsed: true,
+  transactionsCollapsed: true,
+  rateSettingsCollapsed: true,
+};
+
 function defaultFrom() {
   const d = new Date(); d.setDate(d.getDate() - 7);
   return formatDate(d);
 }
 
 // ── Collapsible Section ─────────────────────────────────────────────
-function buildSection(titleText, iconName, contentBuilder, { collapsed = true } = {}) {
+function buildSection(titleText, iconName, contentBuilder, { collapsed = true, onToggle = null } = {}) {
   const section = el('div', { className: 'fin-section' });
   const header = el('div', { className: 'fin-section-header', onClick: () => {
     section.classList.toggle('collapsed');
-    arrow.textContent = section.classList.contains('collapsed') ? 'expand_more' : 'expand_less';
+    const isCollapsed = section.classList.contains('collapsed');
+    arrow.textContent = isCollapsed ? 'expand_more' : 'expand_less';
+    if (onToggle) onToggle(isCollapsed);
   }});
   const arrow = el('span', { className: 'material-symbols-rounded fin-section-arrow' },
     collapsed ? 'expand_more' : 'expand_less');
@@ -352,19 +361,28 @@ export function buildFinancesView() {
   const instrSec = buildSection(t('instructorPayments'), 'school', (body) => {
     instrBody = body;
     renderInstructorSection(body, instrStates, recalc);
-  }, { collapsed: false });
+  }, {
+    collapsed: sectionState.instructorPaymentsCollapsed,
+    onToggle: (collapsed) => { sectionState.instructorPaymentsCollapsed = collapsed; }
+  });
   instrBody = instrSec.body;
   container.appendChild(instrSec.section);
 
   // ── 3. Summary & Breakdown ───────────────────────────────
-  const plSec = buildSection(t('plSummary'), 'analytics', (body) => { plBody = body; });
+  const plSec = buildSection(t('plSummary'), 'analytics', (body) => { plBody = body; }, {
+    collapsed: sectionState.summaryCollapsed,
+    onToggle: (collapsed) => { sectionState.summaryCollapsed = collapsed; }
+  });
   plBody = plSec.body;
   container.appendChild(plSec.section);
 
   // ── 4. Transactions ──────────────────────────────────────
   const expSec = buildSection(t('transactionsSection'), 'receipt_long', (body) => {
     expBody = body;
-  }, { collapsed: true });
+  }, {
+    collapsed: sectionState.transactionsCollapsed,
+    onToggle: (collapsed) => { sectionState.transactionsCollapsed = collapsed; }
+  });
   expBody = expSec.body;
   container.appendChild(expSec.section);
 
@@ -385,6 +403,9 @@ export function buildFinancesView() {
     rr3.appendChild(mkRateInput(t('individualRate'), payIndRate, v => { payIndRate = v; savePayRates(); recalc(); }));
     rr3.appendChild(mkRateInput(t('groupRatePerPerson'), payGrpRate, v => { payGrpRate = v; savePayRates(); recalc(); }));
     body.appendChild(rr3);
+  }, {
+    collapsed: sectionState.rateSettingsCollapsed,
+    onToggle: (collapsed) => { sectionState.rateSettingsCollapsed = collapsed; }
   });
   container.appendChild(rateSec.section);
 

@@ -137,6 +137,12 @@ function dispatchStoreError(message) {
   }));
 }
 
+function dispatchStoreWarning(message) {
+  window.dispatchEvent(new CustomEvent('store-error', {
+    detail: { message, type: 'warning' }
+  }));
+}
+
 function readLocalState() {
   try {
     const raw = localStorage.getItem(LOCAL_DATA_KEY);
@@ -844,9 +850,12 @@ export async function loadData() {
     setupRealtime();
 
     // Reconcile remote data with local state
-    if (_isAdmin && hasPendingLocalCache && cachedLocalState) {
+    if (hasPendingLocalCache && cachedLocalState) {
       _persistedData = deepClone(snapshot.state);
       setDataState(cachedLocalState, { pending: true });
+      if (!_isAdmin) {
+        dispatchStoreWarning(t('syncLoginRequired'));
+      }
     } else if (snapshot.hasData) {
       setDataState(snapshot.state, { persisted: true, pending: false });
     } else if (cachedLocalState) {
@@ -1101,6 +1110,44 @@ async function syncPackages(current, persisted) {
     const { data: latestRow, error: latestError } = await supabase.from('packages').select('*').eq('id', pkg.id).maybeSingle();
     if (latestError) throw latestError;
 
+    const { data: matchingNameRow, error: matchingNameError } = await supabase
+      .from('packages')
+      .select('*')
+      .eq('name', pkg.name)
+      .maybeSingle();
+    if (matchingNameError) throw matchingNameError;
+
+    const conflictingNameRow = matchingNameRow && matchingNameRow.id !== pkg.id
+      ? matchingNameRow
+      : null;
+
+    if (conflictingNameRow) {
+      const remotePkg = normalizePackageEntry({
+        id: conflictingNameRow.id,
+        name: conflictingNameRow.name,
+        credits: conflictingNameRow.credits,
+        active: conflictingNameRow.active,
+        archivedAt: conflictingNameRow.archived_at,
+        history: conflictingNameRow.history,
+        customPaymentRate: conflictingNameRow.custom_payment_rate,
+        hasPackageLessons: conflictingNameRow.has_package_lessons,
+      });
+
+      // Another device already created this client name with a different id.
+      // Adopt the remote id locally, merge manual history, and continue syncing
+      // against that shared cloud row to avoid the unique(name) conflict.
+      const mergedPkg = normalizePackageEntry({
+        ...mergePackageState(pkg, previous, remotePkg),
+        id: remotePkg.id,
+      });
+
+      currentPackages[index] = mergedPkg;
+
+      const { error } = await supabase.from('packages').upsert(buildPackageRow(mergedPkg), { onConflict: 'id' });
+      if (error) throw error;
+      continue;
+    }
+
     const mergedPkg = mergePackageState(
       pkg,
       previous,
@@ -1245,8 +1292,7 @@ export function saveData({ throwOnError = false } = {}) {
     try {
       _data = normalizeAppState(_data);
       const hasDiff = !jsonEqual(_data, _persistedData);
-      // Only admins can have "pending" local changes that need syncing.
-      _hasPendingLocalChanges = _isAdmin ? hasDiff : false;
+      _hasPendingLocalChanges = hasDiff;
       persistLocalState({ pending: _hasPendingLocalChanges });
 
       if (!hasDiff) {
@@ -1257,7 +1303,13 @@ export function saveData({ throwOnError = false } = {}) {
         return;
       }
 
-      if (!supabase || !_isAdmin) {
+      if (!supabase) {
+        dispatchStoreWarning(t('syncUnavailableLocalOnly'));
+        return;
+      }
+
+      if (!_isAdmin) {
+        dispatchStoreWarning(t('syncLoginRequired'));
         if (!_isAdmin) {
           console.warn('[store] saveData skipped Supabase sync - no active admin session.');
         }
