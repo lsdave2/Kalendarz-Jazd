@@ -15,6 +15,12 @@ const sectionState = {
   rateSettingsCollapsed: true,
 };
 
+const financeViewState = {
+  from: null,
+  to: null,
+  showDetailedRevenue: false,
+};
+
 function defaultFrom() {
   const d = new Date(); d.setDate(d.getDate() - 7);
   return formatDate(d);
@@ -204,12 +210,15 @@ export function buildFinancesView() {
   const payRates = getPaymentReportRates();
   const revRates = getRevenueReportRates();
 
+  if (!financeViewState.from) financeViewState.from = defaultFrom();
+  if (!financeViewState.to) financeViewState.to = formatDate(new Date());
+
   // State
-  let fromVal = defaultFrom(), toVal = formatDate(new Date());
+  let fromVal = financeViewState.from, toVal = financeViewState.to;
   let indRate = revRates.individual, grpRate = revRates.group;
   let indPkgRate = revRates.individualPackage, grpPkgRate = revRates.groupPackage;
   let payIndRate = payRates.individual, payGrpRate = payRates.group;
-  let showDetailedRevenue = false;
+  let showDetailedRevenue = financeViewState.showDetailedRevenue;
 
   const instrStates = (data.instructors || []).map(i => ({
     name: i.name || i, active: true, amount: 0, stats: null, indPay: 0, grpPay: 0, expanded: false
@@ -291,7 +300,11 @@ export function buildFinancesView() {
       detailedG.appendChild(el('span', {}, t('detailedReport')));
       const detailedToggle = el('div', {
         className: `toggle ${showDetailedRevenue ? 'active' : ''}`,
-        onClick: () => { showDetailedRevenue = !showDetailedRevenue; recalc(); }
+        onClick: () => {
+          showDetailedRevenue = !showDetailedRevenue;
+          financeViewState.showDetailedRevenue = showDetailedRevenue;
+          recalc();
+        }
       });
       detailedG.appendChild(detailedToggle);
       plBody.appendChild(detailedG);
@@ -344,14 +357,22 @@ export function buildFinancesView() {
   const fromG = el('div', { className: 'form-group', style: { marginBottom: '0' } });
   fromG.appendChild(el('label', {}, t('dateFrom')));
   const fromInput = el('input', { className: 'form-input', type: 'date', value: fromVal, onClick: (e) => { try { e.target.showPicker(); } catch(err){} } });
-  fromInput.addEventListener('change', () => { fromVal = fromInput.value; recalc(); });
+  fromInput.addEventListener('change', () => {
+    fromVal = fromInput.value;
+    financeViewState.from = fromVal;
+    recalc();
+  });
   fromG.appendChild(fromInput);
   dateRow.appendChild(fromG);
 
   const toG = el('div', { className: 'form-group', style: { marginBottom: '0' } });
   toG.appendChild(el('label', {}, t('dateTo')));
   const toInput = el('input', { className: 'form-input', type: 'date', value: toVal, onClick: (e) => { try { e.target.showPicker(); } catch(err){} } });
-  toInput.addEventListener('change', () => { toVal = toInput.value; recalc(); });
+  toInput.addEventListener('change', () => {
+    toVal = toInput.value;
+    financeViewState.to = toVal;
+    recalc();
+  });
   toG.appendChild(toInput);
   dateRow.appendChild(toG);
   dateSection.appendChild(dateRow);
