@@ -5,7 +5,7 @@ import { logAction } from './services/AuditService.js';
 
 const LOCAL_DATA_KEY = 'horsebook_data';
 const LOCAL_PENDING_KEY = 'horsebook_pending_sync';
-const REMOTE_TABLES = ['lessons', 'packages', 'instructors', 'horses', 'groups', 'settings', 'expenses', 'incomes'];
+const REMOTE_TABLES = ['lessons', 'packages', 'package_transactions', 'instructors', 'horses', 'groups', 'settings', 'expenses', 'incomes'];
 
 const defaultData = () => ({
   horses: ['Rubin', 'Czempion', 'Cera', 'Muminek', 'Kadet', 'Sakwa', 'Fason', 'Carewicz', 'Grot', 'Siwa', 'Figa'],
@@ -15,10 +15,13 @@ const defaultData = () => ({
   ],
   lessons: [],
   packages: [],
+  packageTransactions: [],
   groups: [],
   closedDates: [],
   expenses: [],
   incomes: [],
+  creditTrackingMigratedAt: null,
+  creditTrackingMigrationInferred: false,
   nextId: 1,
   nextGroupId: 1,
 });
@@ -29,10 +32,13 @@ function createEmptyPersistedState() {
     instructors: [],
     lessons: [],
     packages: [],
+    packageTransactions: [],
     groups: [],
     closedDates: [],
     expenses: [],
     incomes: [],
+    creditTrackingMigratedAt: null,
+    creditTrackingMigrationInferred: false,
     nextId: 1,
     nextGroupId: 1,
   };
@@ -102,6 +108,77 @@ export function subscribe(fn) {
 
 export function getData() {
   return _data;
+}
+
+export function isCreditTrackingMigrated(state = _data) {
+  return typeof state?.creditTrackingMigratedAt === 'string' && state.creditTrackingMigratedAt.trim().length > 0;
+}
+
+function hasRemoteLedgerState(state) {
+  return isCreditTrackingMigrated(state) || ((state?.packageTransactions || []).length > 0);
+}
+
+export function getCreditTrackingDebugSnapshot() {
+  const data = getData();
+  const packageTransactions = Array.isArray(data.packageTransactions) ? data.packageTransactions : [];
+  const transactionsByPackageId = new Map();
+
+  for (const tx of packageTransactions) {
+    const key = tx?.packageId;
+    if (!key) continue;
+    if (!transactionsByPackageId.has(key)) transactionsByPackageId.set(key, []);
+    transactionsByPackageId.get(key).push(tx);
+  }
+
+  const samplePackage = (data.packages || []).find(pkg =>
+    (transactionsByPackageId.get(pkg.id)?.length || 0) > 0
+    || Number(pkg?.currentCredits) !== Number(pkg?.legacyCredits ?? pkg?.credits)
+    || (pkg?.history?.length || 0) > 0
+  ) || data.packages?.[0] || null;
+
+  const sampleTransactions = samplePackage
+    ? [...(transactionsByPackageId.get(samplePackage.id) || [])]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 5)
+        .map(tx => ({
+          id: tx.id,
+          type: tx.type,
+          amount: tx.amount,
+          lessonId: tx.lessonId,
+          lessonDate: tx.lessonDate,
+          lessonStartMinute: tx.lessonStartMinute,
+          sourceKey: tx.sourceKey,
+          date: tx.date,
+        }))
+    : [];
+
+  return {
+    migration: {
+      active: isCreditTrackingMigrated(data),
+      migratedAt: data.creditTrackingMigratedAt || null,
+      inferred: data.creditTrackingMigrationInferred === true,
+    },
+    counts: {
+      packages: (data.packages || []).length,
+      packageTransactions: packageTransactions.length,
+      pendingChanges: _hasPendingLocalChanges,
+      isSaving: _isSaving,
+      isAdmin: _isAdmin,
+    },
+    samplePackage: samplePackage ? {
+      id: samplePackage.id,
+      name: samplePackage.name,
+      credits: samplePackage.credits,
+      legacyCredits: samplePackage.legacyCredits,
+      currentCredits: samplePackage.currentCredits,
+      syncedCurrentCredits: samplePackage.syncedCurrentCredits,
+      openingCredits: samplePackage.openingCredits,
+      historyLength: Array.isArray(samplePackage.history) ? samplePackage.history.length : 0,
+      manualHistoryLength: Array.isArray(samplePackage.manualHistory) ? samplePackage.manualHistory.length : 0,
+      transactionCount: (transactionsByPackageId.get(samplePackage.id) || []).length,
+    } : null,
+    sampleTransactions,
+  };
 }
 
 export function generateId() {
@@ -271,6 +348,34 @@ function getPackageManualHistory(pkg, lessonIdMap = new Map()) {
   }).filter(Boolean);
 }
 
+function normalizePackageTransaction(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const packageId = typeof entry.packageId === 'string'
+    ? entry.packageId
+    : (typeof entry.package_id === 'string' ? entry.package_id : '');
+  if (!packageId) return null;
+
+  const dateSource = entry.date || entry.createdAt || entry.created_at || new Date().toISOString();
+  const nextEntry = {
+    id: isUuid(entry.id) ? entry.id : createUuid(),
+    packageId,
+    type: String(entry.type || 'correction'),
+    amount: Number(entry.amount) || 0,
+    lessonId: entry.lessonId || entry.lesson_id || null,
+    lessonDate: entry.lessonDate || entry.lesson_date || null,
+    lessonStartMinute: Number.isFinite(Number(entry.lessonStartMinute ?? entry.lesson_start_minute))
+      ? Number(entry.lessonStartMinute ?? entry.lesson_start_minute)
+      : null,
+    note: entry.note || null,
+    date: new Date(dateSource).toISOString(),
+    sourceKey: typeof entry.sourceKey === 'string'
+      ? entry.sourceKey
+      : (typeof entry.source_key === 'string' ? entry.source_key : null),
+  };
+
+  return nextEntry;
+}
+
 function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
   if (!pkg || typeof pkg !== 'object') return null;
   const name = (pkg.name || '').trim();
@@ -297,16 +402,27 @@ function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
     || rawCustomPaymentRate === ''
     ? null
     : Number(rawCustomPaymentRate);
+  const rawSyncedCurrentCredits = pkg.syncedCurrentCredits;
+  const syncedCurrentCredits = Number.isFinite(Number(rawSyncedCurrentCredits))
+    ? Number(rawSyncedCurrentCredits)
+    : null;
+  const rawCurrentCredits = pkg.currentCredits;
+  const currentCredits = Number.isFinite(Number(rawCurrentCredits))
+    ? Number(rawCurrentCredits)
+    : (syncedCurrentCredits ?? credits);
   return {
     ...pkg,
     id: isUuid(pkg.id) ? pkg.id : createUuid(),
     name,
     credits,
+    legacyCredits: rawCredits,
+    currentCredits,
     active: pkg.active !== false,
     archivedAt: typeof pkg.archivedAt === 'string' && pkg.archivedAt.trim() ? pkg.archivedAt : null,
     openingCredits,
     manualHistory,
     history: manualHistory,
+    syncedCurrentCredits,
     customPaymentRate: Number.isFinite(customPaymentRate) ? customPaymentRate : null,
     hasPackageLessons: pkg.hasPackageLessons === true || rawNormalizedHistory.length > 0 || credits !== 0,
   };
@@ -392,6 +508,9 @@ function normalizeAppState(state) {
   normalizedState.packages = Array.isArray(normalizedState.packages)
     ? normalizedState.packages.map(pkg => normalizePackageEntry(pkg, lessonIdMap)).filter(Boolean)
     : [];
+  normalizedState.packageTransactions = Array.isArray(normalizedState.packageTransactions)
+    ? normalizedState.packageTransactions.map(entry => normalizePackageTransaction(entry)).filter(Boolean)
+    : [];
   normalizedState.groups = Array.isArray(normalizedState.groups)
     ? normalizedState.groups
       .filter(group => group && typeof group === 'object')
@@ -435,6 +554,17 @@ function normalizeAppState(state) {
         description: income.description || '',
       }))
     : [];
+  const normalizedMigratedAt = normalizeDateString(normalizedState.creditTrackingMigratedAt)
+    || (typeof normalizedState.creditTrackingMigratedAt === 'string' && normalizedState.creditTrackingMigratedAt.trim()
+      ? normalizedState.creditTrackingMigratedAt
+      : null);
+  const inferredMigratedAt = normalizedState.packageTransactions.length > 0
+    ? [...normalizedState.packageTransactions]
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]?.date || new Date().toISOString()
+    : null;
+  normalizedState.creditTrackingMigrationInferred = normalizedState.creditTrackingMigrationInferred === true
+    || (!!inferredMigratedAt && !normalizedMigratedAt);
+  normalizedState.creditTrackingMigratedAt = normalizedMigratedAt || inferredMigratedAt || null;
 
   syncReferenceEntriesFromLessons(normalizedState);
   recomputePackageCreditState(normalizedState);
@@ -522,7 +652,68 @@ function buildDerivedLessonHistoryByPackage(state, now = new Date()) {
   return historyByPackage;
 }
 
+function mapPackageTransactionToHistoryRecord(tx) {
+  if (!tx) return null;
+  let reason = tx.type;
+  if (tx.type === 'lesson_use') reason = 'lesson';
+  if (tx.type === 'lesson_cancel') reason = 'lesson_cancel';
+  if (tx.type === 'manual_deduct') reason = 'manual_deduct';
+  return {
+    date: tx.date,
+    amount: Number(tx.amount) || 0,
+    reason,
+    lessonId: tx.lessonId || null,
+    lessonDate: tx.lessonDate || null,
+    lessonStartMinute: tx.lessonStartMinute,
+    note: tx.note || null,
+    sourceKey: tx.sourceKey || null,
+    transactionId: tx.id,
+  };
+}
+
+function buildTransactionHistoryByPackage(state) {
+  const historyByPackage = new Map();
+  const sortedTransactions = [...(state.packageTransactions || [])].sort((a, b) => {
+    const timeDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return String(a.sourceKey || a.id).localeCompare(String(b.sourceKey || b.id));
+  });
+
+  for (const tx of sortedTransactions) {
+    const key = tx.packageId;
+    if (!key) continue;
+    if (!historyByPackage.has(key)) historyByPackage.set(key, []);
+    const record = mapPackageTransactionToHistoryRecord(tx);
+    if (record) historyByPackage.get(key).push(record);
+  }
+
+  return historyByPackage;
+}
+
 function recomputePackageCreditState(state) {
+  if (isCreditTrackingMigrated(state)) {
+    const historyByPackage = buildTransactionHistoryByPackage(state);
+
+    for (const pkg of state.packages || []) {
+      const transactionHistory = historyByPackage.get(pkg.id) || [];
+      let runningCredits = 0;
+      pkg.manualHistory = [];
+      pkg.history = transactionHistory.map(entry => {
+        const amount = Number(entry.amount) || 0;
+        const nextEntry = {
+          ...entry,
+          before: runningCredits,
+          after: runningCredits + amount,
+        };
+        runningCredits += amount;
+        return nextEntry;
+      });
+      pkg.currentCredits = runningCredits;
+      pkg.credits = runningCredits;
+    }
+    return;
+  }
+
   const derivedHistoryByPackage = buildDerivedLessonHistoryByPackage(state);
 
   for (const pkg of state.packages || []) {
@@ -553,7 +744,43 @@ function recomputePackageCreditState(state) {
       return nextEntry;
     });
     pkg.credits = runningCredits;
+    pkg.currentCredits = runningCredits;
   }
+}
+
+function getCurrentCreditValue(pkg) {
+  return Number.isFinite(Number(pkg?.currentCredits))
+    ? Number(pkg.currentCredits)
+    : (Number.isFinite(Number(pkg?.credits)) ? Number(pkg.credits) : 0);
+}
+
+function getDisplayedPackageCredits(pkg) {
+  return getCurrentCreditValue(pkg);
+}
+
+function hasUnsyncedPackageCurrentCredits(state) {
+  return (state?.packages || []).some(pkg => {
+    if (!pkg) return false;
+    return getCurrentCreditValue(pkg) !== pkg.syncedCurrentCredits;
+  });
+}
+
+function markPackageCurrentCreditsSynced(pkg) {
+  if (!pkg || typeof pkg !== 'object') return pkg;
+  pkg.syncedCurrentCredits = getCurrentCreditValue(pkg);
+  return pkg;
+}
+
+function preparePackageForSync(pkg, state) {
+  const normalizedPkg = normalizePackageEntry(pkg);
+  const transientState = {
+    lessons: state?.lessons || [],
+    packageTransactions: state?.packageTransactions || [],
+    creditTrackingMigratedAt: state?.creditTrackingMigratedAt || null,
+    packages: [normalizedPkg],
+  };
+  recomputePackageCreditState(transientState);
+  return transientState.packages[0];
 }
 
 function syncReferenceEntriesFromLessons(state) {
@@ -698,12 +925,18 @@ function buildRemoteState(rows) {
     id: row.id,
     name: row.name,
     credits: row.credits,
+    currentCredits: row.current_credits,
     active: row.active,
     archivedAt: row.archived_at,
     history: Array.isArray(row.history) ? row.history : [],
+    syncedCurrentCredits: row.current_credits,
     customPaymentRate: row.custom_payment_rate,
     hasPackageLessons: row.has_package_lessons,
   }));
+
+  const packageTransactions = (rows.package_transactions || [])
+    .map(row => normalizePackageTransaction(row))
+    .filter(Boolean);
 
   const groups = (rows.groups || []).map(row => ({
     id: row.id,
@@ -741,7 +974,10 @@ function buildRemoteState(rows) {
     instructors,
     lessons,
     packages,
+    packageTransactions,
     groups,
+    creditTrackingMigratedAt: settingsMap.get('credit_tracking_migrated_at') || null,
+    creditTrackingMigrationInferred: packageTransactions.length > 0 && !settingsMap.has('credit_tracking_migrated_at'),
     closedDates: Array.isArray(settingsMap.get('closed_dates')) ? settingsMap.get('closed_dates') : [],
     expenses: expenseData,
     incomes: incomes,
@@ -751,14 +987,14 @@ function buildRemoteState(rows) {
 }
 
 async function fetchRemoteSnapshot() {
-  const [lessons, packages, instructors, horses, groups, settings, expenses, incomes] = await Promise.all(
+  const [lessons, packages, package_transactions, instructors, horses, groups, settings, expenses, incomes] = await Promise.all(
     REMOTE_TABLES.map(table => fetchRemoteRows(table))
   );
 
-  const hasData = [lessons, packages, instructors, horses, groups, settings, expenses, incomes].some(rows => rows.length > 0);
+  const hasData = [lessons, packages, package_transactions, instructors, horses, groups, settings, expenses, incomes].some(rows => rows.length > 0);
   return {
     hasData,
-    state: buildRemoteState({ lessons, packages, instructors, horses, groups, settings, expenses, incomes }),
+    state: buildRemoteState({ lessons, packages, package_transactions, instructors, horses, groups, settings, expenses, incomes }),
   };
 }
 
@@ -791,6 +1027,21 @@ async function refreshFromRemote() {
     notifyListeners();
   } catch (error) {
     console.error('[store] Realtime refresh failed', error);
+  }
+}
+
+async function ensureCreditTrackingSchemaReady() {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+
+  const { error } = await supabase
+    .from('package_transactions')
+    .select('id,source_key')
+    .limit(1);
+
+  if (error) {
+    throw new Error('Credit tracking DB migration is missing. Run the latest SQL migration first.');
   }
 }
 
@@ -851,9 +1102,14 @@ export async function loadData() {
 
     // Reconcile remote data with local state
     if (hasPendingLocalCache && cachedLocalState) {
-      _persistedData = deepClone(snapshot.state);
-      setDataState(cachedLocalState, { pending: true });
-      if (!_isAdmin) {
+      const shouldPreferRemoteLedgerState = hasRemoteLedgerState(snapshot.state);
+      if (shouldPreferRemoteLedgerState) {
+        setDataState(snapshot.state, { persisted: true, pending: false });
+      } else {
+        _persistedData = deepClone(snapshot.state);
+        setDataState(cachedLocalState, { pending: true });
+      }
+      if (!_isAdmin && !shouldPreferRemoteLedgerState) {
         dispatchStoreWarning(t('syncLoginRequired'));
       }
     } else if (snapshot.hasData) {
@@ -877,7 +1133,7 @@ export async function loadData() {
   processPastLessonsForCredits();
   notifyListeners();
 
-  if (_isAdmin && _hasPendingLocalChanges) {
+  if (_isAdmin && (_hasPendingLocalChanges || hasUnsyncedPackageCurrentCredits(_data) || _data.creditTrackingMigrationInferred === true)) {
     saveData();
   }
 
@@ -979,15 +1235,32 @@ function buildLessonRow(lesson, horseIdByName, instructorIdByName) {
 
 function buildPackageRow(pkg) {
   const manualHistory = getPackageManualHistory(pkg);
+  const baseCredits = (Number(pkg.openingCredits) || 0) + sumHistoryAmounts(manualHistory);
   return {
     id: pkg.id,
     name: pkg.name,
-    credits: (Number(pkg.openingCredits) || 0) + sumHistoryAmounts(manualHistory),
+    credits: isCreditTrackingMigrated(_data) ? (Number(pkg.legacyCredits) || 0) : baseCredits,
+    current_credits: getCurrentCreditValue(pkg),
     active: pkg.active !== false,
     archived_at: pkg.archivedAt || null,
     history: manualHistory,
     custom_payment_rate: pkg.customPaymentRate ?? null,
     has_package_lessons: pkg.hasPackageLessons === true,
+  };
+}
+
+function buildPackageTransactionRow(tx) {
+  return {
+    id: tx.id,
+    package_id: tx.packageId,
+    type: tx.type,
+    amount: Number(tx.amount) || 0,
+    lesson_id: tx.lessonId || null,
+    lesson_date: tx.lessonDate || null,
+    lesson_start_minute: tx.lessonStartMinute ?? null,
+    note: tx.note || null,
+    created_at: tx.date,
+    source_key: tx.sourceKey || null,
   };
 }
 
@@ -1074,7 +1347,7 @@ async function syncPackages(current, persisted) {
   for (let index = 0; index < currentPackages.length; index += 1) {
     const pkg = currentPackages[index];
     const previous = persistedById.get(pkg.id);
-    if (previous && jsonEqual(pkg, previous)) continue;
+    if (previous && jsonEqual(pkg, previous) && !hasUnsyncedPackageCurrentCredits({ packages: [pkg] })) continue;
 
     if (!previous) {
       const { data: existingByName, error: existingByNameError } = await supabase
@@ -1092,18 +1365,24 @@ async function syncPackages(current, persisted) {
           active: existingByName.active,
           archivedAt: existingByName.archived_at,
           history: existingByName.history,
+          syncedCurrentCredits: existingByName.current_credits,
           customPaymentRate: existingByName.custom_payment_rate,
           hasPackageLessons: existingByName.has_package_lessons,
         });
         const mergedPkg = mergePackageState(pkg, null, remotePkg);
-        currentPackages[index] = mergedPkg;
-        const { error } = await supabase.from('packages').upsert(buildPackageRow(mergedPkg), { onConflict: 'id' });
+        const syncReadyPkg = preparePackageForSync(mergedPkg, current);
+        currentPackages[index] = syncReadyPkg;
+        const { error } = await supabase.from('packages').upsert(buildPackageRow(syncReadyPkg), { onConflict: 'id' });
         if (error) throw error;
+        markPackageCurrentCreditsSynced(syncReadyPkg);
         continue;
       }
 
-      const { error } = await supabase.from('packages').upsert(buildPackageRow(pkg), { onConflict: 'id' });
+      const syncReadyPkg = preparePackageForSync(pkg, current);
+      currentPackages[index] = syncReadyPkg;
+      const { error } = await supabase.from('packages').upsert(buildPackageRow(syncReadyPkg), { onConflict: 'id' });
       if (error) throw error;
+      markPackageCurrentCreditsSynced(syncReadyPkg);
       continue;
     }
 
@@ -1129,6 +1408,7 @@ async function syncPackages(current, persisted) {
         active: conflictingNameRow.active,
         archivedAt: conflictingNameRow.archived_at,
         history: conflictingNameRow.history,
+        syncedCurrentCredits: conflictingNameRow.current_credits,
         customPaymentRate: conflictingNameRow.custom_payment_rate,
         hasPackageLessons: conflictingNameRow.has_package_lessons,
       });
@@ -1141,10 +1421,12 @@ async function syncPackages(current, persisted) {
         id: remotePkg.id,
       });
 
-      currentPackages[index] = mergedPkg;
+      const syncReadyPkg = preparePackageForSync(mergedPkg, current);
+      currentPackages[index] = syncReadyPkg;
 
-      const { error } = await supabase.from('packages').upsert(buildPackageRow(mergedPkg), { onConflict: 'id' });
+      const { error } = await supabase.from('packages').upsert(buildPackageRow(syncReadyPkg), { onConflict: 'id' });
       if (error) throw error;
+      markPackageCurrentCreditsSynced(syncReadyPkg);
       continue;
     }
 
@@ -1158,15 +1440,18 @@ async function syncPackages(current, persisted) {
         active: latestRow.active,
         archivedAt: latestRow.archived_at,
         history: latestRow.history,
+        syncedCurrentCredits: latestRow.current_credits,
         customPaymentRate: latestRow.custom_payment_rate,
         hasPackageLessons: latestRow.has_package_lessons,
       }) : null
     );
 
-    currentPackages[index] = mergedPkg;
+    const syncReadyPkg = preparePackageForSync(mergedPkg, current);
+    currentPackages[index] = syncReadyPkg;
 
-    const { error } = await supabase.from('packages').upsert(buildPackageRow(mergedPkg), { onConflict: 'id' });
+    const { error } = await supabase.from('packages').upsert(buildPackageRow(syncReadyPkg), { onConflict: 'id' });
     if (error) throw error;
+    markPackageCurrentCreditsSynced(syncReadyPkg);
   }
 
   for (const pkg of persisted.packages || []) {
@@ -1209,11 +1494,13 @@ async function syncLessons(current, persisted) {
 async function syncSettings(current, persisted) {
   const currentRows = [
     { key: 'closed_dates', value: current.closedDates || [] },
+    { key: 'credit_tracking_migrated_at', value: current.creditTrackingMigratedAt || null },
     { key: 'legacy_next_id', value: current.nextId || 1 },
     { key: 'legacy_next_group_id', value: current.nextGroupId || 1 },
   ];
   const persistedRows = [
     { key: 'closed_dates', value: persisted.closedDates || [] },
+    { key: 'credit_tracking_migrated_at', value: persisted.creditTrackingMigratedAt || null },
     { key: 'legacy_next_id', value: persisted.nextId || 1 },
     { key: 'legacy_next_group_id', value: persisted.nextGroupId || 1 },
   ];
@@ -1223,6 +1510,32 @@ async function syncSettings(current, persisted) {
     if (jsonEqual(row.value, persistedMap.get(row.key))) continue;
     const { error } = await supabase.from('settings').upsert(row, { onConflict: 'key' });
     if (error) throw error;
+  }
+}
+
+function getPackageTransactionIdentity(tx) {
+  return tx?.sourceKey || tx?.id || null;
+}
+
+async function syncPackageTransactions(current, persisted) {
+  const persistedKeys = new Set(
+    (persisted.packageTransactions || [])
+      .map(tx => getPackageTransactionIdentity(tx))
+      .filter(Boolean)
+  );
+
+  for (const tx of current.packageTransactions || []) {
+    const identity = getPackageTransactionIdentity(tx);
+    if (!identity || persistedKeys.has(identity)) continue;
+
+    const { error } = tx.sourceKey
+      ? await supabase.from('package_transactions').upsert(buildPackageTransactionRow(tx), {
+          onConflict: 'source_key',
+          ignoreDuplicates: true,
+        })
+      : await supabase.from('package_transactions').insert(buildPackageTransactionRow(tx));
+
+    if (error && error.code !== '23505') throw error;
   }
 }
 
@@ -1278,6 +1591,7 @@ async function syncToSupabase() {
   await syncHorses(_data, _persistedData);
   await syncInstructors(_data, _persistedData);
   await syncGroups(_data, _persistedData);
+  await syncPackageTransactions(_data, _persistedData);
   await syncPackages(_data, _persistedData);
   await syncLessons(_data, _persistedData);
   await syncSettings(_data, _persistedData);
@@ -1291,7 +1605,7 @@ export function saveData({ throwOnError = false } = {}) {
   _saveChain = _saveChain.then(async () => {
     try {
       _data = normalizeAppState(_data);
-      const hasDiff = !jsonEqual(_data, _persistedData);
+      const hasDiff = !jsonEqual(_data, _persistedData) || hasUnsyncedPackageCurrentCredits(_data);
       _hasPendingLocalChanges = hasDiff;
       persistLocalState({ pending: _hasPendingLocalChanges });
 
@@ -1318,7 +1632,9 @@ export function saveData({ throwOnError = false } = {}) {
 
       try {
         await syncToSupabase();
+        _data.creditTrackingMigrationInferred = false;
         _data = normalizeAppState(_data);
+        _data.creditTrackingMigrationInferred = false;
         _persistedData = deepClone(_data);
         _hasPendingLocalChanges = false;
         persistLocalState({ pending: false });
@@ -1406,7 +1722,9 @@ function syncPackageEntriesFromLessons() {
     changed = true;
   }
 
-  d.packages = d.packages.map(pkg => normalizePackageEntry(pkg)).filter(Boolean);
+  if (!isCreditTrackingMigrated(d)) {
+    d.packages = d.packages.map(pkg => normalizePackageEntry(pkg)).filter(Boolean);
+  }
 
   const registerClient = (name, hasPackageLessons) => {
     if (ensurePackageEntryState(name, { hasPackageLessons, reactivate: false })) {
@@ -1459,6 +1777,245 @@ function getLessonClientNames(lesson) {
 function getRecurringInstanceLesson(lesson, dateStr) {
   const override = lesson.instanceOverrides?.[dateStr];
   return override ? { ...lesson, ...override } : lesson;
+}
+
+function buildPackageTransactionSourceKey(prefix, occurrenceBase, ordinal = null) {
+  return ordinal === null
+    ? `${prefix}|${occurrenceBase}`
+    : `${prefix}|${occurrenceBase}|${ordinal}`;
+}
+
+function buildOccurrenceBaseKey({ packageId, lessonId, lessonDate, lessonStartMinute }) {
+  return [
+    packageId || '',
+    lessonId || '',
+    lessonDate || '',
+    Number.isFinite(Number(lessonStartMinute)) ? Number(lessonStartMinute) : ''
+  ].join('|');
+}
+
+function getOccurrenceTransactions(state, occurrence) {
+  const targetBase = buildOccurrenceBaseKey(occurrence);
+  return (state.packageTransactions || []).filter(tx => {
+    if (!tx?.packageId || !tx?.lessonDate) return false;
+    if (buildOccurrenceBaseKey(tx) !== targetBase) return false;
+    if (tx.type === 'lesson_use' || tx.type === 'lesson_cancel') return true;
+    return tx.type === 'correction' && typeof tx.sourceKey === 'string' && (
+      tx.sourceKey.startsWith('lesson_restore|')
+      || tx.sourceKey.startsWith('lesson_adjust|')
+    );
+  });
+}
+
+function getOccurrenceNetAmount(state, occurrence) {
+  return getOccurrenceTransactions(state, occurrence)
+    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+}
+
+function getOccurrenceSourceKeyCount(state, prefix, occurrenceBase) {
+  return (state.packageTransactions || []).filter(tx =>
+    typeof tx?.sourceKey === 'string' && tx.sourceKey.startsWith(`${prefix}|${occurrenceBase}|`)
+  ).length;
+}
+
+function appendPackageTransactionState(state, tx, { recompute = true } = {}) {
+  const normalized = normalizePackageTransaction(tx);
+  if (!normalized) return false;
+  const identity = getPackageTransactionIdentity(normalized);
+  if (!identity) return false;
+  if ((state.packageTransactions || []).some(entry => getPackageTransactionIdentity(entry) === identity)) {
+    return false;
+  }
+  if (!Array.isArray(state.packageTransactions)) {
+    state.packageTransactions = [];
+  }
+  state.packageTransactions.push(normalized);
+  if (recompute) {
+    recomputePackageCreditState(state);
+  }
+  return true;
+}
+
+function buildPastPackageOccurrenceMap(state, now = new Date()) {
+  const packageByName = new Map(
+    (state.packages || []).map(pkg => [String(pkg.name || '').trim().toLowerCase(), pkg]).filter(([key]) => key)
+  );
+  const occurrences = new Map();
+
+  const pushOccurrence = ({ lesson, dateStr, instanceLesson, desiredNet }) => {
+    if (instanceLesson?.lessonType === 'custom' || lesson?.lessonType === 'custom') return;
+    const startMinute = Number(instanceLesson?.startMinute ?? lesson?.startMinute) || 0;
+    const packageNames = Array.isArray(instanceLesson?.participants) && instanceLesson.participants.length > 0
+      ? [...new Set(
+          instanceLesson.participants
+            .filter(participant => participant?.packageMode !== false)
+            .map(participant => (participant?.packageName || participant?.name || '').trim())
+            .filter(Boolean)
+        )]
+      : ((instanceLesson?.packageMode === false)
+          ? []
+          : [String(instanceLesson?.title || lesson?.title || '').trim()].filter(Boolean));
+
+    for (const packageName of packageNames) {
+      const pkg = packageByName.get(packageName.toLowerCase());
+      if (!pkg) continue;
+      const occurrence = {
+        packageId: pkg.id,
+        lessonId: lesson.id,
+        lessonDate: dateStr,
+        lessonStartMinute: startMinute,
+      };
+      occurrences.set(buildOccurrenceBaseKey(occurrence), {
+        ...occurrence,
+        desiredNet,
+      });
+    }
+  };
+
+  for (const lesson of state.lessons || []) {
+    if (!lesson?.date) continue;
+    const durationMinutes = Number(lesson.durationMinutes) || 0;
+
+    if (!lesson.recurring) {
+      const start = parseDate(lesson.date);
+      start.setMinutes(start.getMinutes() + (Number(lesson.startMinute) || 0));
+      const end = new Date(start);
+      end.setMinutes(end.getMinutes() + durationMinutes);
+      if (end >= now) continue;
+      const desiredNet = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(lesson.date) ? 0 : -1;
+      pushOccurrence({ lesson, dateStr: lesson.date, instanceLesson: lesson, desiredNet });
+      continue;
+    }
+
+    const recurrenceEnd = lesson.recurringUntil ? parseDate(lesson.recurringUntil) : now;
+    const loopEnd = recurrenceEnd < now ? recurrenceEnd : now;
+    let current = parseDate(lesson.date);
+
+    while (current <= loopEnd) {
+      const dateStr = formatDate(current);
+      const instanceLesson = getRecurringInstanceLesson(lesson, dateStr);
+      const start = parseDate(dateStr);
+      start.setMinutes(start.getMinutes() + (Number(instanceLesson.startMinute) || 0));
+      const end = new Date(start);
+      end.setMinutes(end.getMinutes() + (Number(instanceLesson.durationMinutes) || durationMinutes));
+      if (end < now) {
+        const desiredNet = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(dateStr) ? 0 : -1;
+        pushOccurrence({ lesson, dateStr, instanceLesson, desiredNet });
+      }
+      current.setDate(current.getDate() + 7);
+    }
+  }
+
+  return occurrences;
+}
+
+function ensureOccurrenceNet(state, occurrence, desiredNet) {
+  const occurrenceBase = buildOccurrenceBaseKey(occurrence);
+  const occurrenceTransactions = getOccurrenceTransactions(state, occurrence);
+  const currentNet = occurrenceTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+  if (currentNet === desiredNet) return false;
+
+  const hasBaseUse = occurrenceTransactions.some(tx => tx.type === 'lesson_use');
+  let nextTransaction = null;
+
+  if (desiredNet === -1 && currentNet === 0) {
+    if (hasBaseUse) {
+      const ordinal = getOccurrenceSourceKeyCount(state, 'lesson_restore', occurrenceBase) + 1;
+      nextTransaction = {
+        id: generateId(),
+        packageId: occurrence.packageId,
+        type: 'correction',
+        amount: -1,
+        lessonId: occurrence.lessonId,
+        lessonDate: occurrence.lessonDate,
+        lessonStartMinute: occurrence.lessonStartMinute,
+        note: 'Restore cancelled lesson occurrence',
+        date: new Date().toISOString(),
+        sourceKey: buildPackageTransactionSourceKey('lesson_restore', occurrenceBase, ordinal),
+      };
+    } else {
+      nextTransaction = {
+        id: generateId(),
+        packageId: occurrence.packageId,
+        type: 'lesson_use',
+        amount: -1,
+        lessonId: occurrence.lessonId,
+        lessonDate: occurrence.lessonDate,
+        lessonStartMinute: occurrence.lessonStartMinute,
+        note: 'Automatic deduction for completed lesson',
+        date: new Date().toISOString(),
+        sourceKey: buildPackageTransactionSourceKey('lesson_use', occurrenceBase),
+      };
+    }
+  } else if (desiredNet === 0 && currentNet === -1) {
+    const ordinal = getOccurrenceSourceKeyCount(state, 'lesson_cancel', occurrenceBase) + 1;
+    nextTransaction = {
+      id: generateId(),
+      packageId: occurrence.packageId,
+      type: 'lesson_cancel',
+      amount: 1,
+      lessonId: occurrence.lessonId,
+      lessonDate: occurrence.lessonDate,
+      lessonStartMinute: occurrence.lessonStartMinute,
+      note: 'Reverse deduction for removed or cancelled lesson',
+      date: new Date().toISOString(),
+      sourceKey: buildPackageTransactionSourceKey('lesson_cancel', occurrenceBase, ordinal),
+    };
+  } else {
+    const ordinal = getOccurrenceSourceKeyCount(state, 'lesson_adjust', occurrenceBase) + 1;
+    nextTransaction = {
+      id: generateId(),
+      packageId: occurrence.packageId,
+      type: 'correction',
+      amount: desiredNet - currentNet,
+      lessonId: occurrence.lessonId,
+      lessonDate: occurrence.lessonDate,
+      lessonStartMinute: occurrence.lessonStartMinute,
+      note: 'Automatic lesson credit reconciliation',
+      date: new Date().toISOString(),
+      sourceKey: buildPackageTransactionSourceKey('lesson_adjust', occurrenceBase, ordinal),
+    };
+  }
+
+  return appendPackageTransactionState(state, nextTransaction, { recompute: false });
+}
+
+function reconcileMigratedPackageCredits(state) {
+  if (!isCreditTrackingMigrated(state)) return false;
+
+  const expectedOccurrences = buildPastPackageOccurrenceMap(state);
+  const seenOccurrences = new Map();
+  let changed = false;
+
+  for (const tx of state.packageTransactions || []) {
+    if (!tx?.packageId || !tx?.lessonDate || !tx?.lessonId) continue;
+    const occurrence = {
+      packageId: tx.packageId,
+      lessonId: tx.lessonId,
+      lessonDate: tx.lessonDate,
+      lessonStartMinute: tx.lessonStartMinute,
+    };
+    seenOccurrences.set(buildOccurrenceBaseKey(occurrence), occurrence);
+  }
+
+  for (const occurrence of expectedOccurrences.values()) {
+    if (ensureOccurrenceNet(state, occurrence, occurrence.desiredNet)) {
+      changed = true;
+    }
+  }
+
+  for (const [baseKey, occurrence] of seenOccurrences.entries()) {
+    if (expectedOccurrences.has(baseKey)) continue;
+    if (ensureOccurrenceNet(state, occurrence, 0)) {
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    recomputePackageCreditState(state);
+  }
+
+  return changed;
 }
 
 function buildClientLessonStats() {
@@ -1577,6 +2134,9 @@ export function addLesson(lesson, { save = true } = {}) {
   });
   d.lessons.push(newLesson);
   logAction('ADD_LESSON', newLesson);
+  if (isCreditTrackingMigrated(d)) {
+    reconcileMigratedPackageCredits(d);
+  }
   if (save) saveData();
   return newLesson;
 }
@@ -1587,6 +2147,9 @@ export function updateLesson(id, updates, { save = true } = {}) {
   if (idx >= 0) {
     d.lessons[idx] = normalizeLesson({ ...d.lessons[idx], ...updates });
     logAction('UPDATE_LESSON', { id, updates });
+    if (isCreditTrackingMigrated(d)) {
+      reconcileMigratedPackageCredits(d);
+    }
     if (save) saveData();
   }
 }
@@ -1629,6 +2192,9 @@ export function updateLessonInstance(id, dateStr, updates, { save = true } = {})
     lesson.instanceOverrides[dateStr] = merged;
   }
 
+  if (isCreditTrackingMigrated(d)) {
+    reconcileMigratedPackageCredits(d);
+  }
   if (save) saveData();
 }
 
@@ -1639,7 +2205,11 @@ export function deleteLesson(id) {
 
   d.lessons = d.lessons.filter(entry => entry.id !== id);
   logAction('DELETE_LESSON', { id, title: lesson.title });
-  recomputePackageCreditState(d);
+  if (isCreditTrackingMigrated(d)) {
+    reconcileMigratedPackageCredits(d);
+  } else {
+    recomputePackageCreditState(d);
+  }
   saveData();
 }
 
@@ -1695,6 +2265,9 @@ export function toggleCancelLessonInstance(id, dateStr) {
   } else {
     lesson.cancelledDates.push(dateStr);
   }
+  if (isCreditTrackingMigrated(d)) {
+    reconcileMigratedPackageCredits(d);
+  }
   saveData();
 }
 
@@ -1702,6 +2275,14 @@ export function processPastLessonsForCredits() {
   if (!_data) return;
   const packageSyncChanged = syncPackageEntriesFromLessons();
   const archiveChanged = autoArchiveDormantClients();
+  if (isCreditTrackingMigrated(_data)) {
+    recomputePackageCreditState(_data);
+    const transactionChanged = reconcileMigratedPackageCredits(_data);
+    if (packageSyncChanged || archiveChanged || transactionChanged) {
+      saveData();
+    }
+    return;
+  }
   const beforeSnapshot = JSON.stringify(
     (_data.packages || []).map(pkg => ({
       id: pkg.id,
@@ -1728,6 +2309,102 @@ export function processPastLessonsForCredits() {
   }
 }
 
+function mapLegacyHistoryEntryToTransaction(pkg, entry, index) {
+  const amount = Number(entry?.amount) || 0;
+  let type = 'correction';
+  if (entry?.reason === 'lesson') type = 'lesson_use';
+  else if (entry?.reason === 'lesson_cancel') type = 'lesson_cancel';
+  else if (entry?.reason === 'manual_deduct' || amount < 0) type = 'manual_deduct';
+  else if (amount > 0) type = 'manual_add';
+
+  return {
+    id: generateId(),
+    packageId: pkg.id,
+    type,
+    amount,
+    lessonId: entry?.lessonId || null,
+    lessonDate: entry?.lessonDate || null,
+    lessonStartMinute: Number.isFinite(Number(entry?.lessonStartMinute)) ? Number(entry.lessonStartMinute) : null,
+    note: 'Legacy credit history import',
+    date: entry?.date || new Date().toISOString(),
+    sourceKey: `legacy_history|${pkg.id}|${index}`,
+  };
+}
+
+function buildLegacyOpeningTransaction(pkg, fallbackDate) {
+  const openingCredits = Number(pkg?.openingCredits) || 0;
+  if (openingCredits === 0) return null;
+
+  let date = fallbackDate || new Date().toISOString();
+  const parsed = new Date(date);
+  if (!Number.isNaN(parsed.getTime())) {
+    parsed.setSeconds(parsed.getSeconds() - 1);
+    date = parsed.toISOString();
+  }
+
+  return {
+    id: generateId(),
+    packageId: pkg.id,
+    type: 'correction',
+    amount: openingCredits,
+    note: 'Legacy opening balance at migration',
+    date,
+    sourceKey: `legacy_opening|${pkg.id}`,
+  };
+}
+
+export async function migrateCreditValues() {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+  if (!_isAdmin) {
+    throw new Error('Admin login required.');
+  }
+
+  const d = getData();
+  if (isCreditTrackingMigrated(d)) {
+    return false;
+  }
+
+  await ensureCreditTrackingSchemaReady();
+
+  const previousState = deepClone(d);
+  const previousPending = _hasPendingLocalChanges;
+  syncPackageEntriesFromLessons();
+  recomputePackageCreditState(d);
+
+  const legacyPackages = deepClone(d.packages || []);
+  const migrationTimestamp = new Date().toISOString();
+
+  if (!Array.isArray(d.packageTransactions)) {
+    d.packageTransactions = [];
+  }
+
+  for (const pkg of legacyPackages) {
+    const sortedHistory = [...(pkg.history || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const firstHistoryDate = sortedHistory[0]?.date || migrationTimestamp;
+    const openingTransaction = buildLegacyOpeningTransaction(pkg, firstHistoryDate);
+    if (openingTransaction) {
+      appendPackageTransactionState(d, openingTransaction, { recompute: false });
+    }
+    sortedHistory.forEach((entry, index) => {
+      appendPackageTransactionState(d, mapLegacyHistoryEntryToTransaction(pkg, entry, index), { recompute: false });
+    });
+  }
+
+  d.creditTrackingMigratedAt = migrationTimestamp;
+  recomputePackageCreditState(d);
+  logAction('MIGRATE_CREDIT_VALUES', { migratedAt: migrationTimestamp, transactionCount: d.packageTransactions.length });
+  try {
+    await saveData({ throwOnError: true });
+  } catch (error) {
+    setDataState(previousState, { pending: previousPending });
+    notifyListeners();
+    throw error;
+  }
+  return true;
+}
+
 export function ensurePackageEntry(name, { save = true, hasPackageLessons = false } = {}) {
   const changed = ensurePackageEntryState(name, { hasPackageLessons, reactivate: true });
   if (changed && save) saveData();
@@ -1737,6 +2414,22 @@ export function updatePackageCredits(id, credits) {
   const d = getData();
   const pkg = d.packages.find(entry => entry.id === id);
   if (!pkg) return;
+  if (isCreditTrackingMigrated(d)) {
+    const delta = (Number(credits) || 0) - getCurrentCreditValue(pkg);
+    if (delta === 0) return;
+    appendPackageTransactionState(d, {
+      id: generateId(),
+      packageId: pkg.id,
+      type: 'correction',
+      amount: delta,
+      note: 'Manual package credit set',
+      date: new Date().toISOString(),
+      sourceKey: `manual_set|${pkg.id}|${generateId()}`,
+    });
+    logAction('UPDATE_PACKAGE_CREDITS', { id, credits });
+    saveData();
+    return;
+  }
   pkg.openingCredits = (Number(credits) || 0) - sumHistoryAmounts(getPackageManualHistory(pkg));
   pkg.hasPackageLessons = true;
   logAction('UPDATE_PACKAGE_CREDITS', { id, credits });
@@ -1748,6 +2441,20 @@ export function addPackageCredits(id, amount) {
   const d = getData();
   const pkg = d.packages.find(entry => entry.id === id);
   if (!pkg) return;
+  if (isCreditTrackingMigrated(d)) {
+    appendPackageTransactionState(d, {
+      id: generateId(),
+      packageId: pkg.id,
+      type: amount >= 0 ? 'manual_add' : 'manual_deduct',
+      amount,
+      note: amount >= 0 ? 'Manual credit addition' : 'Manual credit deduction',
+      date: new Date().toISOString(),
+      sourceKey: `manual_adjust|${pkg.id}|${generateId()}`,
+    });
+    logAction('ADD_PACKAGE_CREDITS', { id, amount, after: getCurrentCreditValue(pkg) });
+    saveData();
+    return;
+  }
   if (!Array.isArray(pkg.manualHistory)) {
     pkg.manualHistory = getPackageManualHistory(pkg);
   }
@@ -1862,6 +2569,21 @@ export function deductCredit(name, dateStr, startMinute) {
   const d = getData();
   const pkg = d.packages.find(entry => entry.name.toLowerCase() === name.trim().toLowerCase());
   if (!pkg || !pkg.active) return;
+  if (isCreditTrackingMigrated(d)) {
+    appendPackageTransactionState(d, {
+      id: generateId(),
+      packageId: pkg.id,
+      type: 'manual_deduct',
+      amount: -1,
+      lessonDate: dateStr,
+      lessonStartMinute: startMinute,
+      note: 'Manual package deduction',
+      date: new Date().toISOString(),
+      sourceKey: `manual_deduct|${pkg.id}|${generateId()}`,
+    });
+    saveData();
+    return;
+  }
   if (!Array.isArray(pkg.manualHistory)) {
     pkg.manualHistory = getPackageManualHistory(pkg);
   }

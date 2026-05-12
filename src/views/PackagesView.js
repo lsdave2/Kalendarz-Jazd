@@ -1,8 +1,103 @@
 import { t } from '../i18n.js';
-import { el, icon } from '../utils.js';
+import { el, icon, setupModalSwipeToClose } from '../utils.js';
 import { getData, isAdmin, deletePackage, ensurePackageEntry, setPackageActive } from '../store.js';
 import { render, showToast } from '../main.js';
 import { openAddCreditsModal, openCreditHistoryModal } from '../modals/ClientModals.js';
+
+function openPackageTransactionsAuditModal() {
+  const data = getData();
+  const packageNameById = new Map((data.packages || []).map(pkg => [pkg.id, pkg.name]));
+  const transactions = [...(data.packageTransactions || [])].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
+
+  const modal = el('div', { className: 'modal', style: { maxWidth: '720px' } });
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
+  modal.appendChild(el('h3', {}, 'Package Transactions Audit'));
+  modal.appendChild(el('p', {
+    style: { marginTop: '0', marginBottom: '16px', color: 'var(--text-secondary)' }
+  }, `${transactions.length} transaction${transactions.length === 1 ? '' : 's'} loaded from DB`));
+
+  const list = el('div', {
+    className: 'history-list',
+    style: {
+      maxHeight: '65vh',
+      overflowY: 'auto',
+      paddingRight: '8px',
+      background: 'var(--bg-secondary)',
+      borderRadius: '12px',
+      padding: '8px 12px'
+    }
+  });
+
+  if (transactions.length === 0) {
+    list.appendChild(el('p', {
+      style: { color: 'var(--text-secondary)', fontStyle: 'italic', margin: '8px 0' }
+    }, 'No package transactions found.'));
+  } else {
+    for (const tx of transactions) {
+      const packageName = packageNameById.get(tx.packageId) || tx.packageId || 'Unknown package';
+      const row = el('div', {
+        style: {
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: '12px',
+          padding: '12px 0',
+          borderBottom: '1px solid var(--border-color)'
+        }
+      });
+
+      const left = el('div', { style: { minWidth: '0', flex: '1 1 auto' } });
+      left.appendChild(el('div', { style: { fontWeight: '700' } }, packageName));
+      left.appendChild(el('div', {
+        style: { fontSize: '0.8rem', color: 'var(--text-secondary)', wordBreak: 'break-word' }
+      }, `${tx.type} | ${new Date(tx.date).toLocaleString()}${tx.lessonDate ? ` | lesson ${tx.lessonDate}${tx.lessonStartMinute !== null && tx.lessonStartMinute !== undefined ? ` @ ${String(Math.floor(tx.lessonStartMinute / 60)).padStart(2, '0')}:${String(tx.lessonStartMinute % 60).padStart(2, '0')}` : ''}` : ''}`));
+      left.appendChild(el('div', {
+        style: { fontSize: '0.75rem', color: 'var(--text-muted)', wordBreak: 'break-word' }
+      }, `source_key: ${tx.sourceKey || 'none'}`));
+      if (tx.note) {
+        left.appendChild(el('div', {
+          style: { fontSize: '0.75rem', color: 'var(--text-secondary)', wordBreak: 'break-word' }
+        }, tx.note));
+      }
+
+      const right = el('div', {
+        style: {
+          fontWeight: '700',
+          fontSize: '1rem',
+          color: Number(tx.amount) > 0 ? 'var(--green)' : 'var(--red)',
+          flex: '0 0 auto',
+          alignSelf: 'center'
+        }
+      }, `${Number(tx.amount) > 0 ? '+' : ''}${tx.amount}`);
+
+      row.appendChild(left);
+      row.appendChild(right);
+      list.appendChild(row);
+    }
+
+    if (list.lastChild) {
+      list.lastChild.style.borderBottom = 'none';
+    }
+  }
+
+  modal.appendChild(list);
+
+  const btnRow = el('div', { className: 'btn-group modal-actions', style: { marginTop: '16px' } });
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-secondary',
+    onClick: () => closeModal()
+  }, t('close') || 'Close'));
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
 
 function buildPackageCard(pkg) {
   const card = el('div', {
@@ -163,6 +258,14 @@ export function buildPackagesView() {
   container.appendChild(buildPackageSection(t('packageClients'), packageClients, t('noPackageClientsYet')));
   container.appendChild(buildPackageSection(t('noPackageLessons'), noPackageClients, t('noPackageLessonsYet')));
   container.appendChild(buildPackageSection(t('archivedClients') || 'Archived', archivedClients, t('noArchivedClientsYet') || 'No archived clients yet.'));
+
+  if (isAdmin()) {
+    container.appendChild(el('button', {
+      className: 'btn btn-secondary',
+      style: { width: '100%', marginTop: '20px', marginBottom: '8px' },
+      onClick: () => openPackageTransactionsAuditModal()
+    }, icon('receipt_long'), 'Package Transactions Audit'));
+  }
 
   return container;
 }

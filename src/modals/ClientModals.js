@@ -1,6 +1,6 @@
 import { t } from '../i18n.js';
 import { el, icon, formatDate, minutesToTime, setupModalSwipeToClose } from '../utils.js';
-import { updatePackageName, addPackageCredits, getLessonsForDate, getData, setPackageActive, updatePackageCustomPaymentRate } from '../store.js';
+import { updatePackageName, addPackageCredits, getLessonsForDate, setPackageActive, updatePackageCustomPaymentRate } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord } from '../services/LessonService.js';
 import { formatDateNice } from '../views/CalendarView.js';
@@ -32,7 +32,7 @@ export function openEditClientModal(pkg, { onSaved } = {}) {
     className: 'btn btn-secondary',
     onClick: () => closeModal()
   }, t('cancel')));
-  
+
   btnRow.appendChild(el('button', {
     className: 'btn btn-primary',
     style: { marginLeft: 'auto' },
@@ -41,17 +41,17 @@ export function openEditClientModal(pkg, { onSaved } = {}) {
       if (newName) {
         const success = updatePackageName(pkg.id, newName);
         if (success) {
-           showToast(t('clientUpdated') || 'Client name updated', 'check_circle');
-           if (typeof onSaved === 'function') onSaved(newName);
-           render();
+          showToast(t('clientUpdated') || 'Client name updated', 'check_circle');
+          if (typeof onSaved === 'function') onSaved(newName);
+          render();
         } else {
-           showToast(t('clientAlreadyExists') || 'Name already exists', 'warning');
+          showToast(t('clientAlreadyExists') || 'Name already exists', 'warning');
         }
       }
       closeModal();
     }
   }, icon('check'), t('saveKey') || 'Save'));
-  
+
   modal.appendChild(btnRow);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
@@ -90,20 +90,20 @@ export function openAddCreditsModal(pkg) {
     className: 'btn btn-secondary',
     onClick: () => closeModal()
   }, t('cancel')));
-  
+
   btnRow.appendChild(el('button', {
     className: 'btn btn-primary',
     style: { marginLeft: 'auto' },
     onClick: () => {
-      const val = parseInt(input.value);
-      if (!isNaN(val) && val !== 0) {
+      const val = parseInt(input.value, 10);
+      if (!Number.isNaN(val) && val !== 0) {
         addPackageCredits(pkg.id, val);
         render();
       }
       closeModal();
     }
   }, icon('add'), t('addCredits')));
-  
+
   modal.appendChild(btnRow);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
@@ -112,6 +112,28 @@ export function openAddCreditsModal(pkg) {
     input.focus();
     input.select();
   }, 10);
+}
+
+function getHistoryActionLabel(record) {
+  if (record.reason === 'lesson') return t('historyLessonUse');
+  if (record.reason === 'lesson_cancel') return t('historyLessonCancelledOrRemoved');
+  if (record.reason === 'manual_deduct') return t('historyManualDeduct');
+  if (record.amount > 0) return t('historyManualAdd');
+  if (record.amount < 0) return t('historyManualDeduct');
+  return '';
+}
+
+function getHistoryLessonContext(record) {
+  if (!record.lessonDate || !['lesson', 'lesson_cancel', 'manual_deduct'].includes(record.reason)) {
+    return '';
+  }
+
+  let timeStr = '';
+  if (record.lessonStartMinute !== undefined && record.lessonStartMinute !== null) {
+    timeStr = ` ${minutesToTime(record.lessonStartMinute)}`;
+  }
+
+  return ` (${t('lessonOn')} ${formatDateNice(record.lessonDate)}${timeStr})`;
 }
 
 export function openCreditHistoryModal(pkg) {
@@ -158,14 +180,14 @@ export function openCreditHistoryModal(pkg) {
   modal.appendChild(actionRow);
 
   const customRateValue = Number.isFinite(Number(pkg.customPaymentRate)) ? String(pkg.customPaymentRate) : '';
-  const rateGroup = el('div', { 
-    className: 'form-group', 
-    style: { marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' } 
+  const rateGroup = el('div', {
+    className: 'form-group',
+    style: { marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
   });
-  
+
   const rateLabel = el('label', { style: { marginBottom: '0', marginRight: '12px' } }, t('customPaymentRate'));
   rateGroup.appendChild(rateLabel);
-  
+
   const rateInput = el('input', {
     className: 'form-input',
     type: 'number',
@@ -180,22 +202,22 @@ export function openCreditHistoryModal(pkg) {
 
   const upcomingLessonsList = [];
   const today = new Date();
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 30; i += 1) {
     const d = new Date(today);
     d.setDate(d.getDate() + i);
     const dateStr = formatDate(d);
     const lessons = getLessonsForDate(dateStr);
-    
+
     for (const l of lessons) {
       if (isCustomLessonRecord(l)) continue;
-      
+
       let isForClient = false;
       if (!isGroupLessonRecord(l)) {
         isForClient = (l.title || '').toLowerCase() === pkg.name.toLowerCase();
       } else {
         isForClient = l.participants.some(p => (p.packageName || p.name).toLowerCase() === pkg.name.toLowerCase());
       }
-      
+
       if (isForClient) {
         upcomingLessonsList.push({ date: dateStr, lesson: l });
       }
@@ -206,23 +228,23 @@ export function openCreditHistoryModal(pkg) {
     const upcomingContainer = el('div', { style: { marginTop: '16px' } });
     upcomingContainer.appendChild(el('h4', { style: { marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' } }, t('upcomingLessons') || 'Upcoming Lessons'));
     const upcomingList = el('div', { className: 'history-list', style: { marginBottom: '16px', background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px' } });
-    
+
     for (const item of upcomingLessonsList) {
       const row = el('div', { style: { padding: '8px 0', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } });
       const left = el('div');
       left.appendChild(el('div', { style: { fontWeight: '600' } }, `${formatDateNice(item.date)} ${minutesToTime(item.lesson.startMinute)}`));
-      
+
       const typeDesc = item.lesson.lessonType === 'group' ? (t('groupLesson') || 'Group Lesson') : (t('individualLesson') || 'Individual Lesson');
       left.appendChild(el('div', { style: { fontSize: '0.8rem', color: 'var(--text-secondary)' } }, typeDesc));
-      
+
       row.appendChild(left);
       upcomingList.appendChild(row);
     }
-    
+
     if (upcomingList.lastChild) {
       upcomingList.lastChild.style.borderBottom = 'none';
     }
-    
+
     upcomingContainer.appendChild(upcomingList);
     modal.appendChild(upcomingContainer);
   }
@@ -231,76 +253,64 @@ export function openCreditHistoryModal(pkg) {
   modal.appendChild(historyTitle);
 
   const historyList = el('div', { className: 'history-list', style: { maxHeight: '260px', overflowY: 'auto', paddingRight: '8px' } });
-
   const history = pkg.history || [];
+
   if (history.length === 0) {
     historyList.appendChild(el('p', { style: { color: 'var(--text-secondary)', fontStyle: 'italic' } }, t('noHistory')));
   } else {
-    // Sort descending by date
     const filteredHistory = history.filter(record => {
-      // If it's not a lesson record (manual add/deduct), show it
       if (!record.lessonDate || (record.reason !== 'lesson' && record.reason !== 'lesson_cancel')) return true;
-      
-      // If it's a lesson record, check if a matching lesson exists in the calendar
+
       const lessonsOnDay = getLessonsForDate(record.lessonDate);
       return lessonsOnDay.some(l => {
-        // Match by lessonId if available
         if (record.lessonId && l.id === record.lessonId) return true;
-        
-        // Match by title/participants and start time
+
         const isSameTime = l.startMinute === record.lessonStartMinute;
         if (!isSameTime) return false;
-        
         if (isCustomLessonRecord(l)) return false;
-        
-        // Match individual lesson title
+
         if (!isGroupLessonRecord(l)) {
           return (l.title || '').toLowerCase() === pkg.name.toLowerCase();
         }
-        
-        // Match group lesson participants
+
         return l.participants.some(p => (p.packageName || p.name).toLowerCase() === pkg.name.toLowerCase());
       });
     });
 
-    // Sort descending by date
     const sortedHistory = [...filteredHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
-    
+
     for (const record of sortedHistory) {
-      const row = el('div', { 
-        style: { 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          padding: '12px 0', 
-          borderBottom: '1px solid var(--border-color)' 
-        } 
+      const row = el('div', {
+        style: {
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '12px 0',
+          borderBottom: '1px solid var(--border-color)'
+        }
       });
-      
+
       const d = new Date(record.date);
-      const dateStr = `${formatDate(d)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-      
+      const dateStr = `${formatDate(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
       const leftObj = el('div');
       leftObj.appendChild(el('div', { style: { fontWeight: '600' } }, dateStr));
-      const textStyle = { fontSize: '0.8rem', color: 'var(--text-secondary)' };
-      
-      let desc = '';
-      if (record.lessonDate && (record.reason === 'lesson' || record.reason === 'lesson_cancel' || record.reason === 'manual_deduct')) {
-        let timeStr = '';
-        if (record.lessonStartMinute !== undefined) {
-          timeStr = ` ${minutesToTime(record.lessonStartMinute)}`;
-        }
-        desc = ` (${t('lessonOn')} ${formatDateNice(record.lessonDate)}${timeStr})`;
-      }      leftObj.appendChild(el('div', { style: textStyle }, `${t('before')}: ${record.before} → ${t('after')}: ${record.after}${desc}`));
-      
-      const rightObj = el('div', { 
-        style: { 
-          fontWeight: '700', 
+
+      const actionLabel = getHistoryActionLabel(record);
+      const lessonContext = getHistoryLessonContext(record);
+      const description = actionLabel ? ` • ${actionLabel}${lessonContext}` : lessonContext;
+      leftObj.appendChild(el('div', {
+        style: { fontSize: '0.8rem', color: 'var(--text-secondary)' }
+      }, `${t('before')}: ${record.before} → ${t('after')}: ${record.after}${description}`));
+
+      const rightObj = el('div', {
+        style: {
+          fontWeight: '700',
           fontSize: '1.1rem',
           color: record.amount > 0 ? 'var(--green)' : 'var(--red)'
-        } 
+        }
       });
-      rightObj.textContent = (record.amount > 0 ? '+' : '') + record.amount;
-      
+      rightObj.textContent = `${record.amount > 0 ? '+' : ''}${record.amount}`;
+
       row.appendChild(leftObj);
       row.appendChild(rightObj);
       historyList.appendChild(row);
@@ -308,7 +318,7 @@ export function openCreditHistoryModal(pkg) {
   }
 
   modal.appendChild(historyList);
-  
+
   const btnRow = el('div', { className: 'btn-group modal-actions', style: { marginTop: '16px' } });
   btnRow.appendChild(el('button', {
     className: 'btn btn-secondary',
