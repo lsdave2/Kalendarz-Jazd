@@ -1487,6 +1487,56 @@ select.form-input {
   color: var(--text-secondary);
 }
 
+.sync-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sync-log-empty {
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: var(--bg-card);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.sync-log-entry {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--red);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.sync-log-entry.warning {
+  border-left-color: var(--amber);
+}
+
+.sync-log-entry-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sync-log-entry-type {
+  color: var(--text-secondary);
+}
+
+.sync-log-entry-message {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 /* ── Credit Edit Input ──────────────────────────────────────────────── */
 .credit-edit-input {
   width: 56px;

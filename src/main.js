@@ -9,6 +9,7 @@ import { buildPackagesView } from './views/PackagesView.js';
 import { buildSettingsView } from './views/SettingsView.js';
 import { buildFinancesView } from './views/FinancesView.js';
 import { buildMonthView, buildDayView, calendarState, formatDateNice } from './views/CalendarView.js';
+import { addSyncErrorLogEntry } from './services/SyncErrorLogService.js';
 
 // ── State ──────────────────────────────────────────────────────────────
 let currentTab = 'calendar';
@@ -279,6 +280,10 @@ render();
 
 window.addEventListener('store-error', (e) => {
   if (e.detail && e.detail.message) {
+    addSyncErrorLogEntry({
+      message: e.detail.message,
+      type: e.detail.type || 'error',
+    });
     showToast(e.detail.message, 'warning');
   }
 });

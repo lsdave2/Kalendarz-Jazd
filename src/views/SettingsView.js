@@ -15,6 +15,7 @@ import {
   computeRevenueReport, computeInstructorPaymentReport, computeInstructorPaymentAmount
 } from '../services/ReportService.js';
 import { downloadAuditLog } from '../services/AuditService.js';
+import { clearSyncErrorLog, getSyncErrorLog } from '../services/SyncErrorLogService.js';
 
 // ── Settings helpers ────────────────────────────────────────────────────
 const SETTINGS_KEY = 'horsebook_settings';
@@ -704,6 +705,75 @@ function promptAdminLogin() {
   });
 }
 
+function formatSyncLogTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(getLang() === 'pl' ? 'pl-PL' : 'en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function openSyncErrorLogModal() {
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
+
+  const modal = el('div', { className: 'modal' });
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
+  modal.appendChild(el('h3', {}, t('syncErrorLog')));
+
+  const content = el('div', { className: 'sync-log-list' });
+  const renderEntries = () => {
+    content.innerHTML = '';
+    const entries = getSyncErrorLog();
+    if (entries.length === 0) {
+      content.appendChild(el('div', { className: 'sync-log-empty' }, t('syncErrorLogEmpty')));
+      return;
+    }
+
+    for (const entry of entries) {
+      content.appendChild(el('div', { className: `sync-log-entry ${entry.type === 'warning' ? 'warning' : 'error'}` },
+        el('div', { className: 'sync-log-entry-meta' },
+          el('span', {}, formatSyncLogTimestamp(entry.timestamp)),
+          el('span', { className: 'sync-log-entry-type' }, entry.type === 'warning' ? t('warning') : t('error'))
+        ),
+        el('div', { className: 'sync-log-entry-message' }, entry.message)
+      ));
+    }
+  };
+
+  renderEntries();
+  modal.appendChild(content);
+
+  const btnRow = el('div', { className: 'btn-group modal-actions', style: { marginTop: '16px' } });
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-secondary',
+    style: { flex: '1' },
+    onClick: () => closeModal()
+  }, t('close')));
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-danger',
+    style: { flex: '1' },
+    onClick: () => {
+      clearSyncErrorLog();
+      renderEntries();
+      showToast(t('syncErrorLogCleared'), 'delete');
+    }
+  }, icon('delete'), t('clearLog')));
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
 // ── Main export ─────────────────────────────────────────────────────────
 export function buildSettingsView() {
   const container = el('div');
@@ -901,6 +971,12 @@ export function buildSettingsView() {
     style: { width: '100%' },
     onClick: () => downloadAuditLog()
   }, icon('description'), 'Download Action Log (Local)'));
+
+  dataSection.appendChild(el('button', {
+    className: 'btn btn-secondary btn-sm',
+    style: { marginTop: '8px', width: '100%' },
+    onClick: openSyncErrorLogModal
+  }, icon('sync_problem'), t('viewSyncErrorLog')));
 
   container.appendChild(dataSection);
   }
