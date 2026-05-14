@@ -6,6 +6,7 @@ import { logAction } from './services/AuditService.js';
 const LOCAL_DATA_KEY = 'horsebook_data';
 const LOCAL_PENDING_KEY = 'horsebook_pending_sync';
 const REMOTE_TABLES = ['lessons', 'packages', 'package_transactions', 'instructors', 'horses', 'groups', 'settings', 'expenses', 'incomes'];
+const DEFAULT_CREDIT_TRACKING_MIGRATED_AT = '2026-05-12T00:00:00.000Z';
 
 const defaultData = () => ({
   horses: ['Rubin', 'Czempion', 'Cera', 'Muminek', 'Kadet', 'Sakwa', 'Fason', 'Carewicz', 'Grot', 'Siwa', 'Figa'],
@@ -20,8 +21,7 @@ const defaultData = () => ({
   closedDates: [],
   expenses: [],
   incomes: [],
-  creditTrackingMigratedAt: null,
-  creditTrackingMigrationInferred: false,
+  creditTrackingMigratedAt: DEFAULT_CREDIT_TRACKING_MIGRATED_AT,
   nextId: 1,
   nextGroupId: 1,
 });
@@ -37,8 +37,7 @@ function createEmptyPersistedState() {
     closedDates: [],
     expenses: [],
     incomes: [],
-    creditTrackingMigratedAt: null,
-    creditTrackingMigrationInferred: false,
+    creditTrackingMigratedAt: DEFAULT_CREDIT_TRACKING_MIGRATED_AT,
     nextId: 1,
     nextGroupId: 1,
   };
@@ -108,77 +107,6 @@ export function subscribe(fn) {
 
 export function getData() {
   return _data;
-}
-
-export function isCreditTrackingMigrated(state = _data) {
-  return typeof state?.creditTrackingMigratedAt === 'string' && state.creditTrackingMigratedAt.trim().length > 0;
-}
-
-function hasRemoteLedgerState(state) {
-  return isCreditTrackingMigrated(state) || ((state?.packageTransactions || []).length > 0);
-}
-
-export function getCreditTrackingDebugSnapshot() {
-  const data = getData();
-  const packageTransactions = Array.isArray(data.packageTransactions) ? data.packageTransactions : [];
-  const transactionsByPackageId = new Map();
-
-  for (const tx of packageTransactions) {
-    const key = tx?.packageId;
-    if (!key) continue;
-    if (!transactionsByPackageId.has(key)) transactionsByPackageId.set(key, []);
-    transactionsByPackageId.get(key).push(tx);
-  }
-
-  const samplePackage = (data.packages || []).find(pkg =>
-    (transactionsByPackageId.get(pkg.id)?.length || 0) > 0
-    || Number(pkg?.currentCredits) !== Number(pkg?.legacyCredits ?? pkg?.credits)
-    || (pkg?.history?.length || 0) > 0
-  ) || data.packages?.[0] || null;
-
-  const sampleTransactions = samplePackage
-    ? [...(transactionsByPackageId.get(samplePackage.id) || [])]
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 5)
-        .map(tx => ({
-          id: tx.id,
-          type: tx.type,
-          amount: tx.amount,
-          lessonId: tx.lessonId,
-          lessonDate: tx.lessonDate,
-          lessonStartMinute: tx.lessonStartMinute,
-          sourceKey: tx.sourceKey,
-          date: tx.date,
-        }))
-    : [];
-
-  return {
-    migration: {
-      active: isCreditTrackingMigrated(data),
-      migratedAt: data.creditTrackingMigratedAt || null,
-      inferred: data.creditTrackingMigrationInferred === true,
-    },
-    counts: {
-      packages: (data.packages || []).length,
-      packageTransactions: packageTransactions.length,
-      pendingChanges: _hasPendingLocalChanges,
-      isSaving: _isSaving,
-      isAdmin: _isAdmin,
-    },
-    samplePackage: samplePackage ? {
-      id: samplePackage.id,
-      name: samplePackage.name,
-      credits: samplePackage.credits,
-      legacyCredits: samplePackage.legacyCredits,
-      currentCredits: samplePackage.currentCredits,
-      syncedCurrentCredits: samplePackage.syncedCurrentCredits,
-      openingCredits: samplePackage.openingCredits,
-      historyLength: Array.isArray(samplePackage.history) ? samplePackage.history.length : 0,
-      manualHistoryLength: Array.isArray(samplePackage.manualHistory) ? samplePackage.manualHistory.length : 0,
-      transactionCount: (transactionsByPackageId.get(samplePackage.id) || []).length,
-    } : null,
-    sampleTransactions,
-  };
 }
 
 export function generateId() {
@@ -275,79 +203,6 @@ function normalizeDateString(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
-function getLessonHistoryKey(entry) {
-  if (!entry || typeof entry !== 'object') return null;
-  if (entry.reason !== 'lesson' && entry.reason !== 'lesson_cancel') return null;
-  if (!entry.lessonDate || entry.lessonStartMinute === undefined || entry.lessonStartMinute === null) {
-    return null;
-  }
-  return [
-    entry.reason,
-    entry.lessonId || '',
-    entry.lessonDate,
-    entry.lessonStartMinute
-  ].join('|');
-}
-
-function normalizeHistoryEntry(entry) {
-  if (!entry || typeof entry !== 'object') return null;
-  const nextEntry = { ...entry };
-  const lessonHistoryKey = getLessonHistoryKey(nextEntry);
-  if (lessonHistoryKey) {
-    nextEntry.historyKey = lessonHistoryKey;
-  }
-  return nextEntry;
-}
-
-function getHistoryEntrySignature(entry) {
-  const normalizedEntry = normalizeHistoryEntry(entry);
-  if (!normalizedEntry) return null;
-  return normalizedEntry.historyKey || JSON.stringify(normalizedEntry);
-}
-
-function dedupeHistoryEntries(history = []) {
-  const dedupedHistory = [];
-  let duplicateAmountTotal = 0;
-  let previousSignature = null;
-
-  for (const entry of history) {
-    const normalizedEntry = normalizeHistoryEntry(entry);
-    if (!normalizedEntry) continue;
-    const signature = getHistoryEntrySignature(normalizedEntry);
-    if (!signature) continue;
-    // Only collapse immediately repeated entries. Lesson credits can legitimately
-    // alternate between the same occurrence being deducted, refunded, and deducted
-    // again after a cancel/restore cycle, so non-consecutive matches are real history.
-    if (signature === previousSignature) {
-      duplicateAmountTotal += Number(normalizedEntry.amount) || 0;
-      continue;
-    }
-    previousSignature = signature;
-    dedupedHistory.push(normalizedEntry);
-  }
-
-  return { history: dedupedHistory, duplicateAmountTotal };
-}
-
-function sumHistoryAmounts(history = []) {
-  return history.reduce((sum, entry) => sum + (Number(entry?.amount) || 0), 0);
-}
-
-function getPackageManualHistory(pkg, lessonIdMap = new Map()) {
-  const sourceHistory = Array.isArray(pkg?.manualHistory)
-    ? pkg.manualHistory
-    : (Array.isArray(pkg?.history) ? pkg.history.filter(entry => !isLessonReason(entry)) : []);
-
-  return sourceHistory.map(entry => {
-    if (!entry || typeof entry !== 'object') return null;
-    const nextEntry = { ...entry };
-    if (nextEntry.lessonId !== undefined && lessonIdMap.has(String(nextEntry.lessonId))) {
-      nextEntry.lessonId = lessonIdMap.get(String(nextEntry.lessonId));
-    }
-    return nextEntry;
-  }).filter(Boolean);
-}
-
 function normalizePackageTransaction(entry) {
   if (!entry || typeof entry !== 'object') return null;
   const packageId = typeof entry.packageId === 'string'
@@ -380,22 +235,9 @@ function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
   if (!pkg || typeof pkg !== 'object') return null;
   const name = (pkg.name || '').trim();
   if (!name) return null;
-  const rawCredits = Number.isFinite(pkg.credits) ? pkg.credits : (parseInt(pkg.credits, 10) || 0);
-  const rawHistory = Array.isArray(pkg.history) ? pkg.history.map(entry => {
-    if (!entry || typeof entry !== 'object') return null;
-    const nextEntry = { ...entry };
-    if (nextEntry.lessonId !== undefined && lessonIdMap.has(String(nextEntry.lessonId))) {
-      nextEntry.lessonId = lessonIdMap.get(String(nextEntry.lessonId));
-    }
-    return nextEntry;
-  }).filter(Boolean) : [];
-  const { history: rawNormalizedHistory } = dedupeHistoryEntries(rawHistory);
-  const manualHistorySource = getPackageManualHistory({ ...pkg, history: rawNormalizedHistory }, lessonIdMap);
-  const { history: manualHistory } = dedupeHistoryEntries(manualHistorySource);
-  const openingCredits = Number.isFinite(Number(pkg.openingCredits))
-    ? Number(pkg.openingCredits)
-    : rawCredits - sumHistoryAmounts(rawNormalizedHistory);
-  const credits = openingCredits + sumHistoryAmounts(manualHistory);
+  const rawCredits = Number.isFinite(Number(pkg.legacyCredits))
+    ? Number(pkg.legacyCredits)
+    : (Number.isFinite(Number(pkg.credits)) ? Number(pkg.credits) : 0);
   const rawCustomPaymentRate = pkg.customPaymentRate;
   const customPaymentRate = rawCustomPaymentRate === null
     || rawCustomPaymentRate === undefined
@@ -409,22 +251,27 @@ function normalizePackageEntry(pkg, lessonIdMap = new Map()) {
   const rawCurrentCredits = pkg.currentCredits;
   const currentCredits = Number.isFinite(Number(rawCurrentCredits))
     ? Number(rawCurrentCredits)
-    : (syncedCurrentCredits ?? credits);
+    : (syncedCurrentCredits ?? 0);
   return {
     ...pkg,
     id: isUuid(pkg.id) ? pkg.id : createUuid(),
     name,
-    credits,
+    credits: currentCredits,
     legacyCredits: rawCredits,
     currentCredits,
     active: pkg.active !== false,
     archivedAt: typeof pkg.archivedAt === 'string' && pkg.archivedAt.trim() ? pkg.archivedAt : null,
-    openingCredits,
-    manualHistory,
-    history: manualHistory,
+    history: Array.isArray(pkg.history) ? pkg.history.map(entry => {
+      if (!entry || typeof entry !== 'object') return null;
+      const nextEntry = { ...entry };
+      if (nextEntry.lessonId !== undefined && lessonIdMap.has(String(nextEntry.lessonId))) {
+        nextEntry.lessonId = lessonIdMap.get(String(nextEntry.lessonId));
+      }
+      return nextEntry;
+    }).filter(Boolean) : [],
     syncedCurrentCredits,
     customPaymentRate: Number.isFinite(customPaymentRate) ? customPaymentRate : null,
-    hasPackageLessons: pkg.hasPackageLessons === true || rawNormalizedHistory.length > 0 || credits !== 0,
+    hasPackageLessons: pkg.hasPackageLessons === true,
   };
 }
 
@@ -558,98 +405,12 @@ function normalizeAppState(state) {
     || (typeof normalizedState.creditTrackingMigratedAt === 'string' && normalizedState.creditTrackingMigratedAt.trim()
       ? normalizedState.creditTrackingMigratedAt
       : null);
-  const inferredMigratedAt = normalizedState.packageTransactions.length > 0
-    ? [...normalizedState.packageTransactions]
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]?.date || new Date().toISOString()
-    : null;
-  normalizedState.creditTrackingMigrationInferred = normalizedState.creditTrackingMigrationInferred === true
-    || (!!inferredMigratedAt && !normalizedMigratedAt);
-  normalizedState.creditTrackingMigratedAt = normalizedMigratedAt || inferredMigratedAt || null;
+  normalizedState.creditTrackingMigratedAt = normalizedMigratedAt || DEFAULT_CREDIT_TRACKING_MIGRATED_AT;
 
   syncReferenceEntriesFromLessons(normalizedState);
   recomputePackageCreditState(normalizedState);
 
   return normalizedState;
-}
-
-function buildDerivedLessonHistoryByPackage(state, now = new Date()) {
-  const historyByPackage = new Map();
-
-  const pushEntry = (packageName, entry) => {
-    const key = (packageName || '').trim().toLowerCase();
-    if (!key) return;
-    if (!historyByPackage.has(key)) historyByPackage.set(key, []);
-    historyByPackage.get(key).push(entry);
-  };
-
-  const buildInstanceEntry = (lesson, dateStr, instanceLesson) => {
-    const startMinute = Number(instanceLesson.startMinute) || 0;
-    const durationMinutes = Number(instanceLesson.durationMinutes) || 0;
-    const instanceEnd = parseDate(dateStr);
-    instanceEnd.setMinutes(instanceEnd.getMinutes() + startMinute + durationMinutes);
-    if (instanceEnd >= now) return;
-    if (Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(dateStr)) return;
-
-    if (Array.isArray(instanceLesson.participants) && instanceLesson.participants.length > 0) {
-      const uniqueNames = [...new Set(
-        instanceLesson.participants
-          .filter(participant => participant?.packageMode !== false)
-          .map(participant => (participant?.packageName || participant?.name || '').trim())
-          .filter(Boolean)
-      )];
-      for (const name of uniqueNames) {
-        pushEntry(name, {
-          date: instanceEnd.toISOString(),
-          amount: -1,
-          reason: 'lesson',
-          lessonDate: dateStr,
-          lessonStartMinute: startMinute,
-          lessonId: lesson.id,
-          derived: true,
-        });
-      }
-      return;
-    }
-
-    if (instanceLesson.packageMode === false) return;
-    const packageName = (instanceLesson.title || lesson.title || '').trim();
-    if (!packageName) return;
-    pushEntry(packageName, {
-      date: instanceEnd.toISOString(),
-      amount: -1,
-      reason: 'lesson',
-      lessonDate: dateStr,
-      lessonStartMinute: startMinute,
-      lessonId: lesson.id,
-      derived: true,
-    });
-  };
-
-  const getInstanceLesson = (lesson, dateStr) => {
-    const override = lesson.instanceOverrides?.[dateStr];
-    return override ? { ...lesson, ...override } : lesson;
-  };
-
-  for (const lesson of state.lessons || []) {
-    if (!lesson.recurring) {
-      buildInstanceEntry(lesson, lesson.date, lesson);
-      continue;
-    }
-
-    if (lesson.recurringUntil && lesson.date > lesson.recurringUntil) continue;
-    let currentInstance = parseDate(lesson.date);
-    const recurrenceEnd = lesson.recurringUntil ? parseDate(lesson.recurringUntil) : now;
-    const loopEnd = recurrenceEnd < now ? recurrenceEnd : now;
-
-    while (currentInstance <= loopEnd) {
-      const dateStr = formatDate(currentInstance);
-      const instanceLesson = getInstanceLesson(lesson, dateStr);
-      buildInstanceEntry(lesson, dateStr, instanceLesson);
-      currentInstance.setDate(currentInstance.getDate() + 7);
-    }
-  }
-
-  return historyByPackage;
 }
 
 function mapPackageTransactionToHistoryRecord(tx) {
@@ -691,49 +452,11 @@ function buildTransactionHistoryByPackage(state) {
 }
 
 function recomputePackageCreditState(state) {
-  if (isCreditTrackingMigrated(state)) {
-    const historyByPackage = buildTransactionHistoryByPackage(state);
-
-    for (const pkg of state.packages || []) {
-      const transactionHistory = historyByPackage.get(pkg.id) || [];
-      let runningCredits = 0;
-      pkg.manualHistory = [];
-      pkg.history = transactionHistory.map(entry => {
-        const amount = Number(entry.amount) || 0;
-        const nextEntry = {
-          ...entry,
-          before: runningCredits,
-          after: runningCredits + amount,
-        };
-        runningCredits += amount;
-        return nextEntry;
-      });
-      pkg.currentCredits = runningCredits;
-      pkg.credits = runningCredits;
-    }
-    return;
-  }
-
-  const derivedHistoryByPackage = buildDerivedLessonHistoryByPackage(state);
-
+  const historyByPackage = buildTransactionHistoryByPackage(state);
   for (const pkg of state.packages || []) {
-    const manualHistory = getPackageManualHistory(pkg);
-    const derivedHistory = derivedHistoryByPackage.get((pkg.name || '').trim().toLowerCase()) || [];
-    const combinedHistory = [...manualHistory, ...derivedHistory].sort((a, b) => {
-      const timeDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (timeDiff !== 0) return timeDiff;
-      const lessonDateA = a.lessonDate || '';
-      const lessonDateB = b.lessonDate || '';
-      if (lessonDateA !== lessonDateB) return lessonDateA.localeCompare(lessonDateB);
-      const minuteA = Number(a.lessonStartMinute) || 0;
-      const minuteB = Number(b.lessonStartMinute) || 0;
-      if (minuteA !== minuteB) return minuteA - minuteB;
-      return String(a.reason || '').localeCompare(String(b.reason || ''));
-    });
-
-    let runningCredits = Number(pkg.openingCredits) || 0;
-    pkg.manualHistory = manualHistory;
-    pkg.history = combinedHistory.map(entry => {
+    const transactionHistory = historyByPackage.get(pkg.id) || [];
+    let runningCredits = 0;
+    pkg.history = transactionHistory.map(entry => {
       const amount = Number(entry.amount) || 0;
       const nextEntry = {
         ...entry,
@@ -743,8 +466,8 @@ function recomputePackageCreditState(state) {
       runningCredits += amount;
       return nextEntry;
     });
-    pkg.credits = runningCredits;
     pkg.currentCredits = runningCredits;
+    pkg.credits = runningCredits;
   }
 }
 
@@ -776,7 +499,7 @@ function preparePackageForSync(pkg, state) {
   const transientState = {
     lessons: state?.lessons || [],
     packageTransactions: state?.packageTransactions || [],
-    creditTrackingMigratedAt: state?.creditTrackingMigratedAt || null,
+    creditTrackingMigratedAt: state?.creditTrackingMigratedAt || DEFAULT_CREDIT_TRACKING_MIGRATED_AT,
     packages: [normalizedPkg],
   };
   recomputePackageCreditState(transientState);
@@ -976,8 +699,7 @@ function buildRemoteState(rows) {
     packages,
     packageTransactions,
     groups,
-    creditTrackingMigratedAt: settingsMap.get('credit_tracking_migrated_at') || null,
-    creditTrackingMigrationInferred: packageTransactions.length > 0 && !settingsMap.has('credit_tracking_migrated_at'),
+    creditTrackingMigratedAt: settingsMap.get('credit_tracking_migrated_at') || DEFAULT_CREDIT_TRACKING_MIGRATED_AT,
     closedDates: Array.isArray(settingsMap.get('closed_dates')) ? settingsMap.get('closed_dates') : [],
     expenses: expenseData,
     incomes: incomes,
@@ -1027,21 +749,6 @@ async function refreshFromRemote() {
     notifyListeners();
   } catch (error) {
     console.error('[store] Realtime refresh failed', error);
-  }
-}
-
-async function ensureCreditTrackingSchemaReady() {
-  if (!supabase) {
-    throw new Error('Supabase is not configured.');
-  }
-
-  const { error } = await supabase
-    .from('package_transactions')
-    .select('id,source_key')
-    .limit(1);
-
-  if (error) {
-    throw new Error('Credit tracking DB migration is missing. Run the latest SQL migration first.');
   }
 }
 
@@ -1102,14 +809,9 @@ export async function loadData() {
 
     // Reconcile remote data with local state
     if (hasPendingLocalCache && cachedLocalState) {
-      const shouldPreferRemoteLedgerState = hasRemoteLedgerState(snapshot.state);
-      if (shouldPreferRemoteLedgerState) {
-        setDataState(snapshot.state, { persisted: true, pending: false });
-      } else {
-        _persistedData = deepClone(snapshot.state);
-        setDataState(cachedLocalState, { pending: true });
-      }
-      if (!_isAdmin && !shouldPreferRemoteLedgerState) {
+      _persistedData = deepClone(snapshot.state);
+      setDataState(cachedLocalState, { pending: true });
+      if (!_isAdmin) {
         dispatchStoreWarning(t('syncLoginRequired'));
       }
     } else if (snapshot.hasData) {
@@ -1133,7 +835,7 @@ export async function loadData() {
   processPastLessonsForCredits();
   notifyListeners();
 
-  if (_isAdmin && (_hasPendingLocalChanges || hasUnsyncedPackageCurrentCredits(_data) || _data.creditTrackingMigrationInferred === true)) {
+  if (_isAdmin && (_hasPendingLocalChanges || hasUnsyncedPackageCurrentCredits(_data))) {
     saveData();
   }
 
@@ -1144,56 +846,15 @@ function jsonEqual(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function buildHistorySignatureCounts(history = []) {
-  const counts = new Map();
-  for (const entry of history) {
-    const signature = getHistoryEntrySignature(entry);
-    if (!signature) continue;
-    counts.set(signature, (counts.get(signature) || 0) + 1);
-  }
-  return counts;
-}
-
-function getHistoryDiff(baseHistory = [], currentHistory = []) {
-  const remainingBaseCounts = buildHistorySignatureCounts(baseHistory);
-  return currentHistory.filter(entry => {
-    const signature = getHistoryEntrySignature(entry);
-    if (!signature) return false;
-    const remaining = remainingBaseCounts.get(signature) || 0;
-    if (remaining > 0) {
-      remainingBaseCounts.set(signature, remaining - 1);
-      return false;
-    }
-    return true;
-  });
-}
-
-function mergeHistory(remoteHistory = [], localEntries = []) {
-  const merged = [...remoteHistory];
-  for (const entry of localEntries) {
-    const normalizedEntry = normalizeHistoryEntry(entry);
-    const signature = getHistoryEntrySignature(normalizedEntry);
-    if (!signature) continue;
-    merged.push(normalizedEntry);
-  }
-  return merged;
-}
-
 function pickMergedField(field, current, base, remote) {
   return jsonEqual(current?.[field], base?.[field]) ? remote?.[field] : current?.[field];
 }
 
 function mergePackageState(current, base, remote) {
-  if (!remote) return current;
-  const currentHistory = getPackageManualHistory(current);
-  const baseHistory = getPackageManualHistory(base || {});
-  const remoteHistory = getPackageManualHistory(remote);
-  const localHistoryDelta = getHistoryDiff(baseHistory, currentHistory);
-  const uniqueLocalHistoryDelta = getHistoryDiff(remoteHistory, localHistoryDelta);
-  const creditsChangedLocally = !jsonEqual(current?.openingCredits, base?.openingCredits);
-  const historyChangedLocally = localHistoryDelta.length > 0 || !jsonEqual(currentHistory, baseHistory);
-  const mergedOpeningCredits = creditsChangedLocally ? current.openingCredits : remote.openingCredits;
-  const mergedManualHistory = historyChangedLocally ? mergeHistory(remoteHistory, uniqueLocalHistoryDelta) : remoteHistory;
+  if (!remote) return normalizePackageEntry(current);
+
+  const localCurrentCreditsChanged = !!base && getCurrentCreditValue(current) !== getCurrentCreditValue(base);
+  const localLegacyCreditsChanged = !!base && Number(current?.legacyCredits ?? current?.credits) !== Number(base?.legacyCredits ?? base?.credits);
 
   return normalizePackageEntry({
     ...remote,
@@ -1203,10 +864,13 @@ function mergePackageState(current, base, remote) {
     archivedAt: pickMergedField('archivedAt', current, base, remote),
     hasPackageLessons: pickMergedField('hasPackageLessons', current, base, remote),
     customPaymentRate: pickMergedField('customPaymentRate', current, base, remote),
-    openingCredits: mergedOpeningCredits,
-    credits: (Number(mergedOpeningCredits) || 0) + sumHistoryAmounts(mergedManualHistory),
-    history: mergedManualHistory,
-    manualHistory: mergedManualHistory,
+    credits: localLegacyCreditsChanged
+      ? Number(current?.legacyCredits ?? current?.credits) || 0
+      : Number(remote?.legacyCredits ?? remote?.credits) || 0,
+    currentCredits: localCurrentCreditsChanged
+      ? getCurrentCreditValue(current)
+      : getCurrentCreditValue(remote),
+    syncedCurrentCredits: remote?.syncedCurrentCredits ?? getCurrentCreditValue(remote),
   });
 }
 
@@ -1234,16 +898,14 @@ function buildLessonRow(lesson, horseIdByName, instructorIdByName) {
 }
 
 function buildPackageRow(pkg) {
-  const manualHistory = getPackageManualHistory(pkg);
-  const baseCredits = (Number(pkg.openingCredits) || 0) + sumHistoryAmounts(manualHistory);
   return {
     id: pkg.id,
     name: pkg.name,
-    credits: isCreditTrackingMigrated(_data) ? (Number(pkg.legacyCredits) || 0) : baseCredits,
+    credits: Number(pkg.legacyCredits ?? pkg.credits) || 0,
     current_credits: getCurrentCreditValue(pkg),
     active: pkg.active !== false,
     archived_at: pkg.archivedAt || null,
-    history: manualHistory,
+    history: [],
     custom_payment_rate: pkg.customPaymentRate ?? null,
     has_package_lessons: pkg.hasPackageLessons === true,
   };
@@ -1279,14 +941,12 @@ async function syncHorses(current, persisted) {
   for (const horse of currentSet) {
     if (persistedSet.has(horse)) continue;
     const { error } = await supabase.from('horses').insert({ name: horse });
-    logAction('ADD_HORSE', { name: horse });
     if (error && error.code !== '23505') throw error;
   }
 
   for (const horse of persistedSet) {
     if (currentSet.has(horse)) continue;
     const { error } = await supabase.from('horses').delete().eq('name', horse);
-    logAction('DELETE_HORSE', { name: horse });
     if (error) throw error;
   }
 }
@@ -1302,7 +962,6 @@ async function syncInstructors(current, persisted) {
         name,
         color: instr.color,
       });
-      logAction('ADD_INSTRUCTOR', { name, color: instr.color });
       if (error && error.code !== '23505') throw error;
       continue;
     }
@@ -1310,14 +969,12 @@ async function syncInstructors(current, persisted) {
     const { error } = await supabase.from('instructors').update({
       color: instr.color,
     }).eq('name', name);
-    logAction('UPDATE_INSTRUCTOR', { name, color: instr.color });
     if (error) throw error;
   }
 
   for (const [name] of persistedByName.entries()) {
     if (currentByName.has(name)) continue;
     const { error } = await supabase.from('instructors').delete().eq('name', name);
-    logAction('DELETE_INSTRUCTOR', { name });
     if (error) throw error;
   }
 }
@@ -1632,9 +1289,7 @@ export function saveData({ throwOnError = false } = {}) {
 
       try {
         await syncToSupabase();
-        _data.creditTrackingMigrationInferred = false;
         _data = normalizeAppState(_data);
-        _data.creditTrackingMigrationInferred = false;
         _persistedData = deepClone(_data);
         _hasPendingLocalChanges = false;
         persistLocalState({ pending: false });
@@ -1671,6 +1326,9 @@ function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate =
       id: generateId(),
       name: trimmed,
       credits: 0,
+      legacyCredits: 0,
+      currentCredits: 0,
+      syncedCurrentCredits: 0,
       active: true,
       archivedAt: null,
       history: [],
@@ -1686,12 +1344,20 @@ function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate =
     pkg.name = trimmed;
     changed = true;
   }
-  if (!Array.isArray(pkg.history)) {
-    pkg.history = [];
-    changed = true;
-  }
   if (pkg.active === undefined) {
     pkg.active = true;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(pkg.legacyCredits))) {
+    pkg.legacyCredits = Number(pkg.credits) || 0;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(pkg.currentCredits))) {
+    pkg.currentCredits = Number(pkg.syncedCurrentCredits ?? pkg.credits) || 0;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(pkg.syncedCurrentCredits))) {
+    pkg.syncedCurrentCredits = Number(pkg.currentCredits) || 0;
     changed = true;
   }
   if (reactivate && pkg.active === false) {
@@ -1721,10 +1387,7 @@ function syncPackageEntriesFromLessons() {
     d.packages = [];
     changed = true;
   }
-
-  if (!isCreditTrackingMigrated(d)) {
-    d.packages = d.packages.map(pkg => normalizePackageEntry(pkg)).filter(Boolean);
-  }
+  d.packages = d.packages.map(pkg => normalizePackageEntry(pkg)).filter(Boolean);
 
   const registerClient = (name, hasPackageLessons) => {
     if (ensurePackageEntryState(name, { hasPackageLessons, reactivate: false })) {
@@ -1752,10 +1415,6 @@ function syncPackageEntriesFromLessons() {
   }
 
   return changed;
-}
-
-function isLessonReason(record) {
-  return record.reason === 'lesson' || record.reason === 'lesson_cancel';
 }
 
 function getLessonClientNames(lesson) {
@@ -1981,8 +1640,6 @@ function ensureOccurrenceNet(state, occurrence, desiredNet) {
 }
 
 function reconcileMigratedPackageCredits(state) {
-  if (!isCreditTrackingMigrated(state)) return false;
-
   const expectedOccurrences = buildPastPackageOccurrenceMap(state);
   const seenOccurrences = new Map();
   let changed = false;
@@ -2134,9 +1791,7 @@ export function addLesson(lesson, { save = true } = {}) {
   });
   d.lessons.push(newLesson);
   logAction('ADD_LESSON', newLesson);
-  if (isCreditTrackingMigrated(d)) {
-    reconcileMigratedPackageCredits(d);
-  }
+  reconcileMigratedPackageCredits(d);
   if (save) saveData();
   return newLesson;
 }
@@ -2147,9 +1802,7 @@ export function updateLesson(id, updates, { save = true } = {}) {
   if (idx >= 0) {
     d.lessons[idx] = normalizeLesson({ ...d.lessons[idx], ...updates });
     logAction('UPDATE_LESSON', { id, updates });
-    if (isCreditTrackingMigrated(d)) {
-      reconcileMigratedPackageCredits(d);
-    }
+    reconcileMigratedPackageCredits(d);
     if (save) saveData();
   }
 }
@@ -2192,9 +1845,7 @@ export function updateLessonInstance(id, dateStr, updates, { save = true } = {})
     lesson.instanceOverrides[dateStr] = merged;
   }
 
-  if (isCreditTrackingMigrated(d)) {
-    reconcileMigratedPackageCredits(d);
-  }
+  reconcileMigratedPackageCredits(d);
   if (save) saveData();
 }
 
@@ -2205,11 +1856,7 @@ export function deleteLesson(id) {
 
   d.lessons = d.lessons.filter(entry => entry.id !== id);
   logAction('DELETE_LESSON', { id, title: lesson.title });
-  if (isCreditTrackingMigrated(d)) {
-    reconcileMigratedPackageCredits(d);
-  } else {
-    recomputePackageCreditState(d);
-  }
+  reconcileMigratedPackageCredits(d);
   saveData();
 }
 
@@ -2265,9 +1912,7 @@ export function toggleCancelLessonInstance(id, dateStr) {
   } else {
     lesson.cancelledDates.push(dateStr);
   }
-  if (isCreditTrackingMigrated(d)) {
-    reconcileMigratedPackageCredits(d);
-  }
+  reconcileMigratedPackageCredits(d);
   saveData();
 }
 
@@ -2275,134 +1920,11 @@ export function processPastLessonsForCredits() {
   if (!_data) return;
   const packageSyncChanged = syncPackageEntriesFromLessons();
   const archiveChanged = autoArchiveDormantClients();
-  if (isCreditTrackingMigrated(_data)) {
-    recomputePackageCreditState(_data);
-    const transactionChanged = reconcileMigratedPackageCredits(_data);
-    if (packageSyncChanged || archiveChanged || transactionChanged) {
-      saveData();
-    }
-    return;
-  }
-  const beforeSnapshot = JSON.stringify(
-    (_data.packages || []).map(pkg => ({
-      id: pkg.id,
-      credits: pkg.credits,
-      openingCredits: pkg.openingCredits,
-      history: pkg.history,
-      manualHistory: pkg.manualHistory,
-    }))
-  );
   recomputePackageCreditState(_data);
-  const afterSnapshot = JSON.stringify(
-    (_data.packages || []).map(pkg => ({
-      id: pkg.id,
-      credits: pkg.credits,
-      openingCredits: pkg.openingCredits,
-      history: pkg.history,
-      manualHistory: pkg.manualHistory,
-    }))
-  );
-  const changed = packageSyncChanged || archiveChanged || beforeSnapshot !== afterSnapshot;
-
-  if (changed) {
+  const transactionChanged = reconcileMigratedPackageCredits(_data);
+  if (packageSyncChanged || archiveChanged || transactionChanged) {
     saveData();
   }
-}
-
-function mapLegacyHistoryEntryToTransaction(pkg, entry, index) {
-  const amount = Number(entry?.amount) || 0;
-  let type = 'correction';
-  if (entry?.reason === 'lesson') type = 'lesson_use';
-  else if (entry?.reason === 'lesson_cancel') type = 'lesson_cancel';
-  else if (entry?.reason === 'manual_deduct' || amount < 0) type = 'manual_deduct';
-  else if (amount > 0) type = 'manual_add';
-
-  return {
-    id: generateId(),
-    packageId: pkg.id,
-    type,
-    amount,
-    lessonId: entry?.lessonId || null,
-    lessonDate: entry?.lessonDate || null,
-    lessonStartMinute: Number.isFinite(Number(entry?.lessonStartMinute)) ? Number(entry.lessonStartMinute) : null,
-    note: 'Legacy credit history import',
-    date: entry?.date || new Date().toISOString(),
-    sourceKey: `legacy_history|${pkg.id}|${index}`,
-  };
-}
-
-function buildLegacyOpeningTransaction(pkg, fallbackDate) {
-  const openingCredits = Number(pkg?.openingCredits) || 0;
-  if (openingCredits === 0) return null;
-
-  let date = fallbackDate || new Date().toISOString();
-  const parsed = new Date(date);
-  if (!Number.isNaN(parsed.getTime())) {
-    parsed.setSeconds(parsed.getSeconds() - 1);
-    date = parsed.toISOString();
-  }
-
-  return {
-    id: generateId(),
-    packageId: pkg.id,
-    type: 'correction',
-    amount: openingCredits,
-    note: 'Legacy opening balance at migration',
-    date,
-    sourceKey: `legacy_opening|${pkg.id}`,
-  };
-}
-
-export async function migrateCreditValues() {
-  if (!supabase) {
-    throw new Error('Supabase is not configured.');
-  }
-  if (!_isAdmin) {
-    throw new Error('Admin login required.');
-  }
-
-  const d = getData();
-  if (isCreditTrackingMigrated(d)) {
-    return false;
-  }
-
-  await ensureCreditTrackingSchemaReady();
-
-  const previousState = deepClone(d);
-  const previousPending = _hasPendingLocalChanges;
-  syncPackageEntriesFromLessons();
-  recomputePackageCreditState(d);
-
-  const legacyPackages = deepClone(d.packages || []);
-  const migrationTimestamp = new Date().toISOString();
-
-  if (!Array.isArray(d.packageTransactions)) {
-    d.packageTransactions = [];
-  }
-
-  for (const pkg of legacyPackages) {
-    const sortedHistory = [...(pkg.history || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    const firstHistoryDate = sortedHistory[0]?.date || migrationTimestamp;
-    const openingTransaction = buildLegacyOpeningTransaction(pkg, firstHistoryDate);
-    if (openingTransaction) {
-      appendPackageTransactionState(d, openingTransaction, { recompute: false });
-    }
-    sortedHistory.forEach((entry, index) => {
-      appendPackageTransactionState(d, mapLegacyHistoryEntryToTransaction(pkg, entry, index), { recompute: false });
-    });
-  }
-
-  d.creditTrackingMigratedAt = migrationTimestamp;
-  recomputePackageCreditState(d);
-  logAction('MIGRATE_CREDIT_VALUES', { migratedAt: migrationTimestamp, transactionCount: d.packageTransactions.length });
-  try {
-    await saveData({ throwOnError: true });
-  } catch (error) {
-    setDataState(previousState, { pending: previousPending });
-    notifyListeners();
-    throw error;
-  }
-  return true;
 }
 
 export function ensurePackageEntry(name, { save = true, hasPackageLessons = false } = {}) {
@@ -2414,26 +1936,18 @@ export function updatePackageCredits(id, credits) {
   const d = getData();
   const pkg = d.packages.find(entry => entry.id === id);
   if (!pkg) return;
-  if (isCreditTrackingMigrated(d)) {
-    const delta = (Number(credits) || 0) - getCurrentCreditValue(pkg);
-    if (delta === 0) return;
-    appendPackageTransactionState(d, {
-      id: generateId(),
-      packageId: pkg.id,
-      type: 'correction',
-      amount: delta,
-      note: 'Manual package credit set',
-      date: new Date().toISOString(),
-      sourceKey: `manual_set|${pkg.id}|${generateId()}`,
-    });
-    logAction('UPDATE_PACKAGE_CREDITS', { id, credits });
-    saveData();
-    return;
-  }
-  pkg.openingCredits = (Number(credits) || 0) - sumHistoryAmounts(getPackageManualHistory(pkg));
-  pkg.hasPackageLessons = true;
+  const delta = (Number(credits) || 0) - getCurrentCreditValue(pkg);
+  if (delta === 0) return;
+  appendPackageTransactionState(d, {
+    id: generateId(),
+    packageId: pkg.id,
+    type: 'correction',
+    amount: delta,
+    note: 'Manual package credit set',
+    date: new Date().toISOString(),
+    sourceKey: `manual_set|${pkg.id}|${generateId()}`,
+  });
   logAction('UPDATE_PACKAGE_CREDITS', { id, credits });
-  recomputePackageCreditState(d);
   saveData();
 }
 
@@ -2441,30 +1955,16 @@ export function addPackageCredits(id, amount) {
   const d = getData();
   const pkg = d.packages.find(entry => entry.id === id);
   if (!pkg) return;
-  if (isCreditTrackingMigrated(d)) {
-    appendPackageTransactionState(d, {
-      id: generateId(),
-      packageId: pkg.id,
-      type: amount >= 0 ? 'manual_add' : 'manual_deduct',
-      amount,
-      note: amount >= 0 ? 'Manual credit addition' : 'Manual credit deduction',
-      date: new Date().toISOString(),
-      sourceKey: `manual_adjust|${pkg.id}|${generateId()}`,
-    });
-    logAction('ADD_PACKAGE_CREDITS', { id, amount, after: getCurrentCreditValue(pkg) });
-    saveData();
-    return;
-  }
-  if (!Array.isArray(pkg.manualHistory)) {
-    pkg.manualHistory = getPackageManualHistory(pkg);
-  }
-  pkg.hasPackageLessons = true;
-  pkg.manualHistory.push({
-    date: new Date().toISOString(),
+  appendPackageTransactionState(d, {
+    id: generateId(),
+    packageId: pkg.id,
+    type: amount >= 0 ? 'manual_add' : 'manual_deduct',
     amount,
+    note: amount >= 0 ? 'Manual credit addition' : 'Manual credit deduction',
+    date: new Date().toISOString(),
+    sourceKey: `manual_adjust|${pkg.id}|${generateId()}`,
   });
-  recomputePackageCreditState(d);
-  logAction('ADD_PACKAGE_CREDITS', { id, amount, after: pkg.credits });
+  logAction('ADD_PACKAGE_CREDITS', { id, amount, after: getCurrentCreditValue(pkg) });
   saveData();
 }
 
@@ -2569,33 +2069,17 @@ export function deductCredit(name, dateStr, startMinute) {
   const d = getData();
   const pkg = d.packages.find(entry => entry.name.toLowerCase() === name.trim().toLowerCase());
   if (!pkg || !pkg.active) return;
-  if (isCreditTrackingMigrated(d)) {
-    appendPackageTransactionState(d, {
-      id: generateId(),
-      packageId: pkg.id,
-      type: 'manual_deduct',
-      amount: -1,
-      lessonDate: dateStr,
-      lessonStartMinute: startMinute,
-      note: 'Manual package deduction',
-      date: new Date().toISOString(),
-      sourceKey: `manual_deduct|${pkg.id}|${generateId()}`,
-    });
-    saveData();
-    return;
-  }
-  if (!Array.isArray(pkg.manualHistory)) {
-    pkg.manualHistory = getPackageManualHistory(pkg);
-  }
-  pkg.hasPackageLessons = true;
-  pkg.manualHistory.push({
-    date: new Date().toISOString(),
+  appendPackageTransactionState(d, {
+    id: generateId(),
+    packageId: pkg.id,
+    type: 'manual_deduct',
     amount: -1,
-    reason: 'manual_deduct',
     lessonDate: dateStr,
-    lessonStartMinute: startMinute
+    lessonStartMinute: startMinute,
+    note: 'Manual package deduction',
+    date: new Date().toISOString(),
+    sourceKey: `manual_deduct|${pkg.id}|${generateId()}`,
   });
-  recomputePackageCreditState(d);
   saveData();
 }
 
@@ -2605,6 +2089,7 @@ export function addHorse(name) {
   const d = getData();
   if (d.horses.includes(trimmed)) return false;
   d.horses.push(trimmed);
+  logAction('ADD_HORSE', { name: trimmed });
   saveData();
   return true;
 }
@@ -2614,6 +2099,7 @@ export function deleteHorse(name) {
   const next = d.horses.filter(entry => entry !== name);
   if (next.length === d.horses.length) return false;
   d.horses = next;
+  logAction('DELETE_HORSE', { name });
   saveData();
   return true;
 }
@@ -2627,6 +2113,7 @@ export function addInstructor(name) {
   const colors = GROUP_COLORS;
   const color = colors[d.instructors.length % colors.length];
   d.instructors.push({ name: trimmed, color });
+  logAction('ADD_INSTRUCTOR', { name: trimmed, color });
   saveData();
   return true;
 }
@@ -2636,12 +2123,16 @@ export function updateInstructorColor(name, color) {
   const instr = d.instructors.find(entry => entry.name === name);
   if (!instr) return;
   instr.color = color;
+  logAction('UPDATE_INSTRUCTOR', { name, color });
   saveData();
 }
 
 export function deleteInstructor(name) {
   const d = getData();
-  d.instructors = d.instructors.filter(entry => entry.name !== name);
+  const next = d.instructors.filter(entry => entry.name !== name);
+  if (next.length === d.instructors.length) return;
+  d.instructors = next;
+  logAction('DELETE_INSTRUCTOR', { name });
   saveData();
 }
 

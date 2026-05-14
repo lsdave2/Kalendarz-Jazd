@@ -2,8 +2,8 @@ import { t } from '../i18n.js';
 import { el, icon, minutesToTime, openConfirmModal, setupModalSwipeToClose } from '../utils.js';
 import { 
   getData, addLesson, updateLesson, deleteLesson, updateLessonInstance, 
-  ensurePackageEntry, getPackageByName, getAutoGroupColor, toggleCancelLessonInstance,
-  GROUP_COLORS, saveData, processPastLessonsForCredits 
+  ensurePackageEntry, getPackageByName, toggleCancelLessonInstance,
+  saveData, processPastLessonsForCredits 
 } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getKnownClientNames } from '../services/LessonService.js';
@@ -131,23 +131,6 @@ export function openLessonModal(dateStr, lesson = null) {
     className: `toggle ${packageModeDefault ? 'active' : ''}`,
     id: 'lesson-package-toggle',
     onClick: () => packageModeToggle.classList.toggle('active')
-  });
-
-  const initialGroupColor = baseLesson?.groupColor || lesson?.groupColor || getAutoGroupColor();
-  const groupColorInput = el('input', { type: 'hidden', value: initialGroupColor });
-  const groupColorPalette = el('div', { className: 'color-palette' });
-
-  GROUP_COLORS.forEach(color => {
-    const chip = el('div', {
-      className: `color-palette-chip ${initialGroupColor === color ? 'active' : ''}`,
-      style: { backgroundColor: color },
-      onClick: () => {
-        groupColorPalette.querySelectorAll('.color-palette-chip').forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
-        groupColorInput.value = color;
-      }
-    }, icon('check'));
-    groupColorPalette.appendChild(chip);
   });
 
   const participantList = el('div', { className: 'group-participants' });
@@ -361,14 +344,6 @@ export function openLessonModal(dateStr, lesson = null) {
     packageRow.appendChild(packageModeToggle);
     individualSection.appendChild(packageRow);
 
-    const groupColorBlock = el('div', { className: 'form-group' });
-    groupColorBlock.appendChild(el('label', {}, t('groupColor')));
-    const groupColorRow = el('div', { className: 'group-color-row' });
-    groupColorRow.appendChild(groupColorInput);
-    groupColorRow.appendChild(groupColorPalette);
-    groupColorBlock.appendChild(groupColorRow);
-    groupSection.appendChild(groupColorBlock);
-
     const participantBlock = el('div', { className: 'form-group' });
     participantBlock.appendChild(el('label', {}, t('groupClients')));
     participantBlock.appendChild(participantList);
@@ -496,7 +471,7 @@ export function openLessonModal(dateStr, lesson = null) {
         title: t('groupLesson'),
         groupName: null,
         groupId: null,
-        groupColor: groupColorInput.value || initialGroupColor,
+        groupColor: null,
         date: dateStr,
         startMinute,
         durationMinutes,
@@ -510,7 +485,7 @@ export function openLessonModal(dateStr, lesson = null) {
     };
   };
 
-  const saveLesson = () => {
+  const saveLesson = async () => {
     const payload = getLessonPayload();
     if (!payload) return null;
 
@@ -543,7 +518,7 @@ export function openLessonModal(dateStr, lesson = null) {
         });
         mutated = true;
       }
-      if (mutated) saveData();
+      if (mutated) await saveData({ throwOnError: true });
       return isEdit ? 'updated' : 'created';
     }
 
@@ -553,22 +528,8 @@ export function openLessonModal(dateStr, lesson = null) {
       } else {
         addLesson(lessonData, { save: false });
       }
-      saveData();
+      await saveData({ throwOnError: true });
       return isEdit ? 'updated' : 'created';
-    }
-
-    const resolvedGroupColor = groupColorInput.value || lessonData.groupColor || baseLesson?.groupColor || initialGroupColor;
-
-    // For group lessons, color change should apply to the whole series (base lesson)
-    if (baseLesson && baseLesson.groupColor !== resolvedGroupColor) {
-      updateLesson(baseLesson.id, { groupColor: resolvedGroupColor }, { save: false });
-      // Clear any individual color overrides from all instances to ensure uniformity across the series
-      const targetLesson = getData().lessons.find(l => l.id === baseLesson.id);
-      if (targetLesson && targetLesson.instanceOverrides) {
-        for (const dateKey of Object.keys(targetLesson.instanceOverrides)) {
-          delete targetLesson.instanceOverrides[dateKey].groupColor;
-        }
-      }
     }
 
     if (isRecurringInstance) {
@@ -577,7 +538,7 @@ export function openLessonModal(dateStr, lesson = null) {
         title: t('groupLesson'),
         groupName: null,
         groupId: null,
-        groupColor: resolvedGroupColor,
+        groupColor: null,
         recurring: recurringDisabled ? false : lessonData.recurring,
       };
       if (recurringDisabled) {
@@ -592,7 +553,7 @@ export function openLessonModal(dateStr, lesson = null) {
           hasPackageLessons: participant.packageMode !== false
         });
       }
-      saveData();
+      await saveData({ throwOnError: true });
       return 'updated';
     }
 
@@ -601,7 +562,7 @@ export function openLessonModal(dateStr, lesson = null) {
       title: t('groupLesson'),
       groupName: null,
       groupId: null,
-      groupColor: resolvedGroupColor,
+      groupColor: null,
       recurring: isRecurringInstance ? true : lessonData.recurring,
     };
 
@@ -627,7 +588,7 @@ export function openLessonModal(dateStr, lesson = null) {
       mutated = true;
     }
 
-    if (mutated) saveData();
+    if (mutated) await saveData({ throwOnError: true });
 
     return isEdit ? 'updated' : 'created';
   };
@@ -680,8 +641,17 @@ export function openLessonModal(dateStr, lesson = null) {
   btnGroup.appendChild(el('button', {
     className: 'btn btn-primary btn-sm',
     style: { marginLeft: 'auto' },
-    onClick: () => {
-      const result = saveLesson();
+    onClick: async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      const result = await saveLesson().catch(error => {
+        console.error('[LessonModal] Save failed', error);
+        showToast(t('syncConnectionError'), 'cloud_off');
+        closeModal();
+        render();
+        return null;
+      });
+      button.disabled = false;
       if (!result) return;
       showToast(result === 'created' ? t('lessonCreated') : t('lessonUpdated'), 'check_circle');
       closeModal();

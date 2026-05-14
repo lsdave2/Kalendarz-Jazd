@@ -618,30 +618,6 @@ input, select, textarea { font-family: inherit; }
   align-items: center;
   gap: 2px;
 }
-.tile-instructor {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.tile-instructor-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 0.58rem;
-  padding: 0;
-  margin: 0;
-  margin-left: auto;
-  white-space: nowrap;
-  line-height: 1;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  flex-shrink: 0;
-}
-.tile-instructor-badge .material-symbols-rounded {
-  font-size: 11px;
-}
 .tile-time {
   display: flex;
   align-items: center;
@@ -688,6 +664,46 @@ input, select, textarea { font-family: inherit; }
   font-weight: 700;
 }
 
+.calendar-instructor-legend {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--nav-h) + 16px);
+  max-width: calc(560px - 88px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  z-index: 89;
+  pointer-events: none;
+}
+.calendar-instructor-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(31, 41, 55, 0.95);
+  color: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.28);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.calendar-instructor-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+}
+
 /* ── Add Lesson FAB ─────────────────────────────────────────────────── */
 .fab {
   position: fixed;
@@ -714,6 +730,12 @@ input, select, textarea { font-family: inherit; }
 @media (max-width: 620px) {
   .fab {
     right: 16px;
+  }
+
+  .calendar-instructor-legend {
+    left: 50%;
+    max-width: calc(100vw - 116px);
+    transform: translateX(-50%);
   }
 
   .participant-row {

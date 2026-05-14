@@ -8,6 +8,7 @@ const TABLES = [
   { name: 'groups', key: 'id' },
   { name: 'packages', key: 'id' },
   { name: 'lessons', key: 'id' },
+  { name: 'package_transactions', key: 'id' },
   { name: 'settings', key: 'key' },
   { name: 'expenses', key: 'id' },
   { name: 'incomes', key: 'id' },

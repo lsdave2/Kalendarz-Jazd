@@ -250,9 +250,14 @@ export function buildDayView(dateStr) {
     }
     schedule.appendChild(clusterEl);
   }
+  const settings = getSettings();
   container.appendChild(schedule);
 
-  const settings = getSettings();
+  if (settings.showInstructorTags !== false) {
+    const instructorLegend = buildInstructorLegend(visibleLessons);
+    if (instructorLegend) container.appendChild(instructorLegend);
+  }
+
   if (settings.showTimeLine !== false && isToday(dateStr)) {
     const updateTimeLine = () => {
       const existing = schedule.querySelector('.time-indicator');
@@ -284,6 +289,30 @@ export function buildDayView(dateStr) {
   });
 
   return container;
+}
+
+function buildInstructorLegend(lessons) {
+  const data = getData();
+  const instructorsByName = new Map((data.instructors || []).map(instructor => [instructor.name, instructor]));
+  const seen = new Set();
+  const dayInstructors = [];
+
+  for (const lesson of lessons) {
+    if (!lesson.instructor || isCustomLessonRecord(lesson) || seen.has(lesson.instructor)) continue;
+    seen.add(lesson.instructor);
+    dayInstructors.push(instructorsByName.get(lesson.instructor) || { name: lesson.instructor, color: null });
+  }
+
+  if (dayInstructors.length === 0) return null;
+
+  const legend = el('div', { className: 'calendar-instructor-legend' });
+  for (const instructor of dayInstructors) {
+    legend.appendChild(el('span', { className: 'calendar-instructor-tag' },
+      el('span', { className: 'calendar-instructor-dot', style: instructor.color ? { background: instructor.color } : {} }),
+      instructor.name
+    ));
+  }
+  return legend;
 }
 
 function computeOverlapLayout(lessons) {
@@ -332,10 +361,12 @@ function computeOverlapLayout(lessons) {
 function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute) {
   const isGroup = isGroupLessonRecord(lesson);
   const isCustom = isCustomLessonRecord(lesson);
-  const pkg = (isGroup || isCustom) ? null : (getData().packages || []).find(p => p.name.toLowerCase() === (lesson.title || '').toLowerCase());
+  const data = getData();
+  const pkg = (isGroup || isCustom) ? null : (data.packages || []).find(p => p.name.toLowerCase() === (lesson.title || '').toLowerCase());
   const ps = getLessonParticipants(lesson);
   const cancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
-  const color = lesson?.groupColor || null;
+  const instr = (data.instructors || []).find(i => i.name === lesson.instructor);
+  const color = !cancelled && !isCustom && instr?.color ? instr.color : null;
   const lEnd = parseDate(dateStr);
   lEnd.setMinutes(lEnd.getMinutes() + lesson.startMinute + lesson.durationMinutes);
   const past = lEnd < new Date();
@@ -362,11 +393,9 @@ function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute) {
     onClick: e => { if (!e.target.closest('.dragging') && isAdmin()) openLessonModal(dateStr, lesson); }
   });
 
-  const instr = (getData().instructors || []).find(i => i.name === lesson.instructor);
   const titleRow = el('div', { className: 'tile-title' });
   if (color) titleRow.appendChild(el('span', { className: 'tile-group-dot', style: { background: color } }));
   titleRow.appendChild(el('span', { className: 'tile-title-text' }, getLessonDisplayName(lesson)));
-  if (lesson.instructor && !isCustom) titleRow.appendChild(el('span', { className: 'tile-instructor tile-instructor-badge', style: instr?.color ? { color: instr.color } : {} }, icon('person'), lesson.instructor));
   tile.appendChild(titleRow);
 
   const meta = el('div', { className: 'tile-meta' });
@@ -377,12 +406,12 @@ function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute) {
       row.appendChild(el('span', { className: 'tile-participant-name' }, p.name));
       if (p.horse) row.appendChild(el('span', { className: 'tile-participant-horse' }, icon('horse'), p.horse));
       if (isCustom && p.instructor) {
-        const pInstr = (getData().instructors || []).find(i => i.name === p.instructor);
+        const pInstr = (data.instructors || []).find(i => i.name === p.instructor);
         row.appendChild(el('span', { className: 'tile-participant-package', style: pInstr?.color ? { color: pInstr.color, paddingLeft: '4px' } : { paddingLeft: '4px' } }, icon('person'), p.instructor));
       }
-      const pPkg = p.packageMode !== false ? (getData().packages || []).find(x => x.name.toLowerCase() === (p.packageName || p.name).toLowerCase()) : null;
+      const pPkg = p.packageMode !== false ? (data.packages || []).find(x => x.name.toLowerCase() === (p.packageName || p.name).toLowerCase()) : null;
       if (isAdmin() && pPkg && !isCustom) {
-        const c = !pPkg.active ? 'var(--text-muted)' : (pPkg.credits === 0 ? 'var(--text-muted)' : (pPkg.credits > 0 ? 'var(--green)' : 'var(--red)'));
+        const c = cancelled || !pPkg.active ? 'var(--text-muted)' : (pPkg.credits === 0 ? 'var(--text-muted)' : (pPkg.credits > 0 ? 'var(--green)' : 'var(--red)'));
         row.appendChild(el('span', { className: 'tile-participant-package', style: { color: c } }, t('packageLabelShort', { count: pPkg.credits })));
       }
       wrap.appendChild(row);
@@ -394,7 +423,7 @@ function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute) {
     if (lesson.horse) meta.appendChild(crew);
   }
   if (isAdmin() && !isGroup && lesson.packageMode !== false && pkg && pkg.active) {
-    const c = pkg.credits === 0 ? 'var(--text-muted)' : (pkg.credits > 0 ? 'var(--green)' : 'var(--red)');
+    const c = cancelled || pkg.credits === 0 ? 'var(--text-muted)' : (pkg.credits > 0 ? 'var(--green)' : 'var(--red)');
     meta.appendChild(el('span', { style: { color: c } }, t('packageLabel', { count: pkg.credits })));
   }
   tile.appendChild(meta);

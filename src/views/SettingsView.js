@@ -4,8 +4,7 @@ import {
   getData, saveData, isAdmin, login, logout, generateId,
   getLessonsForDate, GROUP_COLORS, updateInstructorColor, addInstructor, deleteInstructor,
   addHorse, deleteHorse, importData,
-  addExpense, updateExpense, deleteExpense,
-  migrateCreditValues, isCreditTrackingMigrated, getCreditTrackingDebugSnapshot
+  addExpense, updateExpense, deleteExpense
 } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants } from '../services/LessonService.js';
@@ -24,6 +23,24 @@ function getSettings() {
 }
 function saveSettings(settings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function buildDisplayToggleRow(labelKey, settingKey, defaultValue = true) {
+  const settings = getSettings();
+  const row = el('div', { className: 'toggle-row' });
+  row.appendChild(el('span', {}, t(labelKey)));
+  const toggle = el('div', {
+    className: `toggle ${settings[settingKey] !== false ? 'active' : ''}`,
+    onClick: () => {
+      toggle.classList.toggle('active');
+      const newSettings = getSettings();
+      newSettings[settingKey] = toggle.classList.contains('active');
+      if (newSettings[settingKey] === defaultValue) delete newSettings[settingKey];
+      saveSettings(newSettings);
+    }
+  });
+  row.appendChild(toggle);
+  return row;
 }
 
 
@@ -691,7 +708,6 @@ function promptAdminLogin() {
 export function buildSettingsView() {
   const container = el('div');
   const data = getData();
-  const settings = getSettings();
 
   // ── Auth Section
   const authSection = el('div', { className: 'settings-section' });
@@ -725,6 +741,8 @@ export function buildSettingsView() {
     langSelect.onchange = (e) => setLang(e.target.value);
     langRow.appendChild(langSelect);
     displaySection.appendChild(langRow);
+    displaySection.appendChild(el('h4', {}, t('display')));
+    displaySection.appendChild(buildDisplayToggleRow('showInstructorTags', 'showInstructorTags'));
 
     container.appendChild(displaySection);
   } else {
@@ -743,20 +761,8 @@ export function buildSettingsView() {
   displaySection.appendChild(langRow);
   displaySection.appendChild(el('h4', {}, t('display')));
 
-  const timeLineRow = el('div', { className: 'toggle-row' });
-  timeLineRow.appendChild(el('span', {}, t('showTimeLine')));
-  const timeLineToggle = el('div', {
-    className: `toggle ${settings.showTimeLine !== false ? 'active' : ''}`,
-    id: 'setting-timeline-toggle',
-    onClick: () => {
-      timeLineToggle.classList.toggle('active');
-      const newSettings = getSettings();
-      newSettings.showTimeLine = timeLineToggle.classList.contains('active');
-      saveSettings(newSettings);
-    }
-  });
-  timeLineRow.appendChild(timeLineToggle);
-  displaySection.appendChild(timeLineRow);
+  displaySection.appendChild(buildDisplayToggleRow('showTimeLine', 'showTimeLine'));
+  displaySection.appendChild(buildDisplayToggleRow('showInstructorTags', 'showInstructorTags'));
   displaySection.appendChild(buildDayScheduleSettings());
   displaySection.appendChild(el('div', { style: { marginTop: '12px' } }, buildGridScaleSettings()));
   container.appendChild(displaySection);
@@ -889,69 +895,12 @@ export function buildSettingsView() {
     }
   }, icon('upload'), t('importBackup')));
 
-  if (isCreditTrackingMigrated(data)) {
-    dataSection.appendChild(el('div', {
-      style: {
-        marginTop: '12px',
-        padding: '12px',
-        borderRadius: '12px',
-        background: 'var(--green-soft)',
-        color: 'var(--green)',
-        fontSize: '0.9rem',
-        fontWeight: '600',
-      }
-    }, t('creditTrackingMigrated')));
-  } else {
-    dataSection.appendChild(el('button', {
-      className: 'btn btn-secondary btn-sm',
-      style: { marginTop: '12px', width: '100%' },
-      onClick: async () => {
-        if (!confirm(t('migrateCreditValuesConfirm'))) return;
-        try {
-          await migrateCreditValues();
-          showToast(t('creditTrackingMigrationDone'), 'check_circle');
-          render();
-        } catch (error) {
-          showToast(error?.message || 'Migration failed', 'error');
-        }
-      }
-    }, icon('sync_alt'), t('migrateCreditValues')));
-  }
-
   dataSection.appendChild(el('div', { style: { height: '1px', background: 'var(--border)', margin: '12px 0' } }));
   dataSection.appendChild(el('button', {
     className: 'btn btn-secondary btn-sm',
     style: { width: '100%' },
     onClick: () => downloadAuditLog()
   }, icon('description'), 'Download Action Log (Local)'));
-
-  const creditTrackingDebug = getCreditTrackingDebugSnapshot();
-  dataSection.appendChild(el('div', { style: { height: '1px', background: 'var(--border)', margin: '12px 0' } }));
-  dataSection.appendChild(el('div', {
-    style: {
-      fontSize: '0.8rem',
-      fontWeight: '700',
-      color: 'var(--text-secondary)',
-      marginBottom: '8px'
-    }
-  }, 'Credit Tracking Debug'));
-  dataSection.appendChild(el('pre', {
-    style: {
-      width: '100%',
-      overflowX: 'auto',
-      whiteSpace: 'pre-wrap',
-      wordBreak: 'break-word',
-      background: 'var(--bg-secondary)',
-      border: '1px solid var(--border)',
-      borderRadius: '12px',
-      padding: '12px',
-      fontSize: '0.72rem',
-      lineHeight: '1.45',
-      color: 'var(--text-secondary)',
-      margin: '0'
-    }
-  }, JSON.stringify(creditTrackingDebug, null, 2)));
-
 
   container.appendChild(dataSection);
   }
