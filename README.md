@@ -28,6 +28,42 @@ We use `.env` files to manage database connections. These files are **ignored by
 
 Because each Supabase project has its own separate list of users, your admin account from the Live project **will not work** in the Test project automatically.
 
+### Production Audit Trail
+
+Database changes are recorded in `public.change_log` by Postgres triggers. This is the production-safe audit source for actual row mutations; the local action log only records attempted client actions.
+
+Operational notes:
+* Every admin must use their own Supabase Auth login.
+* Shared admin credentials defeat change attribution because `changed_by_user_id` comes from `auth.uid()`.
+* The audit trail attributes changes by Supabase user account only. Per-device tracking is intentionally not implemented yet.
+* Add one `public.admin_profiles` row per admin to enable short-name login and friendly audit names:
+  ```sql
+  insert into public.admin_profiles (user_id, login_name, display_name, email)
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    'ania',
+    'Ania',
+    'ania@example.com'
+  );
+  ```
+  Use the real `auth.users.id` and Supabase Auth email for each admin. The short `login_name` resolves to the email before password sign-in; direct email login still works.
+* Recent lesson changes can be checked manually with:
+  ```sql
+  select *
+  from public.change_log
+  where table_name = 'lessons'
+  order by occurred_at desc
+  limit 100;
+  ```
+* After applying migrations, verify the audit triggers exist with:
+  ```sql
+  select event_object_table, trigger_name
+  from information_schema.triggers
+  where trigger_schema = 'public'
+    and trigger_name like 'audit_%_row_change'
+  order by event_object_table, trigger_name;
+  ```
+
 **To enable login locally:**
 1. Open your **Test Project** in the Supabase Dashboard.
 2. Go to **Authentication** -> **Users**.

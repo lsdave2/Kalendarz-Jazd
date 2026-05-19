@@ -304,11 +304,11 @@ setInterval(() => {
 async function promptAdminLogin() {
   // This is now mainly in SettingsView, but if called from elsewhere:
   const { login } = await import('./store.js');
-  const email = prompt(t('emailLabel'));
-  if (!email) return;
+  const loginIdentifier = prompt(t('loginNameLabel'));
+  if (!loginIdentifier) return;
   const password = prompt(t('passwordLabel'));
   if (!password) return;
-  login(email, password).then(success => {
+  login(loginIdentifier, password).then(success => {
     if (success) {
       showToast(t('loginSuccess'), 'check_circle');
       render();

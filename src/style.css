@@ -1937,3 +1937,167 @@ select.form-input {
 }
 .fin-cat-chip .material-symbols-rounded { font-size: 14px; }
 
+/* Database change log */
+.change-log-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.change-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.change-log-empty {
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: var(--bg-card);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.change-log-empty.error {
+  color: var(--red);
+  border-color: rgba(248, 113, 113, 0.25);
+  background: var(--red-soft);
+}
+
+.change-log-row {
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-muted);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  text-align: left;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.change-log-row:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-hover);
+}
+
+.change-log-row.action-insert { border-left-color: var(--green); }
+.change-log-row.action-update { border-left-color: var(--amber); }
+.change-log-row.action-delete { border-left-color: var(--red); }
+
+.change-log-row-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.change-log-row-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-log-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.change-log-row-side {
+  flex: 0 0 auto;
+  max-width: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.change-log-action {
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.change-log-fields {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.change-log-detail-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.change-log-json-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.change-log-json-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.change-log-json-title {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.change-log-json-block pre {
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px;
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 420px) {
+  .change-log-row {
+    flex-direction: column;
+  }
+
+  .change-log-row-side {
+    max-width: none;
+    align-items: flex-start;
+  }
+}

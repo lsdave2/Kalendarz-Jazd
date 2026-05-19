@@ -1,7 +1,7 @@
 import { formatDate, parseDate } from './utils.js';
 import { supabase } from './supabase.js';
 import { t } from './i18n.js';
-import { logAction } from './services/AuditService.js';
+import { resolveAdminLoginEmail } from './services/AdminIdentityService.js';
 
 const LOCAL_DATA_KEY = 'horsebook_data';
 const LOCAL_PENDING_KEY = 'horsebook_pending_sync';
@@ -737,8 +737,9 @@ async function refreshFromRemote() {
   }
 }
 
-export async function login(email, password) {
+export async function login(identifier, password) {
   if (!supabase) return false;
+  const email = await resolveAdminLoginEmail(identifier);
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (!error && data.session) {
     _isAdmin = true;
@@ -1360,7 +1361,6 @@ function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate =
       customPaymentRate: null,
       hasPackageLessons: !!hasPackageLessons
     });
-    logAction('ADD_PACKAGE', { name: trimmed });
     return true;
   }
 
@@ -1388,7 +1388,6 @@ function ensurePackageEntryState(name, { hasPackageLessons = false, reactivate =
   if (reactivate && pkg.active === false) {
     pkg.active = true;
     pkg.archivedAt = null;
-    logAction('SET_PACKAGE_ACTIVE', { id: pkg.id, active: true });
     changed = true;
   }
   if (pkg.hasPackageLessons !== true && hasPackageLessons) {
@@ -1818,12 +1817,9 @@ function syncDirectRecurringChild(state, parent) {
 
   const nextDate = addDays(parent.date, 7);
   if (child) {
-    const idx = state.lessons.findIndex(lesson => lesson.id === child.id);
-    if (idx < 0) return false;
-    const nextChild = buildRecurringChildFromParent(parent, child);
-    if (jsonEqual(state.lessons[idx], nextChild)) return false;
-    state.lessons[idx] = nextChild;
-    return true;
+    // Once a child exists, it is an independent concrete lesson.
+    // Parent edits must not rewrite it.
+    return false;
   }
 
   if ((state.lessons || []).some(lesson => lesson.date === nextDate && lesson.recurringParentId === parent.id)) {
@@ -1883,7 +1879,6 @@ export function addLesson(lesson, { save = true } = {}) {
     syncDirectRecurringChild(d, newLesson);
   }
   materializeDueRecurringLessons(d);
-  logAction('ADD_LESSON', newLesson);
   reconcileMigratedPackageCredits(d);
   if (save) saveData();
   return newLesson;
@@ -1898,7 +1893,6 @@ export function updateLesson(id, updates, { save = true } = {}) {
       syncDirectRecurringChild(d, d.lessons[idx]);
     }
     materializeDueRecurringLessons(d);
-    logAction('UPDATE_LESSON', { id, updates });
     reconcileMigratedPackageCredits(d);
     if (save) saveData();
   }
@@ -1921,7 +1915,6 @@ export function deleteLesson(id) {
     }
   }
   d.lessons = d.lessons.filter(entry => entry.id !== id);
-  logAction('DELETE_LESSON', { id, title: lesson.title });
   reconcileMigratedPackageCredits(d);
   for (const tx of d.packageTransactions || []) {
     if (tx.lessonId === id) {
@@ -1987,7 +1980,6 @@ export function updatePackageCredits(id, credits) {
     date: new Date().toISOString(),
     sourceKey: `manual_set|${pkg.id}|${generateId()}`,
   });
-  logAction('UPDATE_PACKAGE_CREDITS', { id, credits });
   saveData();
 }
 
@@ -2004,7 +1996,6 @@ export function addPackageCredits(id, amount) {
     date: new Date().toISOString(),
     sourceKey: `manual_adjust|${pkg.id}|${generateId()}`,
   });
-  logAction('ADD_PACKAGE_CREDITS', { id, amount, after: getCurrentCreditValue(pkg) });
   saveData();
 }
 
@@ -2018,7 +2009,6 @@ export function updatePackageCustomPaymentRate(id, value) {
     const parsedValue = Number(value);
     pkg.customPaymentRate = Number.isFinite(parsedValue) ? parsedValue : null;
   }
-  logAction('UPDATE_PACKAGE_RATE', { id, rate: pkg.customPaymentRate });
   saveData();
   return true;
 }
@@ -2035,7 +2025,6 @@ export function setPackageActive(id, active) {
   if (!pkg) return;
   pkg.active = !!active;
   pkg.archivedAt = pkg.active ? null : new Date().toISOString();
-  logAction('SET_PACKAGE_ACTIVE', { id, active: pkg.active });
   saveData();
 }
 
@@ -2052,8 +2041,6 @@ export function updatePackageName(id, newName) {
   }
 
   pkg.name = trimmedNew;
-  logAction('UPDATE_PACKAGE_NAME', { id, oldName, newName: pkg.name });
-
   for (const lesson of d.lessons) {
     if (lesson.title && lesson.title.toLowerCase() === oldName.toLowerCase()) {
       lesson.title = pkg.name;
@@ -2078,7 +2065,6 @@ export function updatePackageName(id, newName) {
 export function deletePackage(id) {
   const d = getData();
   d.packages = d.packages.filter(entry => entry.id !== id);
-  logAction('DELETE_PACKAGE', { id });
   saveData();
 }
 
@@ -2111,7 +2097,6 @@ export function addHorse(name) {
   const d = getData();
   if (d.horses.includes(trimmed)) return false;
   d.horses.push(trimmed);
-  logAction('ADD_HORSE', { name: trimmed });
   saveData();
   return true;
 }
@@ -2121,7 +2106,6 @@ export function deleteHorse(name) {
   const next = d.horses.filter(entry => entry !== name);
   if (next.length === d.horses.length) return false;
   d.horses = next;
-  logAction('DELETE_HORSE', { name });
   saveData();
   return true;
 }
@@ -2135,7 +2119,6 @@ export function addInstructor(name) {
   const colors = GROUP_COLORS;
   const color = colors[d.instructors.length % colors.length];
   d.instructors.push({ name: trimmed, color });
-  logAction('ADD_INSTRUCTOR', { name: trimmed, color });
   saveData();
   return true;
 }
@@ -2145,7 +2128,6 @@ export function updateInstructorColor(name, color) {
   const instr = d.instructors.find(entry => entry.name === name);
   if (!instr) return;
   instr.color = color;
-  logAction('UPDATE_INSTRUCTOR', { name, color });
   saveData();
 }
 
@@ -2154,7 +2136,6 @@ export function deleteInstructor(name) {
   const next = d.instructors.filter(entry => entry.name !== name);
   if (next.length === d.instructors.length) return;
   d.instructors = next;
-  logAction('DELETE_INSTRUCTOR', { name });
   saveData();
 }
 
@@ -2233,13 +2214,11 @@ export function toggleClosedDate(dateStr) {
   } else {
     d.closedDates.push(dateStr);
   }
-  logAction('TOGGLE_CLOSED_DATE', { date: dateStr, active: d.closedDates.includes(dateStr) });
   saveData();
 }
 
 export function importData(importedState) {
   setDataState(importedState, { pending: true });
-  logAction('IMPORT_DATA', { timestamp: new Date().toISOString() });
   saveData();
 }
 
@@ -2255,7 +2234,6 @@ export function addExpense(expense) {
     description: expense.description || '',
   };
   d.expenses.push(newExpense);
-  logAction('ADD_EXPENSE', newExpense);
   saveData();
   return newExpense;
 }
@@ -2265,7 +2243,6 @@ export function updateExpense(id, updates) {
   const idx = d.expenses.findIndex(e => e.id === id);
   if (idx >= 0) {
     d.expenses[idx] = { ...d.expenses[idx], ...updates };
-    logAction('UPDATE_EXPENSE', { id, updates });
     saveData();
   }
 }
@@ -2273,7 +2250,6 @@ export function updateExpense(id, updates) {
 export function deleteExpense(id) {
   const d = getData();
   d.expenses = d.expenses.filter(e => e.id !== id);
-  logAction('DELETE_EXPENSE', { id });
   saveData();
 }
 
@@ -2287,7 +2263,6 @@ export function addIncome(income) {
     description: income.description || '',
   };
   d.incomes.push(newIncome);
-  logAction('ADD_INCOME', newIncome);
   saveData();
   return newIncome;
 }
@@ -2297,7 +2272,6 @@ export function updateIncome(id, updates) {
   const idx = d.incomes.findIndex(e => e.id === id);
   if (idx >= 0) {
     d.incomes[idx] = { ...d.incomes[idx], ...updates };
-    logAction('UPDATE_INCOME', { id, updates });
     saveData();
   }
 }
@@ -2305,7 +2279,6 @@ export function updateIncome(id, updates) {
 export function deleteIncome(id) {
   const d = getData();
   d.incomes = d.incomes.filter(e => e.id !== id);
-  logAction('DELETE_INCOME', { id });
   saveData();
 }
 

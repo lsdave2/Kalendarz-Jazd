@@ -14,8 +14,13 @@ import {
   getRevenueReportRates, saveRevenueReportRates,
   computeRevenueReport, computeInstructorPaymentReport, computeInstructorPaymentAmount
 } from '../services/ReportService.js';
-import { downloadAuditLog } from '../services/AuditService.js';
 import { clearSyncErrorLog, getSyncErrorLog } from '../services/SyncErrorLogService.js';
+import {
+  CHANGE_LOG_ACTIONS,
+  CHANGE_LOG_TABLES,
+  fetchChangeLogEntries,
+  getChangeLogRowTitle
+} from '../services/ChangeLogService.js';
 
 // ── Settings helpers ────────────────────────────────────────────────────
 const SETTINGS_KEY = 'horsebook_settings';
@@ -691,11 +696,11 @@ function buildGridScaleSettings() {
 }
 
 function promptAdminLogin() {
-  const email = prompt(t('emailLabel'));
-  if (!email) return;
+  const loginIdentifier = prompt(t('loginNameLabel'));
+  if (!loginIdentifier) return;
   const password = prompt(t('passwordLabel'));
   if (!password) return;
-  login(email, password).then(success => {
+  login(loginIdentifier, password).then(success => {
     if (success) {
       showToast(t('loginSuccess'), 'check_circle');
       render();
@@ -716,6 +721,175 @@ function formatSyncLogTimestamp(value) {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+function formatChangeLogUser(userId) {
+  if (!userId) return t('unknownUser');
+  return userId;
+}
+
+function getChangeLogUserLabel(entry) {
+  return entry?.changed_by_display_name || formatChangeLogUser(entry?.changed_by_user_id);
+}
+
+function formatChangedFields(fields) {
+  if (!Array.isArray(fields) || fields.length === 0) return '';
+  if (fields.length <= 5) return fields.join(', ');
+  return `${fields.slice(0, 5).join(', ')} +${fields.length - 5}`;
+}
+
+function openChangeLogDetailModal(entry) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
+
+  const modal = el('div', { className: 'modal' });
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
+  modal.appendChild(el('h3', {}, t('changeLogDetails')));
+
+  const rowTitle = getChangeLogRowTitle(entry);
+  modal.appendChild(el('div', { className: 'change-log-detail-meta' },
+    el('div', {}, `${formatSyncLogTimestamp(entry.occurred_at)} / ${entry.table_name} / ${entry.action}`),
+    el('div', {}, `${t('changedBy')}: ${getChangeLogUserLabel(entry)}`),
+    entry.changed_by_display_name && entry.changed_by_user_id
+      ? el('div', {}, entry.changed_by_user_id)
+      : '',
+    rowTitle ? el('div', {}, rowTitle) : ''
+  ));
+
+  const fields = formatChangedFields(entry.changed_fields);
+  if (fields) {
+    modal.appendChild(el('div', { className: 'change-log-fields' }, fields));
+  }
+
+  const details = el('div', { className: 'change-log-json-grid' });
+  details.appendChild(el('div', { className: 'change-log-json-block' },
+    el('div', { className: 'change-log-json-title' }, t('before')),
+    el('pre', {}, JSON.stringify(entry.old_row, null, 2) || 'null')
+  ));
+  details.appendChild(el('div', { className: 'change-log-json-block' },
+    el('div', { className: 'change-log-json-title' }, t('after')),
+    el('pre', {}, JSON.stringify(entry.new_row, null, 2) || 'null')
+  ));
+  modal.appendChild(details);
+
+  const btnRow = el('div', { className: 'btn-group modal-actions', style: { marginTop: '16px' } });
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-secondary',
+    style: { flex: '1' },
+    onClick: () => closeModal()
+  }, t('close')));
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
+function openChangeLogModal() {
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeModal();
+  };
+
+  const modal = el('div', { className: 'modal' });
+  const handle = el('div', { className: 'modal-handle' });
+  const { closeModal } = setupModalSwipeToClose(modal, overlay, handle, () => overlay.remove());
+  modal.appendChild(handle);
+  modal.appendChild(el('h3', {}, t('databaseChangeLog')));
+
+  const filters = el('div', { className: 'change-log-filters' });
+  const tableSelect = el('select', { className: 'form-input' },
+    el('option', { value: '' }, t('allTables'))
+  );
+  for (const tableName of CHANGE_LOG_TABLES) {
+    tableSelect.appendChild(el('option', { value: tableName }, tableName));
+  }
+
+  const actionSelect = el('select', { className: 'form-input' },
+    el('option', { value: '' }, t('allActions'))
+  );
+  for (const action of CHANGE_LOG_ACTIONS) {
+    actionSelect.appendChild(el('option', { value: action }, action));
+  }
+
+  const fromInput = el('input', { className: 'form-input', type: 'date', 'aria-label': t('dateFrom') });
+  const toInput = el('input', { className: 'form-input', type: 'date', 'aria-label': t('dateTo') });
+  filters.append(tableSelect, actionSelect, fromInput, toInput);
+  modal.appendChild(filters);
+
+  const list = el('div', { className: 'change-log-list' });
+  modal.appendChild(list);
+
+  const loadEntries = async () => {
+    list.innerHTML = '';
+    list.appendChild(el('div', { className: 'change-log-empty' }, t('loading')));
+
+    const { entries, error } = await fetchChangeLogEntries({
+      tableName: tableSelect.value,
+      action: actionSelect.value,
+      dateFrom: fromInput.value,
+      dateTo: toInput.value,
+      limit: 100,
+    });
+
+    list.innerHTML = '';
+    if (error) {
+      list.appendChild(el('div', { className: 'change-log-empty error' }, error.message || t('changeLogLoadFailed')));
+      return;
+    }
+    if (entries.length === 0) {
+      list.appendChild(el('div', { className: 'change-log-empty' }, t('changeLogEmpty')));
+      return;
+    }
+
+    for (const entry of entries) {
+      const title = getChangeLogRowTitle(entry) || entry.row_id || t('untitled');
+      const fields = formatChangedFields(entry.changed_fields);
+      const row = el('button', {
+        className: `change-log-row action-${String(entry.action || '').toLowerCase()}`,
+        onClick: () => openChangeLogDetailModal(entry)
+      },
+        el('div', { className: 'change-log-row-main' },
+          el('div', { className: 'change-log-row-title' }, title),
+          el('div', { className: 'change-log-row-meta' },
+            el('span', {}, formatSyncLogTimestamp(entry.occurred_at)),
+            el('span', {}, entry.table_name),
+            el('span', {}, getChangeLogUserLabel(entry))
+          )
+        ),
+        el('div', { className: 'change-log-row-side' },
+          el('span', { className: 'change-log-action' }, entry.action),
+          fields ? el('span', { className: 'change-log-fields' }, fields) : ''
+        )
+      );
+      list.appendChild(row);
+    }
+  };
+
+  tableSelect.addEventListener('change', loadEntries);
+  actionSelect.addEventListener('change', loadEntries);
+  fromInput.addEventListener('change', loadEntries);
+  toInput.addEventListener('change', loadEntries);
+  loadEntries();
+
+  const btnRow = el('div', { className: 'btn-group modal-actions', style: { marginTop: '16px' } });
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-secondary',
+    style: { flex: '1' },
+    onClick: () => closeModal()
+  }, t('close')));
+  btnRow.appendChild(el('button', {
+    className: 'btn btn-primary',
+    style: { flex: '1' },
+    onClick: loadEntries
+  }, icon('refresh'), t('refresh')));
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
 }
 
 function openSyncErrorLogModal() {
@@ -965,12 +1139,11 @@ export function buildSettingsView() {
     }
   }, icon('upload'), t('importBackup')));
 
-  dataSection.appendChild(el('div', { style: { height: '1px', background: 'var(--border)', margin: '12px 0' } }));
   dataSection.appendChild(el('button', {
     className: 'btn btn-secondary btn-sm',
-    style: { width: '100%' },
-    onClick: () => downloadAuditLog()
-  }, icon('description'), 'Download Action Log (Local)'));
+    style: { marginTop: '12px', width: '100%' },
+    onClick: openChangeLogModal
+  }, icon('manage_search'), t('viewDatabaseChangeLog')));
 
   dataSection.appendChild(el('button', {
     className: 'btn btn-secondary btn-sm',
