@@ -59,7 +59,6 @@ let _realtimeChannel = null;
 let _realtimeInitialized = false;
 let _needsRemoteRefresh = false;
 let _preserveRemoteLessonsDuringNextSync = false;
-let _cloudSaveDeadlineMs = null;
 const _listeners = new Set();
 
 const _meta = {
@@ -166,10 +165,6 @@ async function withCloudTimeout(queryOrPromise) {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   let timeoutId;
   try {
-    const timeoutMs = _cloudSaveDeadlineMs
-      ? Math.max(0, _cloudSaveDeadlineMs - Date.now())
-      : CLOUD_SAVE_TIMEOUT_MS;
-    if (timeoutMs <= 0) throw new CloudSyncTimeoutError();
     const executable = controller && typeof queryOrPromise?.abortSignal === 'function'
       ? queryOrPromise.abortSignal(controller.signal)
       : queryOrPromise;
@@ -179,7 +174,7 @@ async function withCloudTimeout(queryOrPromise) {
         timeoutId = setTimeout(() => {
           controller?.abort();
           reject(new CloudSyncTimeoutError());
-        }, timeoutMs);
+        }, CLOUD_SAVE_TIMEOUT_MS);
       }),
     ]);
   } catch (error) {
@@ -1288,9 +1283,17 @@ async function syncLessons(current, persisted, mutations, { preserveRemoteLesson
     if (previous && jsonEqual(lesson, previous)) continue;
     if (preserveRemoteLessons && previous) continue;
     const row = buildLessonRow(lesson, horseIdByName, instructorIdByName);
-    const { error } = await withCloudTimeout(supabase.from('lessons').upsert(row, { onConflict: 'id' }));
+    const { data, error } = await withCloudTimeout(
+      supabase
+        .from('lessons')
+        .upsert(row, { onConflict: 'id' })
+        .select('*')
+        .maybeSingle()
+    );
     if (error) throw error;
-    addUpsertVerification(mutations, 'lessons', { id }, row);
+    if (!data || !dbRowMatchesExpected(data, row)) {
+      throw new Error(t('syncVerificationFailed'));
+    }
   }
 
   for (const [id] of persistedById.entries()) {
@@ -1450,6 +1453,11 @@ export function saveData({ throwOnError = false } = {}) {
   notifyListeners();
   _saveChain = _saveChain.catch(() => {}).then(async () => {
     const isLatestSaveRevision = () => saveRevision === _dataRevision;
+    if (!isLatestSaveRevision()) {
+      _hasPendingLocalChanges = true;
+      persistLocalState({ pending: true });
+      return;
+    }
     const persistedSnapshot = deepClone(_persistedData);
     const syncState = normalizeAppState(deepClone(saveSnapshot));
     const preserveRemoteLessons = _preserveRemoteLessonsDuringNextSync;
@@ -1484,7 +1492,6 @@ export function saveData({ throwOnError = false } = {}) {
       }
 
       try {
-        _cloudSaveDeadlineMs = Date.now() + CLOUD_SAVE_TIMEOUT_MS;
         const mutations = await syncToSupabase(syncState, persistedSnapshot, { preserveRemoteLessons });
         await confirmSupabaseMutations(mutations);
         const persistedSyncState = normalizeAppState(syncState);
@@ -1515,8 +1522,6 @@ export function saveData({ throwOnError = false } = {}) {
         if (throwOnError) {
           throw error;
         }
-      } finally {
-        _cloudSaveDeadlineMs = null;
       }
     } finally {
       _pendingSaveJobs = Math.max(0, _pendingSaveJobs - 1);
