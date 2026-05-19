@@ -1,0 +1,2836 @@
+[
+  {
+    "timestamp": "2026-05-19T10:14:58.089Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "63f4837c-2c05-4ffe-b0da-64b4e3295638",
+      "title": "Marcin",
+      "date": "2026-05-28",
+      "startMinute": 660,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Marcin",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-19T08:08:03.454Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "f708db3b-3baf-4013-90ed-61ce94cee9ab",
+      "title": "Ada",
+      "date": "2026-05-19",
+      "startMinute": 720,
+      "durationMinutes": 45,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Ada",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-18T13:38:06.244Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "group",
+      "instanceOverrides": {},
+      "id": "5d665d21-8bc6-4da0-a0fd-a68a96a48cab",
+      "title": "Grupowa",
+      "groupName": "Grupowa",
+      "groupId": null,
+      "groupColor": null,
+      "date": "2026-05-19",
+      "startMinute": 1080,
+      "durationMinutes": 60,
+      "instructor": null,
+      "packageMode": true,
+      "participants": [
+        {
+          "name": "Damian Dedła",
+          "horse": null,
+          "packageName": "Damian Dedła",
+          "packageMode": true,
+          "instructor": null
+        },
+        {
+          "name": "Marianka",
+          "horse": null,
+          "packageName": "Marianka",
+          "packageMode": true,
+          "instructor": null
+        },
+        {
+          "name": "Nadia",
+          "horse": null,
+          "packageName": "Nadia",
+          "packageMode": true,
+          "instructor": null
+        }
+      ],
+      "recurring": false,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-18T13:07:19.547Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "c35f41d5-beb1-432e-8c3e-0272b339afcb",
+      "title": "Marysia",
+      "date": "2026-05-30",
+      "startMinute": 930,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Marysia",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-18T13:06:57.082Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "6c2951da-b776-4656-a0ce-19f8978f49d4",
+      "title": "Tosia",
+      "date": "2026-05-30",
+      "startMinute": 930,
+      "durationMinutes": 60,
+      "horse": "Rubin",
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Tosia",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-18T08:13:10.840Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "dca3ff83-a3be-46d8-af4c-d301fdc98b67",
+      "title": "Anielka i Michasia",
+      "date": "2026-05-19",
+      "startMinute": 1020,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Anielka i Michasia",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-17T12:44:25.196Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "custom",
+      "instanceOverrides": {},
+      "id": "6d419270-ddab-4754-b7d9-16a37cd31e7f",
+      "title": "Niestandardowa",
+      "description": "",
+      "date": "2026-05-17",
+      "startMinute": 1020,
+      "durationMinutes": 60,
+      "participants": [
+        {
+          "name": "Siostra",
+          "horse": "Sakwa",
+          "packageName": "Siostra",
+          "packageMode": false,
+          "instructor": "Olga",
+          "customCost": 110
+        },
+        {
+          "name": "Siostra",
+          "horse": "Carewicz",
+          "packageName": "Siostra",
+          "packageMode": false,
+          "instructor": "Olga",
+          "customCost": 110
+        }
+      ],
+      "recurring": false,
+      "groupId": null,
+      "groupName": "Niestandardowa",
+      "groupColor": null,
+      "packageMode": false,
+      "instructor": null,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-17T12:26:52.244Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "bab05a92-0538-4146-bf5b-57f206945088",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Marta Mama Szymona",
+        "date": "2026-05-28",
+        "startMinute": 1020,
+        "durationMinutes": 60,
+        "horse": null,
+        "instructor": "Ania",
+        "packageMode": true,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-17T12:26:16.647Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "bab05a92-0538-4146-bf5b-57f206945088",
+      "title": "Marta Mama Szymona",
+      "date": "2026-05-28",
+      "startMinute": 780,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": "Ania",
+      "recurring": false,
+      "recurringUntil": null,
+      "packageMode": true,
+      "groupName": "Marta Mama Szymona",
+      "groupColor": null,
+      "participants": [],
+      "groupId": null
+    }
+  },
+  {
+    "timestamp": "2026-05-16T21:36:11.697Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "4baac6db-ae08-4896-acb9-8051b3e163dd",
+      "updates": {
+        "lessonType": "group",
+        "title": "Grupowa",
+        "groupName": null,
+        "groupId": null,
+        "groupColor": null,
+        "date": "2026-05-17",
+        "startMinute": 960,
+        "durationMinutes": 60,
+        "instructor": null,
+        "packageMode": true,
+        "participants": [
+          {
+            "name": "Wiktoria",
+            "horse": null,
+            "packageMode": false
+          },
+          {
+            "name": "Stasiu",
+            "horse": null,
+            "packageMode": false
+          }
+        ],
+        "recurring": true,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-16T21:36:06.295Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "group",
+      "instanceOverrides": {},
+      "id": "4baac6db-ae08-4896-acb9-8051b3e163dd",
+      "title": "Grupowa",
+      "groupName": "Grupowa",
+      "groupId": null,
+      "groupColor": null,
+      "date": "2026-05-17",
+      "startMinute": 960,
+      "durationMinutes": 60,
+      "instructor": null,
+      "packageMode": true,
+      "participants": [
+        {
+          "name": "Wiktoria",
+          "horse": null,
+          "packageName": "Wiktoria",
+          "packageMode": false,
+          "instructor": null
+        },
+        {
+          "name": "Stasiu",
+          "horse": null,
+          "packageName": "Stasiu",
+          "packageMode": false,
+          "instructor": null
+        }
+      ],
+      "recurring": false,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-16T21:33:49.808Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "7b3c9a6b-ae25-402e-9c3d-580ddb6fc545",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Oliwia Olszewska 1 kazda",
+        "date": "2026-05-17",
+        "startMinute": 840,
+        "durationMinutes": 60,
+        "horse": null,
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-16T21:33:40.198Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "7b3c9a6b-ae25-402e-9c3d-580ddb6fc545",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Oliwia Olszewska 1 kazda",
+        "date": "2026-05-17",
+        "startMinute": 840,
+        "durationMinutes": 60,
+        "horse": null,
+        "instructor": null,
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-16T12:03:01.550Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "custom",
+      "instanceOverrides": {},
+      "id": "f1141c6f-9b06-406f-a400-23cb317120c4",
+      "title": "Niestandardowa",
+      "description": "",
+      "date": "2026-05-30",
+      "startMinute": 1080,
+      "durationMinutes": 60,
+      "participants": [
+        {
+          "name": "Tosia i Marysia",
+          "horse": null,
+          "packageName": "Tosia i Marysia",
+          "packageMode": false,
+          "instructor": null,
+          "customCost": 140
+        }
+      ],
+      "recurring": false,
+      "groupId": null,
+      "groupName": "Niestandardowa",
+      "groupColor": null,
+      "packageMode": false,
+      "instructor": null,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-16T10:49:54.126Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "3217d266-5b4b-4bc1-871e-e88af6e984cb",
+      "amount": 2,
+      "after": 3
+    }
+  },
+  {
+    "timestamp": "2026-05-16T10:49:33.822Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "237c1e6c-80bf-4eb0-aeae-db1c8fdf81f5",
+      "amount": 2,
+      "after": 1
+    }
+  },
+  {
+    "timestamp": "2026-05-16T09:57:39.133Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "3e7391c8-5579-432b-95f7-0fbca5806b85",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Oliwka Lilki",
+        "date": "2026-05-16",
+        "startMinute": 690,
+        "durationMinutes": 60,
+        "horse": "Czempion",
+        "instructor": null,
+        "packageMode": true,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-16T09:57:32.127Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "d39cb5b3-f009-463d-972d-685c04acf305",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Lilka od Oliwki",
+        "date": "2026-05-16",
+        "startMinute": 690,
+        "durationMinutes": 60,
+        "horse": "Carewicz",
+        "instructor": "Ania",
+        "packageMode": true,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-16T09:54:37.569Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "cde74399-571a-4501-94ff-ff3ceaf0d97d",
+      "title": "Oliwka Lilki",
+      "date": "2026-05-20",
+      "startMinute": 1140,
+      "durationMinutes": 60,
+      "horse": "Figa",
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Oliwka Lilki",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-16T09:54:16.399Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "16763b9c-a597-4ec9-a487-a00cbd58e6e4",
+      "title": "Lilka od Oliwki",
+      "date": "2026-05-20",
+      "startMinute": 1140,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": "Olga",
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Lilka od Oliwki",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-16T08:54:55.687Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "3e7391c8-5579-432b-95f7-0fbca5806b85",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Oliwka Lilki",
+        "date": "2026-05-16",
+        "startMinute": 690,
+        "durationMinutes": 60,
+        "horse": "Czempion",
+        "instructor": null,
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-16T08:54:47.393Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "d39cb5b3-f009-463d-972d-685c04acf305",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Lilka od Oliwki",
+        "date": "2026-05-16",
+        "startMinute": 690,
+        "durationMinutes": 60,
+        "horse": "Carewicz",
+        "instructor": "Ania",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-14T21:54:01.406Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "3e7391c8-5579-432b-95f7-0fbca5806b85",
+      "title": "Oliwka Lilki",
+      "date": "2026-05-16",
+      "startMinute": 690,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Oliwka Lilki",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-14T21:53:39.152Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "d39cb5b3-f009-463d-972d-685c04acf305",
+      "title": "Lilka od Oliwki",
+      "date": "2026-05-16",
+      "startMinute": 690,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Lilka od Oliwki",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-14T13:25:44.192Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "d75e0593-0ba2-43ab-a319-92ffb0394168",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Ewelina",
+        "date": "2026-05-14",
+        "startMinute": 1080,
+        "durationMinutes": 60,
+        "horse": "Kadet",
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-14T10:18:03.137Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "9e3488f7-6e0d-4957-88d4-c53a6af06ce2",
+      "title": "Marcin",
+      "date": "2026-05-19",
+      "startMinute": 660,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Marcin",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-13T19:17:08.971Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "4bb3dc68-c783-47a3-a83a-7aff35f424f1",
+      "title": "Marcin",
+      "date": "2026-05-14",
+      "startMinute": 660,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": "Ania",
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Marcin",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-13T17:21:15.911Z",
+    "action": "UPDATE_INCOME",
+    "data": {
+      "id": "e358a6d0-c408-4f69-adab-b671bd53d9aa",
+      "updates": {
+        "title": "Kluska",
+        "cost": 390,
+        "date": "2026-05-13",
+        "description": "Kwiecień plus Kowal i odrobaczanie",
+        "type": "income"
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-13T17:20:53.710Z",
+    "action": "ADD_INCOME",
+    "data": {
+      "id": "e358a6d0-c408-4f69-adab-b671bd53d9aa",
+      "title": "Kluska",
+      "cost": 390,
+      "date": "2026-05-13",
+      "description": ""
+    }
+  },
+  {
+    "timestamp": "2026-05-13T16:21:56.542Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "fea35c77-33b5-4672-8893-7907525139d5",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Anielka i Michasia",
+        "date": "2026-05-13",
+        "startMinute": 1140,
+        "durationMinutes": 60,
+        "horse": "Muminek",
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-13T16:21:29.872Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "1ba188e2-d0ff-4973-abc2-793b4d36d95c",
+      "updates": {
+        "lessonType": "group",
+        "title": "Grupowa",
+        "groupName": null,
+        "groupId": null,
+        "groupColor": "#76FF03",
+        "date": "2026-05-13",
+        "startMinute": 660,
+        "durationMinutes": 60,
+        "instructor": null,
+        "packageMode": true,
+        "participants": [
+          {
+            "name": "Gosia",
+            "horse": null,
+            "packageMode": false
+          },
+          {
+            "name": "Klaudia",
+            "horse": null,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-13T16:19:29.703Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "80f697e8-ed15-4a66-a5e1-976223eb631a",
+      "amount": -1,
+      "after": 3
+    }
+  },
+  {
+    "timestamp": "2026-05-13T14:35:38.338Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "80f697e8-ed15-4a66-a5e1-976223eb631a",
+      "amount": 4,
+      "after": 5
+    }
+  },
+  {
+    "timestamp": "2026-05-13T10:27:44.387Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "group",
+      "instanceOverrides": {},
+      "id": "b5e6718e-3dbe-4e26-b66a-5b72b9436471",
+      "title": "Grupowa",
+      "groupName": "Grupowa",
+      "groupId": null,
+      "groupColor": "#D500F9",
+      "date": "2026-05-20",
+      "startMinute": 660,
+      "durationMinutes": 60,
+      "instructor": "Ania",
+      "packageMode": true,
+      "participants": [
+        {
+          "name": "Klaudia",
+          "horse": null,
+          "packageName": "Klaudia",
+          "packageMode": false,
+          "instructor": null
+        },
+        {
+          "name": "Gosia??",
+          "horse": null,
+          "packageName": "Gosia??",
+          "packageMode": false,
+          "instructor": null
+        }
+      ],
+      "recurring": false,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-12T20:25:06.903Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "a4339dfb-7cc0-4a9a-80c2-a8f68b42e083",
+      "updates": {
+        "lessonType": "custom",
+        "title": "Niestandardowa",
+        "description": "",
+        "date": "2026-05-12",
+        "startMinute": 1020,
+        "durationMinutes": 60,
+        "participants": [
+          {
+            "name": "Lonża z bonu",
+            "horse": null,
+            "instructor": "Ania",
+            "customCost": 140,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "packageMode": false,
+        "instructor": null,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-12T20:24:54.047Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "1f081e2f-166f-4917-9a52-3b0408dc7133",
+      "updates": {
+        "lessonType": "group",
+        "title": "Grupowa",
+        "groupName": null,
+        "groupId": null,
+        "groupColor": "#00E5FF",
+        "date": "2026-05-12",
+        "startMinute": 1080,
+        "durationMinutes": 60,
+        "instructor": "Ania",
+        "packageMode": true,
+        "participants": [
+          {
+            "name": "Oliwka Malanowska",
+            "horse": "Fason",
+            "packageMode": true
+          },
+          {
+            "name": "Damian Dedła",
+            "horse": "Kadet",
+            "packageMode": true
+          }
+        ],
+        "recurring": false,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-12T09:31:49.614Z",
+    "action": "ADD_PACKAGE",
+    "data": {
+      "name": "Oliwia Olszewska 1 kazda"
+    }
+  },
+  {
+    "timestamp": "2026-05-12T09:31:49.608Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "7b3c9a6b-ae25-402e-9c3d-580ddb6fc545",
+      "title": "Oliwia Olszewska 1 kazda",
+      "date": "2026-05-17",
+      "startMinute": 960,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Oliwia Olszewska 1 kazda",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:35:49.300Z",
+    "action": "UPDATE_EXPENSE",
+    "data": {
+      "id": "1f4f40be-4c13-4cca-9e3e-a66a7047af29",
+      "updates": {
+        "title": "Pasza",
+        "cost": 850,
+        "date": "2026-05-12",
+        "description": "",
+        "type": "expense"
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:35:40.252Z",
+    "action": "ADD_EXPENSE",
+    "data": {
+      "id": "1f4f40be-4c13-4cca-9e3e-a66a7047af29",
+      "title": "Pasza",
+      "cost": 0,
+      "date": "2026-05-12",
+      "description": ""
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:16:47.435Z",
+    "action": "ADD_EXPENSE",
+    "data": {
+      "id": "a0b6badf-ebc2-4788-ab65-69b56ff0226e",
+      "title": "Kowal",
+      "cost": 1000,
+      "date": "2026-05-12",
+      "description": "Sakwa, Kadet, Siwa, Muminek, Grot, Cisza, Figa, Kluska, Cookie, Bastion,"
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:12:08.991Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "838fa547-5032-45df-91e4-0831ece8b28a",
+      "updates": {
+        "lessonType": "custom",
+        "title": "Niestandardowa",
+        "description": "",
+        "date": "2026-05-11",
+        "startMinute": 960,
+        "durationMinutes": 60,
+        "participants": [
+          {
+            "name": "Agata",
+            "horse": "Rubin",
+            "instructor": "Ania",
+            "customCost": 110,
+            "packageMode": false
+          },
+          {
+            "name": "Ania",
+            "horse": "Carewicz",
+            "instructor": "Ania",
+            "customCost": 110,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "packageMode": false,
+        "instructor": null,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:11:32.062Z",
+    "action": "ADD_PACKAGE",
+    "data": {
+      "name": "Tosia i Marysia"
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:11:02.436Z",
+    "action": "DELETE_PACKAGE",
+    "data": {
+      "id": "27a3e4f0-d039-4902-8113-540d9dabb29b"
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:10:52.072Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "3e532f1e-0d9c-4046-8b67-9e1d0d12567a",
+      "amount": 4,
+      "after": 3
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:10:45.249Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "c1dc14ad-bdd7-4071-bc64-929cf5d78fa4",
+      "amount": 4,
+      "after": 3
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:10:10.495Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "group",
+      "instanceOverrides": {},
+      "id": "1f081e2f-166f-4917-9a52-3b0408dc7133",
+      "title": "Grupowa",
+      "groupName": "Grupowa",
+      "groupId": null,
+      "groupColor": "#00E5FF",
+      "date": "2026-05-12",
+      "startMinute": 1080,
+      "durationMinutes": 60,
+      "instructor": "Ania",
+      "packageMode": true,
+      "participants": [
+        {
+          "name": "Maja Wiewiór",
+          "horse": null,
+          "packageName": "Maja Wiewiór",
+          "packageMode": true,
+          "instructor": null
+        },
+        {
+          "name": "Oliwka Malanowska",
+          "horse": null,
+          "packageName": "Oliwka Malanowska",
+          "packageMode": true,
+          "instructor": null
+        }
+      ],
+      "recurring": false,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:09:05.683Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "d75e0593-0ba2-43ab-a319-92ffb0394168",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Ewelina",
+        "date": "2026-05-14",
+        "startMinute": 1080,
+        "durationMinutes": 60,
+        "horse": null,
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-12T08:08:52.009Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "d75e0593-0ba2-43ab-a319-92ffb0394168",
+      "title": "Ewelina",
+      "date": "2026-05-14",
+      "startMinute": 1140,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": "Olga",
+      "recurring": false,
+      "recurringUntil": null,
+      "packageMode": false,
+      "groupName": "Ewelina",
+      "groupColor": "#F57C00",
+      "participants": [],
+      "groupId": null
+    }
+  },
+  {
+    "timestamp": "2026-05-11T20:17:22.967Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "fea35c77-33b5-4672-8893-7907525139d5",
+      "title": "Anielka i Michasia",
+      "date": "2026-05-13",
+      "startMinute": 1140,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": "Olga",
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Anielka i Michasia",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-11T20:15:52.099Z",
+    "action": "DELETE_LESSON",
+    "data": {
+      "id": "d2c1cb60-b2d4-4919-9708-18185d729368",
+      "title": "Anielka i Michasia"
+    }
+  },
+  {
+    "timestamp": "2026-05-11T13:24:57.775Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "a8e601f2-6b90-435a-ac37-4a27ceb868a6",
+      "title": "Anielka i Michasia",
+      "date": "2026-05-13",
+      "startMinute": 1140,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Anielka i Michasia",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:58:43.897Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "d97ec468-7c56-40ad-9469-70183e1a8334",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Oliwka Lilki",
+        "date": "2026-05-10",
+        "startMinute": 840,
+        "durationMinutes": 60,
+        "horse": "Rubin",
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:57:58.849Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "d102677a-cbb8-44b6-9eda-562e7a6a9595",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Emilka mała",
+        "date": "2026-05-10",
+        "startMinute": 735,
+        "durationMinutes": 45,
+        "horse": "Rubin",
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:57:21.541Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "d97ec468-7c56-40ad-9469-70183e1a8334",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Oliwka Lilki",
+        "date": "2026-05-10",
+        "startMinute": 840,
+        "durationMinutes": 60,
+        "horse": "Rubin",
+        "instructor": null,
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:57:09.730Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "b0141dad-5de5-4014-84aa-d720497a81fb",
+      "updates": {
+        "lessonType": "custom",
+        "title": "Niestandardowa",
+        "description": "",
+        "date": "2026-05-10",
+        "startMinute": 900,
+        "durationMinutes": 60,
+        "participants": [
+          {
+            "name": "11 latka 1 raz",
+            "horse": "Muminek",
+            "instructor": null,
+            "customCost": 140,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "packageMode": false,
+        "instructor": null,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:56:58.158Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "b0141dad-5de5-4014-84aa-d720497a81fb",
+      "updates": {
+        "lessonType": "custom",
+        "title": "Niestandardowa",
+        "description": "",
+        "date": "2026-05-10",
+        "startMinute": 900,
+        "durationMinutes": 60,
+        "participants": [
+          {
+            "name": "11 latka 1 raz",
+            "horse": "Rubin",
+            "instructor": null,
+            "customCost": 140,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "packageMode": false,
+        "instructor": null,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:56:49.242Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "cf2a8596-52cb-4db6-81c7-cb3b485b2a47",
+      "updates": {
+        "lessonType": "custom",
+        "title": "Niestandardowa",
+        "description": "",
+        "date": "2026-05-10",
+        "startMinute": 960,
+        "durationMinutes": 45,
+        "participants": [
+          {
+            "name": "3,5 roku",
+            "horse": "Czempion",
+            "instructor": null,
+            "customCost": 140,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "packageMode": false,
+        "instructor": null,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:56:38.197Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "4aa5f7c8-8fb3-461b-8486-8baacedd0dea",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Agatka",
+        "date": "2026-05-10",
+        "startMinute": 960,
+        "durationMinutes": 60,
+        "horse": "Cera",
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:56:28.090Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "1eee68e4-90d0-47e4-9579-eafc69250e22",
+      "updates": {
+        "lessonType": "custom",
+        "title": "Niestandardowa",
+        "description": "",
+        "date": "2026-05-10",
+        "startMinute": 1020,
+        "durationMinutes": 120,
+        "participants": [
+          {
+            "name": "Nowa Pani",
+            "horse": "Carewicz",
+            "instructor": null,
+            "customCost": 140,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "packageMode": false,
+        "instructor": null,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:52:37.785Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "79558257-3d78-449f-976b-ab2c2002fcc9",
+      "updates": {
+        "lessonType": "group",
+        "title": "Grupowa",
+        "groupName": null,
+        "groupId": null,
+        "groupColor": "#FFD600",
+        "date": "2026-05-10",
+        "startMinute": 840,
+        "durationMinutes": 60,
+        "instructor": null,
+        "packageMode": true,
+        "participants": [
+          {
+            "name": "Stasiu",
+            "horse": "Fason",
+            "packageMode": true
+          },
+          {
+            "name": "Wiktoria",
+            "horse": "Kadet",
+            "packageMode": true
+          }
+        ],
+        "recurring": false,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:52:08.660Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "db36b966-0f37-44dc-b59e-feb32bc6bd86",
+      "updates": {
+        "lessonType": "custom",
+        "title": "Niestandardowa",
+        "description": "",
+        "date": "2026-05-10",
+        "startMinute": 660,
+        "durationMinutes": 60,
+        "participants": [
+          {
+            "name": "27latla npwa",
+            "horse": "Carewicz",
+            "instructor": null,
+            "customCost": 140,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "packageMode": false,
+        "instructor": null,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:51:02.927Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "5f1eeac6-3f4c-4772-89de-5ed19de98bf9",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Asia lonża",
+        "date": "2026-05-10",
+        "startMinute": 675,
+        "durationMinutes": 60,
+        "horse": "Sakwa",
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:50:48.660Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "db36b966-0f37-44dc-b59e-feb32bc6bd86",
+      "updates": {
+        "lessonType": "custom",
+        "title": "Niestandardowa",
+        "description": "",
+        "date": "2026-05-10",
+        "startMinute": 660,
+        "durationMinutes": 60,
+        "participants": [
+          {
+            "name": "27latla npwa",
+            "horse": "Carewicz",
+            "instructor": null,
+            "customCost": 140,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "packageMode": false,
+        "instructor": null,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-10T06:49:15.736Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "0ae5c9d4-2509-42a6-a05b-e6f2faf95ab4",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Julka Kępa",
+        "date": "2026-05-10",
+        "startMinute": 555,
+        "durationMinutes": 45,
+        "horse": "Czempion",
+        "instructor": "Ania",
+        "packageMode": true,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-09T13:29:00.199Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "db36b966-0f37-44dc-b59e-feb32bc6bd86",
+      "updates": {
+        "lessonType": "custom",
+        "title": "Niestandardowa",
+        "description": "",
+        "date": "2026-05-10",
+        "startMinute": 660,
+        "durationMinutes": 60,
+        "participants": [
+          {
+            "name": "27latla npwa",
+            "horse": null,
+            "instructor": null,
+            "customCost": 140,
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "packageMode": false,
+        "instructor": null,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-09T11:26:02.456Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "5f1eeac6-3f4c-4772-89de-5ed19de98bf9",
+      "title": "Asia lonża",
+      "date": "2026-05-10",
+      "startMinute": 675,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": "Olga",
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Asia lonża",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-09T04:44:16.482Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "0ae5c9d4-2509-42a6-a05b-e6f2faf95ab4",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Julka Kępa",
+        "date": "2026-05-10",
+        "startMinute": 555,
+        "durationMinutes": 45,
+        "horse": null,
+        "instructor": "Ania",
+        "packageMode": true,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-08T18:53:34.364Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "custom",
+      "instanceOverrides": {},
+      "id": "cf2a8596-52cb-4db6-81c7-cb3b485b2a47",
+      "title": "Niestandardowa",
+      "description": "",
+      "date": "2026-05-10",
+      "startMinute": 960,
+      "durationMinutes": 45,
+      "participants": [
+        {
+          "name": "3,5 roku",
+          "horse": null,
+          "packageName": "3,5 roku",
+          "packageMode": false,
+          "instructor": null,
+          "customCost": 140
+        }
+      ],
+      "recurring": false,
+      "groupId": null,
+      "groupName": "Niestandardowa",
+      "groupColor": null,
+      "packageMode": false,
+      "instructor": null,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-08T18:49:22.792Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "custom",
+      "instanceOverrides": {},
+      "id": "1eee68e4-90d0-47e4-9579-eafc69250e22",
+      "title": "Niestandardowa",
+      "description": "",
+      "date": "2026-05-10",
+      "startMinute": 1020,
+      "durationMinutes": 120,
+      "participants": [
+        {
+          "name": "Nowa Pani",
+          "horse": null,
+          "packageName": "Nowa Pani",
+          "packageMode": false,
+          "instructor": null,
+          "customCost": 140
+        }
+      ],
+      "recurring": false,
+      "groupId": null,
+      "groupName": "Niestandardowa",
+      "groupColor": null,
+      "packageMode": false,
+      "instructor": null,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-08T17:02:56.351Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "custom",
+      "instanceOverrides": {},
+      "id": "a4339dfb-7cc0-4a9a-80c2-a8f68b42e083",
+      "title": "Niestandardowa",
+      "description": "",
+      "date": "2026-05-12",
+      "startMinute": 1020,
+      "durationMinutes": 60,
+      "participants": [
+        {
+          "name": "Lonża z bonu",
+          "horse": null,
+          "packageName": "Lonża z bonu",
+          "packageMode": false,
+          "instructor": null,
+          "customCost": 140
+        }
+      ],
+      "recurring": false,
+      "groupId": null,
+      "groupName": "Niestandardowa",
+      "groupColor": null,
+      "packageMode": false,
+      "instructor": null,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-08T16:30:58.086Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "d102677a-cbb8-44b6-9eda-562e7a6a9595",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Emilka mała",
+        "date": "2026-05-10",
+        "startMinute": 735,
+        "durationMinutes": 45,
+        "horse": null,
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-08T16:30:49.709Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "d102677a-cbb8-44b6-9eda-562e7a6a9595",
+      "title": "Emilka mała",
+      "date": "2026-05-10",
+      "startMinute": 735,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": "Olga",
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Emilka mała",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-08T16:29:57.928Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "custom",
+      "instanceOverrides": {},
+      "id": "b0141dad-5de5-4014-84aa-d720497a81fb",
+      "title": "Niestandardowa",
+      "description": "",
+      "date": "2026-05-10",
+      "startMinute": 900,
+      "durationMinutes": 60,
+      "participants": [
+        {
+          "name": "11 latka 1 raz",
+          "horse": null,
+          "packageName": "11 latka 1 raz",
+          "packageMode": false,
+          "instructor": null,
+          "customCost": 140
+        }
+      ],
+      "recurring": false,
+      "groupId": null,
+      "groupName": "Niestandardowa",
+      "groupColor": null,
+      "packageMode": false,
+      "instructor": null,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-08T16:17:03.260Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "79558257-3d78-449f-976b-ab2c2002fcc9",
+      "updates": {
+        "lessonType": "group",
+        "title": "Grupowa",
+        "groupName": null,
+        "groupId": null,
+        "groupColor": "#FFD600",
+        "date": "2026-05-10",
+        "startMinute": 840,
+        "durationMinutes": 60,
+        "instructor": null,
+        "packageMode": true,
+        "participants": [
+          {
+            "name": "Stasiu",
+            "horse": null,
+            "packageMode": true
+          },
+          {
+            "name": "Wiktoria",
+            "horse": null,
+            "packageMode": true
+          }
+        ],
+        "recurring": false,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-08T16:06:00.713Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "custom",
+      "instanceOverrides": {},
+      "id": "db36b966-0f37-44dc-b59e-feb32bc6bd86",
+      "title": "Niestandardowa",
+      "description": "",
+      "date": "2026-05-10",
+      "startMinute": 660,
+      "durationMinutes": 60,
+      "participants": [
+        {
+          "name": "8 latka 1 raz",
+          "horse": null,
+          "packageName": "8 latka 1 raz",
+          "packageMode": false,
+          "instructor": null,
+          "customCost": 140
+        }
+      ],
+      "recurring": false,
+      "groupId": null,
+      "groupName": "Niestandardowa",
+      "groupColor": null,
+      "packageMode": false,
+      "instructor": null,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-08T15:53:58.852Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "0ae5c9d4-2509-42a6-a05b-e6f2faf95ab4",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Julka Kępa",
+        "date": "2026-05-10",
+        "startMinute": 555,
+        "durationMinutes": 45,
+        "horse": null,
+        "instructor": "Olga",
+        "packageMode": true,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-08T15:53:50.428Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "0ae5c9d4-2509-42a6-a05b-e6f2faf95ab4",
+      "title": "Julka Kępa",
+      "date": "2026-05-10",
+      "startMinute": 585,
+      "durationMinutes": 45,
+      "horse": null,
+      "instructor": "Olga",
+      "recurring": false,
+      "recurringUntil": null,
+      "packageMode": true,
+      "groupName": "Julka Kępa",
+      "groupColor": null,
+      "participants": [],
+      "groupId": null
+    }
+  },
+  {
+    "timestamp": "2026-05-08T13:27:50.590Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "4aa5f7c8-8fb3-461b-8486-8baacedd0dea",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Agatka",
+        "date": "2026-05-10",
+        "startMinute": 960,
+        "durationMinutes": 60,
+        "horse": null,
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-08T13:27:44.155Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "4aa5f7c8-8fb3-461b-8486-8baacedd0dea",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Agatka",
+        "date": "2026-05-10",
+        "startMinute": 960,
+        "durationMinutes": 60,
+        "horse": null,
+        "instructor": null,
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-08T13:27:35.276Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "4aa5f7c8-8fb3-461b-8486-8baacedd0dea",
+      "title": "Agatka",
+      "date": "2026-05-10",
+      "startMinute": 690,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "recurring": false,
+      "recurringUntil": null,
+      "packageMode": false,
+      "groupName": "Agatka",
+      "groupColor": null,
+      "participants": [],
+      "groupId": null
+    }
+  },
+  {
+    "timestamp": "2026-05-08T10:31:22.563Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "c3a8ef5b-793b-4362-8321-301071e7697d",
+      "title": "Jagna",
+      "date": "2026-05-09",
+      "startMinute": 690,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": "Ania",
+      "packageMode": true,
+      "groupId": null,
+      "groupName": "Jagna",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-08T06:17:29.147Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "26bcea70-428f-42c2-8251-a42e1da473f7",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Anielka i Michasia",
+        "date": "2026-04-25",
+        "startMinute": 990,
+        "durationMinutes": 90,
+        "horse": null,
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-08T06:08:23.497Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "15a8fae8-6a2e-4e96-9e80-4c6ccbcbaf10",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Marcin",
+        "date": "2026-05-07",
+        "startMinute": 660,
+        "durationMinutes": 60,
+        "horse": "Sakwa",
+        "instructor": "Ania",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-07T15:36:11.915Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "1bdfce2b-3383-4c7d-b4a2-eaeca0698d60",
+      "amount": 3,
+      "after": 4
+    }
+  },
+  {
+    "timestamp": "2026-05-07T15:09:25.865Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "custom",
+      "instanceOverrides": {},
+      "id": "838fa547-5032-45df-91e4-0831ece8b28a",
+      "title": "Niestandardowa",
+      "description": "",
+      "date": "2026-05-11",
+      "startMinute": 960,
+      "durationMinutes": 60,
+      "participants": [
+        {
+          "name": "2 w teren Agata i Mama",
+          "horse": null,
+          "packageName": "2 w teren Agata i Mama",
+          "packageMode": false,
+          "instructor": null,
+          "customCost": 140
+        }
+      ],
+      "recurring": false,
+      "groupId": null,
+      "groupName": "Niestandardowa",
+      "groupColor": null,
+      "packageMode": false,
+      "instructor": null,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-07T12:56:12.540Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "2f0baf4b-cc4d-4288-b493-ed5294da215d",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Lilka od Oliwki",
+        "date": "2026-05-07",
+        "startMinute": 900,
+        "durationMinutes": 60,
+        "horse": "Kadet",
+        "instructor": "Olga",
+        "packageMode": true,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-07T12:43:14.906Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "a07f844b-ee78-41aa-a177-73b1bc266b9f",
+      "title": "Marcin",
+      "date": "2026-05-14",
+      "startMinute": 660,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Marcin",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-07T08:20:59.544Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "2f0baf4b-cc4d-4288-b493-ed5294da215d",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Lilka od Oliwki",
+        "date": "2026-05-07",
+        "startMinute": 900,
+        "durationMinutes": 60,
+        "horse": null,
+        "instructor": "Olga",
+        "packageMode": true,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-07T08:20:52.400Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "2f0baf4b-cc4d-4288-b493-ed5294da215d",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Lilka od Oliwki",
+        "date": "2026-05-07",
+        "startMinute": 900,
+        "durationMinutes": 60,
+        "horse": null,
+        "instructor": "Olga",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-07T06:42:07.081Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Olga",
+      "color": "#FFD600"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T06:42:06.924Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Ania",
+      "color": "#00E676"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T06:42:06.798Z",
+    "action": "ADD_INSTRUCTOR",
+    "data": {
+      "name": "Dawid",
+      "color": "#FF1744"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T06:42:06.769Z",
+    "action": "ADD_PACKAGE",
+    "data": {
+      "name": "Anielka i Michasia"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T06:42:06.586Z",
+    "action": "ADD_HORSE",
+    "data": {
+      "name": "Kluska"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T06:42:00.678Z",
+    "action": "DELETE_PACKAGE",
+    "data": {
+      "id": "a9b725d9-ac03-497c-9115-e7951c65f5ff"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T06:31:47.725Z",
+    "action": "ADD_HORSE",
+    "data": {
+      "name": "Kluska"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T05:36:48.528Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Olga",
+      "color": "#FFD600"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T05:36:47.824Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Ania",
+      "color": "#00E676"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T05:36:47.627Z",
+    "action": "ADD_INSTRUCTOR",
+    "data": {
+      "name": "Dawid",
+      "color": "#FF1744"
+    }
+  },
+  {
+    "timestamp": "2026-05-07T05:36:47.345Z",
+    "action": "ADD_HORSE",
+    "data": {
+      "name": "Kluska"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:28:42.752Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Olga",
+      "color": "#FFD600"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:28:42.639Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Ania",
+      "color": "#00E676"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:28:42.514Z",
+    "action": "ADD_INSTRUCTOR",
+    "data": {
+      "name": "Dawid",
+      "color": "#FF1744"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:28:42.413Z",
+    "action": "ADD_HORSE",
+    "data": {
+      "name": "Kluska"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:22:21.601Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Olga",
+      "color": "#FFD600"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:22:19.781Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Ania",
+      "color": "#00E676"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:22:18.884Z",
+    "action": "ADD_INSTRUCTOR",
+    "data": {
+      "name": "Dawid",
+      "color": "#FF1744"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:22:15.836Z",
+    "action": "ADD_HORSE",
+    "data": {
+      "name": "Kluska"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:21:58.191Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Olga",
+      "color": "#FFD600"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:21:58.033Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Ania",
+      "color": "#00E676"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:21:57.895Z",
+    "action": "ADD_INSTRUCTOR",
+    "data": {
+      "name": "Dawid",
+      "color": "#FF1744"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T19:21:57.741Z",
+    "action": "ADD_HORSE",
+    "data": {
+      "name": "Kluska"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T18:19:05.071Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "082802d2-d048-4597-8a3f-cf3979a9f8b1",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Rozalia (Rozy)",
+        "date": "2026-05-06",
+        "startMinute": 1140,
+        "durationMinutes": 60,
+        "horse": "Rubin",
+        "instructor": "Ania",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-06T18:18:33.558Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Olga",
+      "color": "#FFD600"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T18:18:33.434Z",
+    "action": "UPDATE_INSTRUCTOR",
+    "data": {
+      "name": "Ania",
+      "color": "#00E676"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T18:18:33.294Z",
+    "action": "ADD_INSTRUCTOR",
+    "data": {
+      "name": "Dawid",
+      "color": "#FF1744"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T18:18:33.133Z",
+    "action": "ADD_HORSE",
+    "data": {
+      "name": "Kluska"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T15:34:35.414Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "deductedDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "d2c1cb60-b2d4-4919-9708-18185d729368",
+      "title": "Anielka i Michasia",
+      "date": "2026-05-12",
+      "startMinute": 660,
+      "durationMinutes": 90,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Anielka i Michasia",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-06T14:41:17.328Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "deductedDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "c13f4f9a-0fbe-492d-90c6-1e01063182f4",
+      "title": "Krysia",
+      "date": "2026-05-06",
+      "startMinute": 930,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": "Ania",
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Krysia",
+      "groupColor": null,
+      "participants": [],
+      "recurring": true,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:31:03.184Z",
+    "action": "ADD_PACKAGE",
+    "data": {
+      "name": "Anielka i Michasia"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:30:16.204Z",
+    "action": "DELETE_PACKAGE",
+    "data": {
+      "id": "d37d79aa-6ca9-4a43-aba6-e38e1cdaf07b"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:30:06.934Z",
+    "action": "DELETE_PACKAGE",
+    "data": {
+      "id": "d37d79aa-6ca9-4a43-aba6-e38e1cdaf07b"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:30:03.435Z",
+    "action": "DELETE_PACKAGE",
+    "data": {
+      "id": "2d0db5de-6eb4-4999-96e8-fed0415256a5"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:29:55.286Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "ded94a88-4fc3-4110-83fa-dec2e781c1b6",
+      "amount": 3,
+      "after": 4
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:03:28.122Z",
+    "action": "ADD_PACKAGE",
+    "data": {
+      "name": "Ola"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:03:28.121Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "deductedDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "1de603e8-425a-4e3a-ab0b-c3714225726e",
+      "title": "Ola",
+      "date": "2026-05-13",
+      "startMinute": 660,
+      "durationMinutes": 60,
+      "horse": "Carewicz",
+      "instructor": "Dawid",
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Ola",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:03:00.329Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "1ba188e2-d0ff-4973-abc2-793b4d36d95c",
+      "updates": {
+        "lessonType": "group",
+        "title": "Grupowa",
+        "groupName": null,
+        "groupId": null,
+        "groupColor": "#76FF03",
+        "date": "2026-05-13",
+        "startMinute": 660,
+        "durationMinutes": 60,
+        "instructor": null,
+        "packageMode": true,
+        "participants": [
+          {
+            "name": "Gosia",
+            "horse": null,
+            "packageMode": true
+          },
+          {
+            "name": "Klaudia",
+            "horse": null,
+            "packageMode": true
+          }
+        ],
+        "recurring": false,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:02:51.490Z",
+    "action": "ADD_PACKAGE",
+    "data": {
+      "name": "Klau"
+    }
+  },
+  {
+    "timestamp": "2026-05-06T10:02:51.487Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "deductedDates": [],
+      "lessonType": "group",
+      "instanceOverrides": {},
+      "id": "1ba188e2-d0ff-4973-abc2-793b4d36d95c",
+      "title": "Grupowa",
+      "groupName": "Grupowa",
+      "groupId": null,
+      "groupColor": "#76FF03",
+      "date": "2026-05-13",
+      "startMinute": 660,
+      "durationMinutes": 60,
+      "instructor": null,
+      "packageMode": true,
+      "participants": [
+        {
+          "name": "Gosia",
+          "horse": null,
+          "packageName": "Gosia",
+          "packageMode": true,
+          "instructor": null
+        },
+        {
+          "name": "Klau",
+          "horse": null,
+          "packageName": "Klau",
+          "packageMode": true,
+          "instructor": null
+        }
+      ],
+      "recurring": false,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-06T08:37:21.242Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "386ccdd2-482b-41d3-84bd-5568c3b218a9",
+      "updates": {
+        "lessonType": "group",
+        "title": "Grupowa",
+        "groupName": null,
+        "groupId": null,
+        "groupColor": "#F57C00",
+        "date": "2026-05-06",
+        "startMinute": 720,
+        "durationMinutes": 60,
+        "instructor": null,
+        "packageMode": true,
+        "participants": [
+          {
+            "name": "Kornelia",
+            "horse": "Sakwa",
+            "packageMode": true
+          },
+          {
+            "name": "Ola Mazur",
+            "horse": "Carewicz",
+            "packageMode": true
+          },
+          {
+            "name": "Ja",
+            "horse": "Kadet",
+            "packageMode": true
+          }
+        ],
+        "recurring": false,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-06T08:36:41.649Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "6cdd8893-b875-4860-8751-18f91b07f921",
+      "updates": {
+        "lessonType": "group",
+        "title": "Grupowa",
+        "groupName": null,
+        "groupId": null,
+        "groupColor": "#FF1744",
+        "date": "2026-05-06",
+        "startMinute": 660,
+        "durationMinutes": 60,
+        "instructor": null,
+        "packageMode": true,
+        "participants": [
+          {
+            "name": "Gosia",
+            "horse": "Sakwa",
+            "packageMode": false
+          },
+          {
+            "name": "Klaudia",
+            "horse": "Carewicz",
+            "packageMode": false
+          },
+          {
+            "name": "Ja",
+            "horse": "Siwa",
+            "packageMode": false
+          }
+        ],
+        "recurring": false,
+        "horse": null
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-05T17:20:23.026Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "deductedDates": [],
+      "lessonType": "group",
+      "instanceOverrides": {},
+      "id": "79558257-3d78-449f-976b-ab2c2002fcc9",
+      "title": "Grupowa",
+      "groupName": "Grupowa",
+      "groupId": null,
+      "groupColor": "#FFD600",
+      "date": "2026-05-10",
+      "startMinute": 840,
+      "durationMinutes": 60,
+      "instructor": "Olga",
+      "packageMode": true,
+      "participants": [
+        {
+          "name": "Stasiu",
+          "horse": null,
+          "packageName": "Stasiu",
+          "packageMode": true,
+          "instructor": null
+        },
+        {
+          "name": "Wiktoria",
+          "horse": null,
+          "packageName": "Wiktoria",
+          "packageMode": true,
+          "instructor": null
+        }
+      ],
+      "recurring": false,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-05T17:12:17.846Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "deductedDates": [],
+      "lessonType": "group",
+      "instanceOverrides": {},
+      "id": "ab82794f-e1a9-4fc2-a758-5b40adf3081b",
+      "title": "Grupowa",
+      "groupName": "Grupowa",
+      "groupId": null,
+      "groupColor": "#F57C00",
+      "date": "2026-05-05",
+      "startMinute": 1080,
+      "durationMinutes": 60,
+      "instructor": "Ania",
+      "packageMode": true,
+      "participants": [
+        {
+          "name": "Maja Wiewiór",
+          "horse": "Muminek",
+          "packageName": "Maja Wiewiór",
+          "packageMode": true,
+          "instructor": null
+        },
+        {
+          "name": "Nadia",
+          "horse": "Fason",
+          "packageName": "Nadia",
+          "packageMode": true,
+          "instructor": null
+        }
+      ],
+      "recurring": false,
+      "horse": null,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-05T10:40:11.814Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "e99049d1-dc40-4a3c-bc71-d6f03df8ba73",
+      "amount": 8,
+      "after": 7
+    }
+  },
+  {
+    "timestamp": "2026-05-05T09:36:12.967Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "6bded989-11b8-47d7-b3e9-a3e7af79f7b0",
+      "amount": -1,
+      "after": 3
+    }
+  },
+  {
+    "timestamp": "2026-05-05T09:36:00.206Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "2331c170-eff2-43f6-a049-8bcfbd216d9f",
+      "amount": -1,
+      "after": 3
+    }
+  },
+  {
+    "timestamp": "2026-05-05T09:35:29.248Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "2331c170-eff2-43f6-a049-8bcfbd216d9f",
+      "amount": 4,
+      "after": 4
+    }
+  },
+  {
+    "timestamp": "2026-05-05T09:35:22.868Z",
+    "action": "ADD_PACKAGE_CREDITS",
+    "data": {
+      "id": "6bded989-11b8-47d7-b3e9-a3e7af79f7b0",
+      "amount": 4,
+      "after": 4
+    }
+  },
+  {
+    "timestamp": "2026-05-04T14:49:02.445Z",
+    "action": "ADD_PACKAGE",
+    "data": {
+      "name": "Rozalia (Rozy)"
+    }
+  },
+  {
+    "timestamp": "2026-05-04T14:49:02.439Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "deductedDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "082802d2-d048-4597-8a3f-cf3979a9f8b1",
+      "title": "Rozalia (Rozy)",
+      "date": "2026-05-06",
+      "startMinute": 1140,
+      "durationMinutes": 60,
+      "horse": null,
+      "instructor": null,
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Rozalia (Rozy)",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-04T11:20:36.990Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "2a391281-3615-4f4a-9605-dfe448e29951",
+      "updates": {
+        "lessonType": "individual",
+        "title": "Anielka i Michasia",
+        "date": "2026-05-04",
+        "startMinute": 1020,
+        "durationMinutes": 90,
+        "horse": "Muminek",
+        "instructor": "Ania",
+        "packageMode": false,
+        "groupId": null,
+        "groupName": null,
+        "groupColor": null,
+        "participants": [],
+        "recurring": false
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-04T06:38:17.187Z",
+    "action": "ADD_EXPENSE",
+    "data": {
+      "id": "834abf13-5c2c-4878-81aa-914d54ffe69a",
+      "title": "Pasza",
+      "cost": 170,
+      "date": "2026-05-04",
+      "description": ""
+    }
+  },
+  {
+    "timestamp": "2026-05-03T15:48:06.895Z",
+    "action": "ADD_LESSON",
+    "data": {
+      "cancelledDates": [],
+      "deductedDates": [],
+      "lessonType": "individual",
+      "instanceOverrides": {},
+      "id": "2a391281-3615-4f4a-9605-dfe448e29951",
+      "title": "Anielka i Michasia",
+      "date": "2026-05-04",
+      "startMinute": 1020,
+      "durationMinutes": 90,
+      "horse": null,
+      "instructor": "Ania",
+      "packageMode": false,
+      "groupId": null,
+      "groupName": "Anielka i Michasia",
+      "groupColor": null,
+      "participants": [],
+      "recurring": false,
+      "recurringUntil": null
+    }
+  },
+  {
+    "timestamp": "2026-05-03T15:38:30.852Z",
+    "action": "UPDATE_LESSON",
+    "data": {
+      "id": "72c7c942-3cd9-4e88-815c-8d6613d39c16",
+      "updates": {
+        "groupColor": "#F57C00"
+      }
+    }
+  }
+]

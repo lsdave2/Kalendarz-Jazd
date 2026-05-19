@@ -43,12 +43,14 @@ function createSupabase(url, key, label) {
 async function fetchAllRows(client, tableName) {
   const rows = [];
   let from = 0;
+  const table = TABLES.find(entry => entry.name === tableName) || LEGACY_TABLE;
 
   while (true) {
     const to = from + BATCH_SIZE - 1;
     const { data, error } = await client
       .from(tableName)
       .select('*')
+      .order(table.key, { ascending: true })
       .range(from, to);
 
     if (error) throw error;
@@ -75,6 +77,35 @@ async function upsertRows(client, { name, key }, rows) {
   if (!rows.length) return;
   const { error } = await client.from(name).upsert(rows, { onConflict: key });
   if (error) throw error;
+}
+
+function sortRowsForInsert(table, rows) {
+  if (table.name !== 'lessons') return rows;
+
+  const byId = new Map(rows.map(row => [row.id, row]));
+  const sorted = [];
+  const seen = new Set();
+  const visiting = new Set();
+
+  const visit = (row) => {
+    if (!row?.id || seen.has(row.id)) return;
+    if (visiting.has(row.id)) {
+      sorted.push(row);
+      seen.add(row.id);
+      return;
+    }
+    visiting.add(row.id);
+    const parent = row.recurring_parent_id ? byId.get(row.recurring_parent_id) : null;
+    if (parent) visit(parent);
+    visiting.delete(row.id);
+    if (!seen.has(row.id)) {
+      sorted.push(row);
+      seen.add(row.id);
+    }
+  };
+
+  for (const row of rows) visit(row);
+  return sorted;
 }
 
 async function fetchNormalizedSnapshot(client) {
@@ -115,7 +146,7 @@ async function syncNormalizedTables(sourceSupabase, targetSupabase) {
   }
 
   for (const table of TABLES) {
-    const rows = snapshot[table.name] || [];
+    const rows = sortRowsForInsert(table, snapshot[table.name] || []);
     console.log(`- Writing ${rows.length} row(s) to ${table.name}`);
     await upsertRows(targetSupabase, table, rows);
   }

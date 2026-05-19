@@ -1,7 +1,7 @@
 import { t } from '../i18n.js';
 import { el, icon, minutesToTime, openConfirmModal, setupModalSwipeToClose } from '../utils.js';
 import { 
-  getData, addLesson, updateLesson, deleteLesson, updateLessonInstance, 
+  getData, addLesson, updateLesson, deleteLesson,
   ensurePackageEntry, getPackageByName, toggleCancelLessonInstance,
   saveData, processPastLessonsForCredits 
 } from '../store.js';
@@ -15,8 +15,6 @@ export function openLessonModal(dateStr, lesson = null) {
   editingLesson = lesson;
   const isEdit = !!lesson;
   const data = getData();
-  const baseLesson = isEdit ? (data.lessons.find(l => l.id === lesson.id) || lesson) : null;
-  const isRecurringInstance = !!(isEdit && lesson._recurringInstance && baseLesson?.recurring);
   const isGroupEdit = isGroupLessonRecord(lesson);
   const isCustomEdit = isCustomLessonRecord(lesson);
   const clientNames = getKnownClientNames(data);
@@ -68,11 +66,7 @@ export function openLessonModal(dateStr, lesson = null) {
   const lastCreatedLesson = data.lessons.length > 0 ? data.lessons[data.lessons.length - 1] : null;
   const startMinuteDefault = lesson ? lesson.startMinute : (lastCreatedLesson ? lastCreatedLesson.startMinute : 10 * 60);
   const durationDefault = lesson ? lesson.durationMinutes : 60;
-  const recurringDefault = !!(
-    lesson &&
-    lesson.recurring &&
-    (!lesson.recurringUntil || lesson._instanceDate !== lesson.recurringUntil)
-  );
+  const recurringDefault = !!(lesson && lesson.recurring);
 
   const { startHour, endHour } = getDayScheduleHours();
   const startSelect = el('select', { className: 'form-input', id: 'lesson-start-select' });
@@ -491,20 +485,9 @@ export function openLessonModal(dateStr, lesson = null) {
 
     const lessonData = payload.lessonData;
     let mutated = false;
-    const recurringDisabled = isRecurringInstance && !lessonData.recurring;
-    const recurringReenabled = isRecurringInstance && lessonData.recurring && !!baseLesson?.recurringUntil;
 
     if (currentType === 'individual') {
-      if (isRecurringInstance) {
-        const instanceLessonData = { ...lessonData };
-        if (recurringDisabled) {
-          instanceLessonData.recurring = false;
-          updateLesson(baseLesson.id, { recurringUntil: lesson._instanceDate }, { save: false });
-        } else if (recurringReenabled) {
-          updateLesson(baseLesson.id, { recurringUntil: null }, { save: false });
-        }
-        updateLessonInstance(baseLesson.id, lesson._instanceDate, instanceLessonData, { save: false });
-      } else if (isEdit) {
+      if (isEdit) {
         updateLesson(lesson.id, lessonData, { save: false });
       } else {
         addLesson(lessonData, { save: false });
@@ -532,46 +515,14 @@ export function openLessonModal(dateStr, lesson = null) {
       return isEdit ? 'updated' : 'created';
     }
 
-    if (isRecurringInstance) {
-      const instanceLessonData = {
-        ...lessonData,
-        title: t('groupLesson'),
-        groupName: null,
-        groupId: null,
-        groupColor: null,
-        recurring: recurringDisabled ? false : lessonData.recurring,
-      };
-      if (recurringDisabled) {
-        updateLesson(baseLesson.id, { recurringUntil: lesson._instanceDate }, { save: false });
-      } else if (recurringReenabled) {
-        updateLesson(baseLesson.id, { recurringUntil: null }, { save: false });
-      }
-      updateLessonInstance(baseLesson.id, lesson._instanceDate, instanceLessonData, { save: false });
-      for (const participant of payload.participants || []) {
-        ensurePackageEntry(participant.name, {
-          save: false,
-          hasPackageLessons: participant.packageMode !== false
-        });
-      }
-      await saveData({ throwOnError: true });
-      return 'updated';
-    }
-
     const seriesLessonData = {
       ...lessonData,
       title: t('groupLesson'),
       groupName: null,
       groupId: null,
       groupColor: null,
-      recurring: isRecurringInstance ? true : lessonData.recurring,
+      recurring: lessonData.recurring,
     };
-
-    if (recurringDisabled && isRecurringInstance) {
-      updateLesson(lesson.id, { recurringUntil: lesson._instanceDate }, { save: false });
-      updateLessonInstance(lesson.id, lesson._instanceDate, { recurring: false }, { save: false });
-    } else if (recurringReenabled && isRecurringInstance) {
-      updateLesson(lesson.id, { recurringUntil: null }, { save: false });
-    }
 
     if (isEdit) {
       updateLesson(lesson.id, seriesLessonData, { save: false });
@@ -597,9 +548,7 @@ export function openLessonModal(dateStr, lesson = null) {
     btnGroup.appendChild(el('button', {
       className: 'btn btn-danger btn-sm',
       onClick: () => {
-        const confirmMessage = isRecurringInstance || lesson.recurring
-          ? t('deleteSeriesConfirm')
-          : t('deleteLessonConfirm');
+        const confirmMessage = t('deleteLessonConfirm');
         openConfirmModal({
           title: t('deleteKey'),
           message: confirmMessage,
@@ -633,7 +582,7 @@ export function openLessonModal(dateStr, lesson = null) {
     btnGroup.appendChild(el('button', {
       className: 'btn btn-secondary btn-sm',
       onClick: () => {
-        openMoveLessonModal(lesson, dateStr, isRecurringInstance, baseLesson, closeModal);
+        openMoveLessonModal(lesson, dateStr, closeModal);
       }
     }, icon('calendar_month'), t('move')));
   }
@@ -657,7 +606,7 @@ export function openLessonModal(dateStr, lesson = null) {
       closeModal();
       render();
     }
-  }, icon('check'), isRecurringInstance ? t('saveOccurrence') : (isEdit ? t('update') : t('create'))));
+  }, icon('check'), isEdit ? t('update') : t('create')));
 
   modal.appendChild(btnGroup);
   overlay.appendChild(modal);
@@ -666,7 +615,7 @@ export function openLessonModal(dateStr, lesson = null) {
   setTimeout(() => modal.focus(), 300);
 }
 
-function openMoveLessonModal(lesson, dateStr, isRecurringInstance, baseLesson, closeParentModal) {
+function openMoveLessonModal(lesson, dateStr, closeParentModal) {
   const overlay = el('div', { className: 'modal-overlay' });
   overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
   
@@ -682,17 +631,6 @@ function openMoveLessonModal(lesson, dateStr, isRecurringInstance, baseLesson, c
   const dateInput = el('input', { className: 'form-input', type: 'date', value: dateStr });
   dateGroup.appendChild(dateInput);
   modal.appendChild(dateGroup);
-
-  let scopeSelect = null;
-  if (isRecurringInstance) {
-    const scopeGroup = el('div', { className: 'form-group' });
-    scopeGroup.appendChild(el('label', {}, t('moveScope', 'Move Scope')));
-    scopeSelect = el('select', { className: 'form-input' });
-    scopeSelect.appendChild(el('option', { value: 'instance' }, t('moveInstance', 'Move only this instance')));
-    scopeSelect.appendChild(el('option', { value: 'series' }, t('moveSeries', 'Move whole series')));
-    scopeGroup.appendChild(scopeSelect);
-    modal.appendChild(scopeGroup);
-  }
 
   const btnRow = el('div', { className: 'btn-group modal-actions', style: { marginTop: '16px' } });
   
@@ -711,31 +649,7 @@ function openMoveLessonModal(lesson, dateStr, isRecurringInstance, baseLesson, c
         return;
       }
       
-      const scope = scopeSelect ? scopeSelect.value : 'series';
-      
-      if (isRecurringInstance && scope === 'instance') {
-        // Cancel the occurrence on the old date
-        toggleCancelLessonInstance(baseLesson.id, dateStr);
-        // Create a new independent lesson on the new date
-        const newLessonData = {
-          ...lesson,
-          id: undefined,
-          date: newDateStr,
-          recurring: false,
-          recurringUntil: null,
-          instanceOverrides: {},
-          cancelledDates: []
-        };
-        // Clean up internal flags
-        delete newLessonData._recurringInstance;
-        delete newLessonData._instanceDate;
-        
-        addLesson(newLessonData, { save: true });
-      } else {
-        // Move individual lesson OR move whole series
-        const targetId = isRecurringInstance ? baseLesson.id : lesson.id;
-        updateLesson(targetId, { date: newDateStr }, { save: true });
-      }
+      updateLesson(lesson.id, { date: newDateStr }, { save: true });
       
       closeModal();
       closeParentModal();

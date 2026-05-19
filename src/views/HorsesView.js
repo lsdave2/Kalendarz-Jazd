@@ -1,9 +1,9 @@
 import { t } from '../i18n.js';
 import { el } from '../utils.js';
-import { getData, getLessonsForDate } from '../store.js';
+import { getData } from '../store.js';
 import { render } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants } from '../services/LessonService.js';
-import { parseDate, getDatesInRange, getWeekRange } from '../utils.js';
+import { getDatesInRange, getWeekRange } from '../utils.js';
 
 let horseViewRange = null;
 
@@ -55,7 +55,6 @@ export function buildHorsesView() {
 
     data.lessons.forEach(lesson => {
       if (!lesson || !lesson.date || !lesson.title) return;
-      if (lesson.recurring && lesson.recurringUntil && lesson.date > lesson.recurringUntil) return;
       const participantHorses = isGroupLessonRecord(lesson) || isCustomLessonRecord(lesson)
         ? getLessonParticipants(lesson).map(p => p.horse).filter(Boolean)
         : (lesson.horse ? [lesson.horse] : []);
@@ -63,15 +62,7 @@ export function buildHorsesView() {
       if (participantHorses.length === 0) return;
 
       dateList.forEach(dateStr => {
-        if (lesson.recurring && lesson.recurringUntil && dateStr > lesson.recurringUntil) return;
-        const lessonDate = lesson.date === dateStr;
-        const recurringMatch = lesson.recurring && (() => {
-          const date = parseDate(dateStr);
-          const start = parseDate(lesson.date);
-          return date > start && date.getDay() === start.getDay();
-        })();
-
-        if (!lessonDate && !recurringMatch) return;
+        if (lesson.date !== dateStr) return;
 
         const isCancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
         if (isCancelled) return;

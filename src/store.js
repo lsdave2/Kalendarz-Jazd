@@ -22,6 +22,7 @@ const defaultData = () => ({
   expenses: [],
   incomes: [],
   creditTrackingMigratedAt: DEFAULT_CREDIT_TRACKING_MIGRATED_AT,
+  recurringChainMigratedAt: null,
   nextId: 1,
   nextGroupId: 1,
 });
@@ -38,6 +39,7 @@ function createEmptyPersistedState() {
     expenses: [],
     incomes: [],
     creditTrackingMigratedAt: DEFAULT_CREDIT_TRACKING_MIGRATED_AT,
+    recurringChainMigratedAt: null,
     nextId: 1,
     nextGroupId: 1,
   };
@@ -53,6 +55,7 @@ let _saveChain = Promise.resolve();
 let _realtimeChannel = null;
 let _realtimeInitialized = false;
 let _needsRemoteRefresh = false;
+let _preserveRemoteLessonsDuringNextSync = false;
 const _listeners = new Set();
 
 const _meta = {
@@ -125,7 +128,7 @@ function createUuid() {
 }
 
 function isUuid(value) {
-  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 function deepClone(value) {
@@ -279,7 +282,6 @@ function normalizeLesson(lesson, lessonIdMap = new Map(), groupMetadataById = ne
   const normalized = {
     cancelledDates: [],
     lessonType: 'individual',
-    instanceOverrides: {},
     ...lesson
   };
 
@@ -304,28 +306,15 @@ function normalizeLesson(lesson, lessonIdMap = new Map(), groupMetadataById = ne
   normalized.groupName = (normalized.groupName || legacyGroup?.name || normalized.title || '').trim() || null;
   normalized.groupColor = normalized.groupColor || legacyGroup?.color || null;
   normalized.lessonType = normalized.lessonType || (normalized.participants.length > 0 ? 'group' : 'individual');
-  normalized.recurringUntil = normalizeDateString(normalized.recurringUntil);
+  normalized.recurring = normalized.recurring === true;
+  normalized.recurringParentId = isUuid(normalized.recurringParentId || normalized.recurring_parent_id)
+    ? (normalized.recurringParentId || normalized.recurring_parent_id)
+    : null;
+  normalized.recurringUntil = null;
   normalized.horse = normalized.horse || null;
   normalized.instructor = normalized.instructor || null;
 
-  if (normalized.instanceOverrides && typeof normalized.instanceOverrides === 'object') {
-    const cleanedOverrides = {};
-    for (const [dateStr, override] of Object.entries(normalized.instanceOverrides)) {
-      if (!override || typeof override !== 'object') continue;
-      const cleanOverride = { ...override };
-      const overrideLegacyGroup = cleanOverride.groupId ? groupMetadataById.get(String(cleanOverride.groupId)) : legacyGroup;
-      if (Array.isArray(cleanOverride.participants)) {
-        cleanOverride.participants = normalizeParticipants(cleanOverride.participants);
-      }
-      cleanOverride.groupId = null;
-      cleanOverride.groupName = (cleanOverride.groupName || overrideLegacyGroup?.name || cleanOverride.title || '').trim() || null;
-      cleanOverride.groupColor = cleanOverride.groupColor || overrideLegacyGroup?.color || normalized.groupColor || null;
-      cleanedOverrides[dateStr] = cleanOverride;
-    }
-    normalized.instanceOverrides = cleanedOverrides;
-  } else {
-    normalized.instanceOverrides = {};
-  }
+  normalized.instanceOverrides = {};
 
   return normalized;
 }
@@ -406,8 +395,11 @@ function normalizeAppState(state) {
       ? normalizedState.creditTrackingMigratedAt
       : null);
   normalizedState.creditTrackingMigratedAt = normalizedMigratedAt || DEFAULT_CREDIT_TRACKING_MIGRATED_AT;
+  normalizedState.recurringChainMigratedAt = normalizeDateString(normalizedState.recurringChainMigratedAt)
+    || (typeof normalizedState.recurringChainMigratedAt === 'string' && normalizedState.recurringChainMigratedAt.trim()
+      ? normalizedState.recurringChainMigratedAt
+      : null);
 
-  syncReferenceEntriesFromLessons(normalizedState);
   recomputePackageCreditState(normalizedState);
 
   return normalizedState;
@@ -533,15 +525,6 @@ function syncReferenceEntriesFromLessons(state) {
     for (const participant of lesson?.participants || []) {
       addHorseName(participant?.horse);
     }
-    if (lesson?.instanceOverrides && typeof lesson.instanceOverrides === 'object') {
-      for (const override of Object.values(lesson.instanceOverrides)) {
-        addHorseName(override?.horse);
-        addInstructorName(override?.instructor);
-        for (const participant of override?.participants || []) {
-          addHorseName(participant?.horse);
-        }
-      }
-    }
   };
 
   for (const lesson of state.lessons || []) {
@@ -634,14 +617,15 @@ function buildRemoteState(rows) {
     horse: row.horse_name || horseNameById.get(row.horse_id) || null,
     instructor: row.instructor_name || instructorNameById.get(row.instructor_id) || null,
     recurring: row.recurring === true,
-    recurringUntil: row.recurring_until,
+    recurringParentId: row.recurring_parent_id || null,
+    recurringUntil: null,
     lessonType: row.lesson_type || 'individual',
     packageMode: row.package_mode !== false,
     groupName: row.group_name || null,
     groupColor: row.group_color || null,
     participants: Array.isArray(row.participants) ? row.participants : [],
     cancelledDates: Array.isArray(row.cancelled_dates) ? row.cancelled_dates : [],
-    instanceOverrides: row.instance_overrides && typeof row.instance_overrides === 'object' ? row.instance_overrides : {},
+    instanceOverrides: {},
   }));
 
   const packages = (rows.packages || []).map(row => normalizePackageEntry({
@@ -699,6 +683,7 @@ function buildRemoteState(rows) {
     packages,
     packageTransactions,
     groups,
+    recurringChainMigratedAt: settingsMap.get('recurring_chain_migrated_at') || null,
     creditTrackingMigratedAt: settingsMap.get('credit_tracking_migrated_at') || DEFAULT_CREDIT_TRACKING_MIGRATED_AT,
     closedDates: Array.isArray(settingsMap.get('closed_dates')) ? settingsMap.get('closed_dates') : [],
     expenses: expenseData,
@@ -808,9 +793,14 @@ export async function loadData() {
     setupRealtime();
 
     // Reconcile remote data with local state
-    if (hasPendingLocalCache && cachedLocalState) {
+    const remoteRecurringMigration = snapshot.state?.recurringChainMigratedAt || null;
+    const cachedRecurringMigration = cachedLocalState?.recurringChainMigratedAt || null;
+    const cachePredatesRecurringMigration = !!remoteRecurringMigration && cachedRecurringMigration !== remoteRecurringMigration;
+
+    if (hasPendingLocalCache && cachedLocalState && !cachePredatesRecurringMigration) {
       _persistedData = deepClone(snapshot.state);
-      setDataState(cachedLocalState, { pending: true });
+      _preserveRemoteLessonsDuringNextSync = true;
+      setDataState(mergeRemoteOnlyLessonsIntoLocal(cachedLocalState, snapshot.state), { pending: true });
       if (!_isAdmin) {
         dispatchStoreWarning(t('syncLoginRequired'));
       }
@@ -874,6 +864,20 @@ function mergePackageState(current, base, remote) {
   });
 }
 
+function mergeRemoteOnlyLessonsIntoLocal(localState, remoteState) {
+  const mergedState = normalizeAppState(localState);
+  const localLessonIds = new Set((mergedState.lessons || []).map(lesson => lesson.id));
+  const remoteOnlyLessons = (remoteState?.lessons || [])
+    .filter(lesson => lesson?.id && !localLessonIds.has(lesson.id))
+    .map(lesson => normalizeLesson(lesson));
+
+  if (remoteOnlyLessons.length > 0) {
+    mergedState.lessons = [...(mergedState.lessons || []), ...remoteOnlyLessons];
+  }
+
+  return mergedState;
+}
+
 function buildLessonRow(lesson, horseIdByName, instructorIdByName) {
   return {
     id: lesson.id,
@@ -886,14 +890,15 @@ function buildLessonRow(lesson, horseIdByName, instructorIdByName) {
     instructor_id: lesson.instructor ? (instructorIdByName.get(lesson.instructor) || null) : null,
     instructor_name: lesson.instructor || null,
     recurring: lesson.recurring === true,
-    recurring_until: lesson.recurringUntil || null,
+    recurring_parent_id: lesson.recurringParentId || null,
+    recurring_until: null,
     lesson_type: lesson.lessonType || 'individual',
     package_mode: lesson.packageMode !== false,
     group_name: lesson.groupName || null,
     group_color: lesson.groupColor || null,
     participants: lesson.participants || [],
     cancelled_dates: lesson.cancelledDates || [],
-    instance_overrides: lesson.instanceOverrides || {},
+    instance_overrides: {},
   };
 }
 
@@ -1134,6 +1139,7 @@ async function syncLessons(current, persisted) {
   for (const [id, lesson] of currentById.entries()) {
     const previous = persistedById.get(id);
     if (previous && jsonEqual(lesson, previous)) continue;
+    if (_preserveRemoteLessonsDuringNextSync && previous) continue;
     const { error } = await supabase.from('lessons').upsert(
       buildLessonRow(lesson, horseIdByName, instructorIdByName),
       { onConflict: 'id' }
@@ -1143,6 +1149,7 @@ async function syncLessons(current, persisted) {
 
   for (const [id] of persistedById.entries()) {
     if (currentById.has(id)) continue;
+    if (_preserveRemoteLessonsDuringNextSync) continue;
     const { error } = await supabase.from('lessons').delete().eq('id', id);
     if (error) throw error;
   }
@@ -1152,12 +1159,14 @@ async function syncSettings(current, persisted) {
   const currentRows = [
     { key: 'closed_dates', value: current.closedDates || [] },
     { key: 'credit_tracking_migrated_at', value: current.creditTrackingMigratedAt || null },
+    { key: 'recurring_chain_migrated_at', value: current.recurringChainMigratedAt || null },
     { key: 'legacy_next_id', value: current.nextId || 1 },
     { key: 'legacy_next_group_id', value: current.nextGroupId || 1 },
   ];
   const persistedRows = [
     { key: 'closed_dates', value: persisted.closedDates || [] },
     { key: 'credit_tracking_migrated_at', value: persisted.creditTrackingMigratedAt || null },
+    { key: 'recurring_chain_migrated_at', value: persisted.recurringChainMigratedAt || null },
     { key: 'legacy_next_id', value: persisted.nextId || 1 },
     { key: 'legacy_next_group_id', value: persisted.nextGroupId || 1 },
   ];
@@ -1248,9 +1257,9 @@ async function syncToSupabase() {
   await syncHorses(_data, _persistedData);
   await syncInstructors(_data, _persistedData);
   await syncGroups(_data, _persistedData);
-  await syncPackageTransactions(_data, _persistedData);
   await syncPackages(_data, _persistedData);
   await syncLessons(_data, _persistedData);
+  await syncPackageTransactions(_data, _persistedData);
   await syncSettings(_data, _persistedData);
   await syncExpenses(_data, _persistedData);
   await syncIncomes(_data, _persistedData);
@@ -1267,6 +1276,7 @@ export function saveData({ throwOnError = false } = {}) {
       persistLocalState({ pending: _hasPendingLocalChanges });
 
       if (!hasDiff) {
+        _preserveRemoteLessonsDuringNextSync = false;
         if (_needsRemoteRefresh) {
           _needsRemoteRefresh = false;
           await refreshFromRemote();
@@ -1293,6 +1303,10 @@ export function saveData({ throwOnError = false } = {}) {
         _persistedData = deepClone(_data);
         _hasPendingLocalChanges = false;
         persistLocalState({ pending: false });
+        if (_preserveRemoteLessonsDuringNextSync) {
+          _preserveRemoteLessonsDuringNextSync = false;
+          await refreshFromRemote();
+        }
         if (_needsRemoteRefresh) {
           _needsRemoteRefresh = false;
           await refreshFromRemote();
@@ -1433,11 +1447,6 @@ function getLessonClientNames(lesson) {
   return [...names];
 }
 
-function getRecurringInstanceLesson(lesson, dateStr) {
-  const override = lesson.instanceOverrides?.[dateStr];
-  return override ? { ...lesson, ...override } : lesson;
-}
-
 function buildPackageTransactionSourceKey(prefix, occurrenceBase, ordinal = null) {
   return ordinal === null
     ? `${prefix}|${occurrenceBase}`
@@ -1496,6 +1505,7 @@ function appendPackageTransactionState(state, tx, { recompute = true } = {}) {
 }
 
 function buildPastPackageOccurrenceMap(state, now = new Date()) {
+  const cutoff = new Date(state.creditTrackingMigratedAt || DEFAULT_CREDIT_TRACKING_MIGRATED_AT);
   const packageByName = new Map(
     (state.packages || []).map(pkg => [String(pkg.name || '').trim().toLowerCase(), pkg]).filter(([key]) => key)
   );
@@ -1535,34 +1545,13 @@ function buildPastPackageOccurrenceMap(state, now = new Date()) {
     if (!lesson?.date) continue;
     const durationMinutes = Number(lesson.durationMinutes) || 0;
 
-    if (!lesson.recurring) {
-      const start = parseDate(lesson.date);
-      start.setMinutes(start.getMinutes() + (Number(lesson.startMinute) || 0));
-      const end = new Date(start);
-      end.setMinutes(end.getMinutes() + durationMinutes);
-      if (end >= now) continue;
-      const desiredNet = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(lesson.date) ? 0 : -1;
-      pushOccurrence({ lesson, dateStr: lesson.date, instanceLesson: lesson, desiredNet });
-      continue;
-    }
-
-    const recurrenceEnd = lesson.recurringUntil ? parseDate(lesson.recurringUntil) : now;
-    const loopEnd = recurrenceEnd < now ? recurrenceEnd : now;
-    let current = parseDate(lesson.date);
-
-    while (current <= loopEnd) {
-      const dateStr = formatDate(current);
-      const instanceLesson = getRecurringInstanceLesson(lesson, dateStr);
-      const start = parseDate(dateStr);
-      start.setMinutes(start.getMinutes() + (Number(instanceLesson.startMinute) || 0));
-      const end = new Date(start);
-      end.setMinutes(end.getMinutes() + (Number(instanceLesson.durationMinutes) || durationMinutes));
-      if (end < now) {
-        const desiredNet = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(dateStr) ? 0 : -1;
-        pushOccurrence({ lesson, dateStr, instanceLesson, desiredNet });
-      }
-      current.setDate(current.getDate() + 7);
-    }
+    const start = parseDate(lesson.date);
+    start.setMinutes(start.getMinutes() + (Number(lesson.startMinute) || 0));
+    const end = new Date(start);
+    end.setMinutes(end.getMinutes() + durationMinutes);
+    if (end >= now || end < cutoff) continue;
+    const desiredNet = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(lesson.date) ? 0 : -1;
+    pushOccurrence({ lesson, dateStr: lesson.date, instanceLesson: lesson, desiredNet });
   }
 
   return occurrences;
@@ -1642,10 +1631,13 @@ function ensureOccurrenceNet(state, occurrence, desiredNet) {
 function reconcileMigratedPackageCredits(state) {
   const expectedOccurrences = buildPastPackageOccurrenceMap(state);
   const seenOccurrences = new Map();
+  const cutoff = new Date(state.creditTrackingMigratedAt || DEFAULT_CREDIT_TRACKING_MIGRATED_AT);
   let changed = false;
 
   for (const tx of state.packageTransactions || []) {
     if (!tx?.packageId || !tx?.lessonDate || !tx?.lessonId) continue;
+    const txDate = parseDate(tx.lessonDate);
+    if (txDate < cutoff) continue;
     const occurrence = {
       packageId: tx.packageId,
       lessonId: tx.lessonId,
@@ -1678,8 +1670,6 @@ function reconcileMigratedPackageCredits(state) {
 function buildClientLessonStats() {
   const stats = new Map();
   const now = new Date();
-  const futureHorizon = new Date(now);
-  futureHorizon.setFullYear(futureHorizon.getFullYear() + 2);
 
   const ensureStats = (name) => {
     const key = name.toLowerCase();
@@ -1698,57 +1688,22 @@ function buildClientLessonStats() {
     if (clientNames.length === 0) continue;
 
     const durationMinutes = lesson.durationMinutes || 0;
-    if (!lesson.recurring) {
-      const start = parseDate(lesson.date);
-      start.setMinutes(start.getMinutes() + (lesson.startMinute || 0));
-      const end = new Date(start);
-      end.setMinutes(end.getMinutes() + durationMinutes);
-      const isCancelled = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(lesson.date);
-      for (const name of clientNames) {
-        const entry = ensureStats(name);
-        if (isCancelled) continue;
-        if (end < now) {
-          entry.completed += 1;
-          if (!entry.latestCompletedAt || end > entry.latestCompletedAt) {
-            entry.latestCompletedAt = new Date(end);
-          }
-        } else if (start > now) {
-          entry.future += 1;
+    const start = parseDate(lesson.date);
+    start.setMinutes(start.getMinutes() + (lesson.startMinute || 0));
+    const end = new Date(start);
+    end.setMinutes(end.getMinutes() + durationMinutes);
+    const isCancelled = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(lesson.date);
+    for (const name of clientNames) {
+      const entry = ensureStats(name);
+      if (isCancelled) continue;
+      if (end < now) {
+        entry.completed += 1;
+        if (!entry.latestCompletedAt || end > entry.latestCompletedAt) {
+          entry.latestCompletedAt = new Date(end);
         }
+      } else if (start > now) {
+        entry.future += 1;
       }
-      continue;
-    }
-
-    const recurrenceEnd = lesson.recurringUntil ? parseDate(lesson.recurringUntil) : futureHorizon;
-    const loopEnd = recurrenceEnd < futureHorizon ? recurrenceEnd : futureHorizon;
-    let current = parseDate(lesson.date);
-
-    while (current <= loopEnd) {
-      const dStr = formatDate(current);
-      const instanceLesson = getRecurringInstanceLesson(lesson, dStr);
-      const instanceDuration = instanceLesson.durationMinutes || durationMinutes;
-      const instanceStartMinute = instanceLesson.startMinute || 0;
-      const clientNamesForInstance = getLessonClientNames(instanceLesson);
-      const start = new Date(current);
-      start.setMinutes(start.getMinutes() + instanceStartMinute);
-      const end = new Date(start);
-      end.setMinutes(end.getMinutes() + instanceDuration);
-      const isCancelled = Array.isArray(lesson.cancelledDates) && lesson.cancelledDates.includes(dStr);
-
-      for (const name of clientNamesForInstance) {
-        const entry = ensureStats(name);
-        if (isCancelled) continue;
-        if (end < now) {
-          entry.completed += 1;
-          if (!entry.latestCompletedAt || end > entry.latestCompletedAt) {
-            entry.latestCompletedAt = new Date(end);
-          }
-        } else if (start > now) {
-          entry.future += 1;
-        }
-      }
-
-      current.setDate(current.getDate() + 7);
     }
   }
 
@@ -1783,6 +1738,129 @@ function autoArchiveDormantClients() {
   return changed;
 }
 
+function addDays(dateStr, days) {
+  const date = parseDate(dateStr);
+  date.setDate(date.getDate() + days);
+  return formatDate(date);
+}
+
+function getRecurringLessonSignature(lesson, dateStr = lesson?.date) {
+  return JSON.stringify({
+    date: dateStr,
+    startMinute: Number(lesson?.startMinute) || 0,
+    durationMinutes: Number(lesson?.durationMinutes) || 0,
+    lessonType: lesson?.lessonType || 'individual',
+    title: lesson?.title || '',
+    horse: lesson?.horse || null,
+    instructor: lesson?.instructor || null,
+    packageMode: lesson?.packageMode !== false,
+    groupName: lesson?.groupName || null,
+    groupColor: lesson?.groupColor || null,
+    participants: lesson?.participants || [],
+  });
+}
+
+function buildRecurringChildFromParent(parent, existingChild = null) {
+  const nextDate = addDays(parent.date, 7);
+  const child = {
+    ...parent,
+    ...(existingChild ? { id: existingChild.id } : { id: generateId() }),
+    date: nextDate,
+    recurring: existingChild ? existingChild.recurring === true : true,
+    recurringParentId: parent.id,
+    recurringUntil: null,
+    cancelledDates: [],
+    instanceOverrides: {},
+  };
+  delete child._recurringInstance;
+  delete child._instanceDate;
+  return normalizeLesson(child);
+}
+
+function getDirectRecurringChild(state, parentId) {
+  return (state.lessons || []).find(lesson => lesson.recurringParentId === parentId) || null;
+}
+
+function getExistingNextWeekRecurringCopy(state, parent) {
+  const nextDate = addDays(parent.date, 7);
+  const targetSignature = getRecurringLessonSignature(parent, nextDate);
+  return (state.lessons || []).find(lesson => {
+    if (lesson.id === parent.id || lesson.date !== nextDate) return false;
+    return getRecurringLessonSignature(lesson) === targetSignature;
+  }) || null;
+}
+
+function syncDirectRecurringChild(state, parent) {
+  if (!parent?.id || !parent.date) return false;
+  const child = getDirectRecurringChild(state, parent.id);
+
+  if (parent.recurring !== true) {
+    if (!child) return false;
+    state.lessons = state.lessons.filter(lesson => lesson.id !== child.id);
+    for (const lesson of state.lessons || []) {
+      if (lesson.recurringParentId === child.id) {
+        lesson.recurringParentId = null;
+      }
+    }
+    return true;
+  }
+
+  const nextDate = addDays(parent.date, 7);
+  if (child) {
+    const idx = state.lessons.findIndex(lesson => lesson.id === child.id);
+    if (idx < 0) return false;
+    const nextChild = buildRecurringChildFromParent(parent, child);
+    if (jsonEqual(state.lessons[idx], nextChild)) return false;
+    state.lessons[idx] = nextChild;
+    return true;
+  }
+
+  if ((state.lessons || []).some(lesson => lesson.date === nextDate && lesson.recurringParentId === parent.id)) {
+    return false;
+  }
+
+  const existingCopy = getExistingNextWeekRecurringCopy(state, parent);
+  if (existingCopy) {
+    if (existingCopy.recurringParentId || existingCopy.recurringParentId === parent.id) return false;
+    existingCopy.recurringParentId = parent.id;
+    return true;
+  }
+
+  state.lessons.push(buildRecurringChildFromParent(parent));
+  return true;
+}
+
+function materializeDueRecurringLessons(state, todayStr = formatDate(new Date())) {
+  let changed = false;
+  const maxIterations = Math.max(1, (state.lessons || []).length + 52);
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const dueLesson = [...(state.lessons || [])]
+      .filter(lesson =>
+        lesson?.recurring === true
+        && lesson.date
+        && lesson.date <= todayStr
+        && !getDirectRecurringChild(state, lesson.id)
+      )
+      .sort((a, b) => {
+        const dateCompare = a.date.localeCompare(b.date);
+        if (dateCompare !== 0) return dateCompare;
+        return (Number(a.startMinute) || 0) - (Number(b.startMinute) || 0);
+      })[0];
+
+    if (!dueLesson) break;
+
+    if (syncDirectRecurringChild(state, dueLesson)) {
+      changed = true;
+      continue;
+    }
+
+    break;
+  }
+
+  return changed;
+}
+
 export function addLesson(lesson, { save = true } = {}) {
   const d = getData();
   const newLesson = normalizeLesson({
@@ -1790,6 +1868,10 @@ export function addLesson(lesson, { save = true } = {}) {
     ...lesson
   });
   d.lessons.push(newLesson);
+  if (newLesson.date <= formatDate(new Date())) {
+    syncDirectRecurringChild(d, newLesson);
+  }
+  materializeDueRecurringLessons(d);
   logAction('ADD_LESSON', newLesson);
   reconcileMigratedPackageCredits(d);
   if (save) saveData();
@@ -1801,52 +1883,14 @@ export function updateLesson(id, updates, { save = true } = {}) {
   const idx = d.lessons.findIndex(lesson => lesson.id === id);
   if (idx >= 0) {
     d.lessons[idx] = normalizeLesson({ ...d.lessons[idx], ...updates });
+    if (d.lessons[idx].date <= formatDate(new Date())) {
+      syncDirectRecurringChild(d, d.lessons[idx]);
+    }
+    materializeDueRecurringLessons(d);
     logAction('UPDATE_LESSON', { id, updates });
     reconcileMigratedPackageCredits(d);
     if (save) saveData();
   }
-}
-
-export function updateLessonInstance(id, dateStr, updates, { save = true } = {}) {
-  const d = getData();
-  const idx = d.lessons.findIndex(lesson => lesson.id === id);
-  if (idx < 0) return;
-
-  const lesson = d.lessons[idx];
-  if (!lesson.instanceOverrides || typeof lesson.instanceOverrides !== 'object') {
-    lesson.instanceOverrides = {};
-  }
-
-  const override = {};
-  for (const [key, value] of Object.entries(updates || {})) {
-    if ([
-      'id',
-      'date',
-      'recurring',
-      'recurringUntil',
-      'cancelledDates',
-      'instanceOverrides',
-      '_recurringInstance',
-      '_instanceDate'
-    ].includes(key)) continue;
-    if (JSON.stringify(lesson[key]) !== JSON.stringify(value)) {
-      override[key] = value;
-    }
-  }
-
-  if (Object.keys(override).length === 0) {
-    delete lesson.instanceOverrides[dateStr];
-  } else {
-    const existing = lesson.instanceOverrides[dateStr] || {};
-    const merged = { ...existing, ...override };
-    if (Array.isArray(merged.participants)) {
-      merged.participants = normalizeParticipants(merged.participants);
-    }
-    lesson.instanceOverrides[dateStr] = merged;
-  }
-
-  reconcileMigratedPackageCredits(d);
-  if (save) saveData();
 }
 
 export function deleteLesson(id) {
@@ -1854,50 +1898,31 @@ export function deleteLesson(id) {
   const lesson = d.lessons.find(entry => entry.id === id);
   if (!lesson) return;
 
+  if (lesson.recurringParentId) {
+    const parent = d.lessons.find(entry => entry.id === lesson.recurringParentId);
+    if (parent) {
+      parent.recurring = false;
+    }
+  }
+  for (const child of d.lessons || []) {
+    if (child.recurringParentId === id) {
+      child.recurringParentId = null;
+    }
+  }
   d.lessons = d.lessons.filter(entry => entry.id !== id);
   logAction('DELETE_LESSON', { id, title: lesson.title });
   reconcileMigratedPackageCredits(d);
+  for (const tx of d.packageTransactions || []) {
+    if (tx.lessonId === id) {
+      tx.lessonId = null;
+    }
+  }
   saveData();
 }
 
 export function getLessonsForDate(dateStr) {
   const d = getData();
-  const results = [];
-  const targetDate = new Date(dateStr);
-  const targetDay = targetDate.getDay();
-
-  const getInstanceLesson = (lesson, instanceDate) => {
-    const override = lesson.instanceOverrides?.[instanceDate];
-    if (!override) {
-      return { ...lesson, _recurringInstance: !!lesson.recurring, _instanceDate: instanceDate };
-    }
-
-    return {
-      ...lesson,
-      ...override,
-      _recurringInstance: !!lesson.recurring,
-      _instanceDate: instanceDate,
-    };
-  };
-
-  for (const lesson of d.lessons) {
-    if (lesson.recurring && lesson.recurringUntil && dateStr > lesson.recurringUntil) {
-      continue;
-    }
-    if (lesson.date === dateStr) {
-      results.push(getInstanceLesson(lesson, dateStr));
-    } else if (lesson.recurring) {
-      const lessonDate = new Date(lesson.date);
-      if (lessonDate.getDay() === targetDay && lessonDate <= targetDate) {
-        const diffMs = targetDate - lessonDate;
-        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-        if (diffDays >= 0 && diffDays % 7 === 0) {
-          results.push(getInstanceLesson(lesson, dateStr));
-        }
-      }
-    }
-  }
-  return results;
+  return (d.lessons || []).filter(lesson => lesson.date === dateStr);
 }
 
 export function toggleCancelLessonInstance(id, dateStr) {
@@ -1918,11 +1943,15 @@ export function toggleCancelLessonInstance(id, dateStr) {
 
 export function processPastLessonsForCredits() {
   if (!_data) return;
-  const packageSyncChanged = syncPackageEntriesFromLessons();
+  if (!_isAdmin) {
+    recomputePackageCreditState(_data);
+    return;
+  }
+  const recurringChainChanged = materializeDueRecurringLessons(_data);
   const archiveChanged = autoArchiveDormantClients();
   recomputePackageCreditState(_data);
   const transactionChanged = reconcileMigratedPackageCredits(_data);
-  if (packageSyncChanged || archiveChanged || transactionChanged) {
+  if (recurringChainChanged || archiveChanged || transactionChanged) {
     saveData();
   }
 }
@@ -2025,24 +2054,6 @@ export function updatePackageName(id, newName) {
           if (participant.packageName) participant.packageName = pkg.name;
           if (participant.name.toLowerCase() === oldName.toLowerCase()) {
             participant.name = pkg.name;
-          }
-        }
-      }
-    }
-    if (lesson.instanceOverrides) {
-      for (const override of Object.values(lesson.instanceOverrides)) {
-        if (override.title && override.title.toLowerCase() === oldName.toLowerCase()) {
-          override.title = pkg.name;
-        }
-        if (Array.isArray(override.participants)) {
-          for (const participant of override.participants) {
-            const packageName = participant.packageName || participant.name || '';
-            if (packageName.toLowerCase() === oldName.toLowerCase()) {
-              if (participant.packageName) participant.packageName = pkg.name;
-              if (participant.name && participant.name.toLowerCase() === oldName.toLowerCase()) {
-                participant.name = pkg.name;
-              }
-            }
           }
         }
       }
