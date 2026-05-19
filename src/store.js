@@ -1184,6 +1184,7 @@ function getPackageTransactionIdentity(tx) {
 }
 
 async function syncPackageTransactions(current, persisted) {
+  const validPackageIds = new Set((current.packages || []).map(pkg => pkg.id).filter(Boolean));
   const persistedKeys = new Set(
     (persisted.packageTransactions || [])
       .map(tx => getPackageTransactionIdentity(tx))
@@ -1193,6 +1194,16 @@ async function syncPackageTransactions(current, persisted) {
   for (const tx of current.packageTransactions || []) {
     const identity = getPackageTransactionIdentity(tx);
     if (!identity || persistedKeys.has(identity)) continue;
+    if (!validPackageIds.has(tx.packageId)) {
+      console.warn('[store] Skipping package transaction with missing package', {
+        transactionId: tx.id,
+        packageId: tx.packageId,
+        type: tx.type,
+        lessonId: tx.lessonId,
+        sourceKey: tx.sourceKey,
+      });
+      continue;
+    }
 
     const { error } = tx.sourceKey
       ? await supabase.from('package_transactions').upsert(buildPackageTransactionRow(tx), {
