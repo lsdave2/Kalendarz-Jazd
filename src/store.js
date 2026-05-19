@@ -7,6 +7,7 @@ const LOCAL_DATA_KEY = 'horsebook_data';
 const LOCAL_PENDING_KEY = 'horsebook_pending_sync';
 const REMOTE_TABLES = ['lessons', 'packages', 'package_transactions', 'instructors', 'horses', 'groups', 'settings', 'expenses', 'incomes'];
 const DEFAULT_CREDIT_TRACKING_MIGRATED_AT = '2026-05-12T00:00:00.000Z';
+const CLOUD_SAVE_TIMEOUT_MS = 10000;
 
 const defaultData = () => ({
   horses: ['Rubin', 'Czempion', 'Cera', 'Muminek', 'Kadet', 'Sakwa', 'Fason', 'Carewicz', 'Grot', 'Siwa', 'Figa'],
@@ -52,10 +53,13 @@ let _isLoading = true;
 let _isSaving = false;
 let _hasPendingLocalChanges = false;
 let _saveChain = Promise.resolve();
+let _dataRevision = 0;
+let _pendingSaveJobs = 0;
 let _realtimeChannel = null;
 let _realtimeInitialized = false;
 let _needsRemoteRefresh = false;
 let _preserveRemoteLessonsDuringNextSync = false;
+let _cloudSaveDeadlineMs = null;
 const _listeners = new Set();
 
 const _meta = {
@@ -149,6 +153,76 @@ function dispatchStoreWarning(message) {
   window.dispatchEvent(new CustomEvent('store-error', {
     detail: { message, type: 'warning' }
   }));
+}
+
+class CloudSyncTimeoutError extends Error {
+  constructor() {
+    super(t('syncTimeout'));
+    this.name = 'CloudSyncTimeoutError';
+  }
+}
+
+async function withCloudTimeout(queryOrPromise) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timeoutId;
+  try {
+    const timeoutMs = _cloudSaveDeadlineMs
+      ? Math.max(0, _cloudSaveDeadlineMs - Date.now())
+      : CLOUD_SAVE_TIMEOUT_MS;
+    if (timeoutMs <= 0) throw new CloudSyncTimeoutError();
+    const executable = controller && typeof queryOrPromise?.abortSignal === 'function'
+      ? queryOrPromise.abortSignal(controller.signal)
+      : queryOrPromise;
+    return await Promise.race([
+      executable,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          controller?.abort();
+          reject(new CloudSyncTimeoutError());
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    if (error?.name === 'AbortError' || controller?.signal?.aborted) {
+      throw new CloudSyncTimeoutError();
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function getSyncFailureMessage(error) {
+  if (error instanceof CloudSyncTimeoutError || error?.name === 'CloudSyncTimeoutError') {
+    return t('syncTimeout');
+  }
+
+  const code = String(error?.code || error?.status || '');
+  const message = String(error?.message || '').toLowerCase();
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return t('syncOffline');
+  }
+  if (code === '401' || code === '403' || message.includes('jwt') || message.includes('session')) {
+    return t('syncAuthExpired');
+  }
+  if (code === '42501' || message.includes('row-level security') || message.includes('permission denied')) {
+    return t('syncPermissionDenied');
+  }
+  if (code === '42P01' || code === '42703' || message.includes('does not exist') || message.includes('schema')) {
+    return t('syncSchemaMismatch');
+  }
+  if (['23505', '23503', '23514', '23502'].includes(code)) {
+    return t('syncConstraintConflict');
+  }
+  if (message.includes('failed to fetch') || message.includes('network') || message.includes('load failed')) {
+    return t('syncNetworkError');
+  }
+  if (message.includes(String(t('syncVerificationFailed')).toLowerCase())) {
+    return t('syncVerificationFailed');
+  }
+
+  return error?.message ? t('syncFailed', { error: error.message }) : t('syncConnectionError');
 }
 
 function readLocalState() {
@@ -940,70 +1014,133 @@ function buildGroupRow(group) {
   };
 }
 
-async function syncHorses(current, persisted) {
+function createSyncMutationLog() {
+  return [];
+}
+
+function addUpsertVerification(mutations, table, match, expected) {
+  mutations.push({ type: 'upsert', table, match, expected });
+}
+
+function addDeleteVerification(mutations, table, match) {
+  mutations.push({ type: 'delete', table, match });
+}
+
+function dbValueEqual(actual, expected) {
+  if (expected === null || expected === undefined) {
+    return actual === null || actual === undefined;
+  }
+  if (typeof expected === 'number') {
+    return Number(actual) === expected;
+  }
+  if (typeof expected === 'boolean') {
+    return actual === expected;
+  }
+  if (Array.isArray(expected) || (expected && typeof expected === 'object')) {
+    return JSON.stringify(actual ?? null) === JSON.stringify(expected);
+  }
+  return String(actual ?? '') === String(expected);
+}
+
+function dbRowMatchesExpected(row, expected) {
+  return Object.entries(expected || {}).every(([key, value]) => dbValueEqual(row?.[key], value));
+}
+
+async function fetchVerificationRow(table, match) {
+  let query = supabase.from(table).select('*');
+  for (const [column, value] of Object.entries(match || {})) {
+    query = query.eq(column, value);
+  }
+  const { data, error } = await withCloudTimeout(query.limit(1));
+  if (error) throw error;
+  return (data || [])[0] || null;
+}
+
+async function confirmSupabaseMutations(mutations) {
+  for (const mutation of mutations || []) {
+    const row = await fetchVerificationRow(mutation.table, mutation.match);
+    if (mutation.type === 'delete') {
+      if (row) throw new Error(t('syncVerificationFailed'));
+      continue;
+    }
+    if (!row || !dbRowMatchesExpected(row, mutation.expected)) {
+      throw new Error(t('syncVerificationFailed'));
+    }
+  }
+}
+
+async function syncHorses(current, persisted, mutations) {
   const currentSet = new Set(current.horses || []);
   const persistedSet = new Set(persisted.horses || []);
 
   for (const horse of currentSet) {
     if (persistedSet.has(horse)) continue;
-    const { error } = await supabase.from('horses').insert({ name: horse });
+    const { error } = await withCloudTimeout(supabase.from('horses').insert({ name: horse }));
     if (error && error.code !== '23505') throw error;
+    addUpsertVerification(mutations, 'horses', { name: horse }, { name: horse });
   }
 
   for (const horse of persistedSet) {
     if (currentSet.has(horse)) continue;
-    const { error } = await supabase.from('horses').delete().eq('name', horse);
+    const { error } = await withCloudTimeout(supabase.from('horses').delete().eq('name', horse));
     if (error) throw error;
+    addDeleteVerification(mutations, 'horses', { name: horse });
   }
 }
 
-async function syncInstructors(current, persisted) {
+async function syncInstructors(current, persisted, mutations) {
   const currentByName = new Map((current.instructors || []).map(instr => [instr.name, instr]));
   const persistedByName = new Map((persisted.instructors || []).map(instr => [instr.name, instr]));
 
   for (const [name, instr] of currentByName.entries()) {
     const previous = persistedByName.get(name);
     if (!previous) {
-      const { error } = await supabase.from('instructors').insert({
+      const { error } = await withCloudTimeout(supabase.from('instructors').insert({
         name,
         color: instr.color,
-      });
+      }));
       if (error && error.code !== '23505') throw error;
+      addUpsertVerification(mutations, 'instructors', { name }, { name, color: instr.color });
       continue;
     }
     if (jsonEqual(instr, previous)) continue;
-    const { error } = await supabase.from('instructors').update({
+    const { error } = await withCloudTimeout(supabase.from('instructors').update({
       color: instr.color,
-    }).eq('name', name);
+    }).eq('name', name));
     if (error) throw error;
+    addUpsertVerification(mutations, 'instructors', { name }, { name, color: instr.color });
   }
 
   for (const [name] of persistedByName.entries()) {
     if (currentByName.has(name)) continue;
-    const { error } = await supabase.from('instructors').delete().eq('name', name);
+    const { error } = await withCloudTimeout(supabase.from('instructors').delete().eq('name', name));
     if (error) throw error;
+    addDeleteVerification(mutations, 'instructors', { name });
   }
 }
 
-async function syncGroups(current, persisted) {
+async function syncGroups(current, persisted, mutations) {
   const currentById = new Map((current.groups || []).map(group => [group.id, group]));
   const persistedById = new Map((persisted.groups || []).map(group => [group.id, group]));
 
   for (const [id, group] of currentById.entries()) {
     const previous = persistedById.get(id);
     if (previous && jsonEqual(group, previous)) continue;
-    const { error } = await supabase.from('groups').upsert(buildGroupRow(group), { onConflict: 'id' });
+    const row = buildGroupRow(group);
+    const { error } = await withCloudTimeout(supabase.from('groups').upsert(row, { onConflict: 'id' }));
     if (error) throw error;
+    addUpsertVerification(mutations, 'groups', { id }, row);
   }
 
   for (const [id] of persistedById.entries()) {
     if (currentById.has(id)) continue;
-    const { error } = await supabase.from('groups').delete().eq('id', id);
+    const { error } = await withCloudTimeout(supabase.from('groups').delete().eq('id', id));
     if (error) throw error;
+    addDeleteVerification(mutations, 'groups', { id });
   }
 }
 
-async function syncPackages(current, persisted) {
+async function syncPackages(current, persisted, mutations) {
   const currentPackages = current.packages || [];
   const persistedById = new Map((persisted.packages || []).map(pkg => [pkg.id, pkg]));
 
@@ -1013,11 +1150,11 @@ async function syncPackages(current, persisted) {
     if (previous && jsonEqual(pkg, previous) && !hasUnsyncedPackageCurrentCredits({ packages: [pkg] })) continue;
 
     if (!previous) {
-      const { data: existingByName, error: existingByNameError } = await supabase
+      const { data: existingByName, error: existingByNameError } = await withCloudTimeout(supabase
         .from('packages')
         .select('*')
         .eq('name', pkg.name)
-        .maybeSingle();
+        .maybeSingle());
       if (existingByNameError) throw existingByNameError;
 
       if (existingByName) {
@@ -1035,28 +1172,32 @@ async function syncPackages(current, persisted) {
         const mergedPkg = mergePackageState(pkg, null, remotePkg);
         const syncReadyPkg = preparePackageForSync(mergedPkg, current);
         currentPackages[index] = syncReadyPkg;
-        const { error } = await supabase.from('packages').upsert(buildPackageRow(syncReadyPkg), { onConflict: 'id' });
+        const row = buildPackageRow(syncReadyPkg);
+        const { error } = await withCloudTimeout(supabase.from('packages').upsert(row, { onConflict: 'id' }));
         if (error) throw error;
         markPackageCurrentCreditsSynced(syncReadyPkg);
+        addUpsertVerification(mutations, 'packages', { id: syncReadyPkg.id }, row);
         continue;
       }
 
       const syncReadyPkg = preparePackageForSync(pkg, current);
       currentPackages[index] = syncReadyPkg;
-      const { error } = await supabase.from('packages').upsert(buildPackageRow(syncReadyPkg), { onConflict: 'id' });
+      const row = buildPackageRow(syncReadyPkg);
+      const { error } = await withCloudTimeout(supabase.from('packages').upsert(row, { onConflict: 'id' }));
       if (error) throw error;
       markPackageCurrentCreditsSynced(syncReadyPkg);
+      addUpsertVerification(mutations, 'packages', { id: syncReadyPkg.id }, row);
       continue;
     }
 
-    const { data: latestRow, error: latestError } = await supabase.from('packages').select('*').eq('id', pkg.id).maybeSingle();
+    const { data: latestRow, error: latestError } = await withCloudTimeout(supabase.from('packages').select('*').eq('id', pkg.id).maybeSingle());
     if (latestError) throw latestError;
 
-    const { data: matchingNameRow, error: matchingNameError } = await supabase
+    const { data: matchingNameRow, error: matchingNameError } = await withCloudTimeout(supabase
       .from('packages')
       .select('*')
       .eq('name', pkg.name)
-      .maybeSingle();
+      .maybeSingle());
     if (matchingNameError) throw matchingNameError;
 
     const conflictingNameRow = matchingNameRow && matchingNameRow.id !== pkg.id
@@ -1087,9 +1228,11 @@ async function syncPackages(current, persisted) {
       const syncReadyPkg = preparePackageForSync(mergedPkg, current);
       currentPackages[index] = syncReadyPkg;
 
-      const { error } = await supabase.from('packages').upsert(buildPackageRow(syncReadyPkg), { onConflict: 'id' });
+      const row = buildPackageRow(syncReadyPkg);
+      const { error } = await withCloudTimeout(supabase.from('packages').upsert(row, { onConflict: 'id' }));
       if (error) throw error;
       markPackageCurrentCreditsSynced(syncReadyPkg);
+      addUpsertVerification(mutations, 'packages', { id: syncReadyPkg.id }, row);
       continue;
     }
 
@@ -1112,25 +1255,28 @@ async function syncPackages(current, persisted) {
     const syncReadyPkg = preparePackageForSync(mergedPkg, current);
     currentPackages[index] = syncReadyPkg;
 
-    const { error } = await supabase.from('packages').upsert(buildPackageRow(syncReadyPkg), { onConflict: 'id' });
+    const row = buildPackageRow(syncReadyPkg);
+    const { error } = await withCloudTimeout(supabase.from('packages').upsert(row, { onConflict: 'id' }));
     if (error) throw error;
     markPackageCurrentCreditsSynced(syncReadyPkg);
+    addUpsertVerification(mutations, 'packages', { id: syncReadyPkg.id }, row);
   }
 
   for (const pkg of persisted.packages || []) {
     if (currentPackages.some(entry => entry.id === pkg.id)) continue;
-    const { error } = await supabase.from('packages').delete().eq('id', pkg.id);
+    const { error } = await withCloudTimeout(supabase.from('packages').delete().eq('id', pkg.id));
     if (error) throw error;
+    addDeleteVerification(mutations, 'packages', { id: pkg.id });
   }
 }
 
-async function syncLessons(current, persisted) {
+async function syncLessons(current, persisted, mutations, { preserveRemoteLessons = false } = {}) {
   const horseIdByName = new Map();
   const instructorIdByName = new Map();
-  const { data: horseRows, error: horseError } = await supabase.from('horses').select('id,name');
+  const { data: horseRows, error: horseError } = await withCloudTimeout(supabase.from('horses').select('id,name'));
   if (horseError) throw horseError;
   for (const row of horseRows || []) horseIdByName.set(row.name, row.id);
-  const { data: instructorRows, error: instructorError } = await supabase.from('instructors').select('id,name');
+  const { data: instructorRows, error: instructorError } = await withCloudTimeout(supabase.from('instructors').select('id,name'));
   if (instructorError) throw instructorError;
   for (const row of instructorRows || []) instructorIdByName.set(row.name, row.id);
 
@@ -1140,23 +1286,23 @@ async function syncLessons(current, persisted) {
   for (const [id, lesson] of currentById.entries()) {
     const previous = persistedById.get(id);
     if (previous && jsonEqual(lesson, previous)) continue;
-    if (_preserveRemoteLessonsDuringNextSync && previous) continue;
-    const { error } = await supabase.from('lessons').upsert(
-      buildLessonRow(lesson, horseIdByName, instructorIdByName),
-      { onConflict: 'id' }
-    );
+    if (preserveRemoteLessons && previous) continue;
+    const row = buildLessonRow(lesson, horseIdByName, instructorIdByName);
+    const { error } = await withCloudTimeout(supabase.from('lessons').upsert(row, { onConflict: 'id' }));
     if (error) throw error;
+    addUpsertVerification(mutations, 'lessons', { id }, row);
   }
 
   for (const [id] of persistedById.entries()) {
     if (currentById.has(id)) continue;
-    if (_preserveRemoteLessonsDuringNextSync) continue;
-    const { error } = await supabase.from('lessons').delete().eq('id', id);
+    if (preserveRemoteLessons) continue;
+    const { error } = await withCloudTimeout(supabase.from('lessons').delete().eq('id', id));
     if (error) throw error;
+    addDeleteVerification(mutations, 'lessons', { id });
   }
 }
 
-async function syncSettings(current, persisted) {
+async function syncSettings(current, persisted, mutations) {
   const currentRows = [
     { key: 'closed_dates', value: current.closedDates || [] },
     { key: 'credit_tracking_migrated_at', value: current.creditTrackingMigratedAt || null },
@@ -1175,8 +1321,9 @@ async function syncSettings(current, persisted) {
 
   for (const row of currentRows) {
     if (jsonEqual(row.value, persistedMap.get(row.key))) continue;
-    const { error } = await supabase.from('settings').upsert(row, { onConflict: 'key' });
+    const { error } = await withCloudTimeout(supabase.from('settings').upsert(row, { onConflict: 'key' }));
     if (error) throw error;
+    addUpsertVerification(mutations, 'settings', { key: row.key }, row);
   }
 }
 
@@ -1184,7 +1331,7 @@ function getPackageTransactionIdentity(tx) {
   return tx?.sourceKey || tx?.id || null;
 }
 
-async function syncPackageTransactions(current, persisted) {
+async function syncPackageTransactions(current, persisted, mutations) {
   const validPackageIds = new Set((current.packages || []).map(pkg => pkg.id).filter(Boolean));
   const persistedKeys = new Set(
     (persisted.packageTransactions || [])
@@ -1206,90 +1353,117 @@ async function syncPackageTransactions(current, persisted) {
       continue;
     }
 
+    const row = buildPackageTransactionRow(tx);
     const { error } = tx.sourceKey
-      ? await supabase.from('package_transactions').upsert(buildPackageTransactionRow(tx), {
+      ? await withCloudTimeout(supabase.from('package_transactions').upsert(row, {
           onConflict: 'source_key',
           ignoreDuplicates: true,
-        })
-      : await supabase.from('package_transactions').insert(buildPackageTransactionRow(tx));
+        }))
+      : await withCloudTimeout(supabase.from('package_transactions').insert(row));
 
     if (error && error.code !== '23505') throw error;
+    const expectedRow = { ...row };
+    delete expectedRow.created_at;
+    addUpsertVerification(
+      mutations,
+      'package_transactions',
+      tx.sourceKey ? { source_key: tx.sourceKey } : { id: tx.id },
+      expectedRow
+    );
   }
 }
 
-async function syncExpenses(current, persisted) {
+async function syncExpenses(current, persisted, mutations) {
   const currentById = new Map((current.expenses || []).map(e => [e.id, e]));
   const persistedById = new Map((persisted.expenses || []).map(e => [e.id, e]));
 
   for (const [id, expense] of currentById.entries()) {
     const previous = persistedById.get(id);
     if (previous && jsonEqual(expense, previous)) continue;
-    const { error } = await supabase.from('expenses').upsert({
+    const row = {
       id: expense.id,
       title: expense.title || '',
       cost: expense.cost || 0,
       date: expense.date || formatDate(new Date()),
       description: expense.description || '',
-    }, { onConflict: 'id' });
+    };
+    const { error } = await withCloudTimeout(supabase.from('expenses').upsert(row, { onConflict: 'id' }));
     if (error) throw error;
+    addUpsertVerification(mutations, 'expenses', { id }, row);
   }
 
   for (const [id] of persistedById.entries()) {
     if (currentById.has(id)) continue;
-    const { error } = await supabase.from('expenses').delete().eq('id', id);
+    const { error } = await withCloudTimeout(supabase.from('expenses').delete().eq('id', id));
     if (error) throw error;
+    addDeleteVerification(mutations, 'expenses', { id });
   }
 }
 
-async function syncIncomes(current, persisted) {
+async function syncIncomes(current, persisted, mutations) {
   const currentById = new Map((current.incomes || []).map(e => [e.id, e]));
   const persistedById = new Map((persisted.incomes || []).map(e => [e.id, e]));
 
   for (const [id, income] of currentById.entries()) {
     const previous = persistedById.get(id);
     if (previous && jsonEqual(income, previous)) continue;
-    const { error } = await supabase.from('incomes').upsert({
+    const row = {
       id: income.id,
       title: income.title || '',
       amount: income.cost || 0,
       date: income.date || formatDate(new Date()),
       description: income.description || '',
-    }, { onConflict: 'id' });
+    };
+    const { error } = await withCloudTimeout(supabase.from('incomes').upsert(row, { onConflict: 'id' }));
     if (error) throw error;
+    addUpsertVerification(mutations, 'incomes', { id }, row);
   }
 
   for (const [id] of persistedById.entries()) {
     if (currentById.has(id)) continue;
-    const { error } = await supabase.from('incomes').delete().eq('id', id);
+    const { error } = await withCloudTimeout(supabase.from('incomes').delete().eq('id', id));
     if (error) throw error;
+    addDeleteVerification(mutations, 'incomes', { id });
   }
 }
 
-async function syncToSupabase() {
-  await syncHorses(_data, _persistedData);
-  await syncInstructors(_data, _persistedData);
-  await syncGroups(_data, _persistedData);
-  await syncPackages(_data, _persistedData);
-  await syncLessons(_data, _persistedData);
-  await syncPackageTransactions(_data, _persistedData);
-  await syncSettings(_data, _persistedData);
-  await syncExpenses(_data, _persistedData);
-  await syncIncomes(_data, _persistedData);
+async function syncToSupabase(current, persisted, { preserveRemoteLessons = false } = {}) {
+  const mutations = createSyncMutationLog();
+  await syncHorses(current, persisted, mutations);
+  await syncInstructors(current, persisted, mutations);
+  await syncGroups(current, persisted, mutations);
+  await syncPackages(current, persisted, mutations);
+  await syncLessons(current, persisted, mutations, { preserveRemoteLessons });
+  await syncPackageTransactions(current, persisted, mutations);
+  await syncSettings(current, persisted, mutations);
+  await syncExpenses(current, persisted, mutations);
+  await syncIncomes(current, persisted, mutations);
+  return mutations;
 }
 
 export function saveData({ throwOnError = false } = {}) {
+  _data = normalizeAppState(_data);
+  const saveRevision = ++_dataRevision;
+  const saveSnapshot = deepClone(_data);
+  _pendingSaveJobs += 1;
   _isSaving = true;
   notifyListeners();
-  _saveChain = _saveChain.then(async () => {
+  _saveChain = _saveChain.catch(() => {}).then(async () => {
+    const isLatestSaveRevision = () => saveRevision === _dataRevision;
+    const persistedSnapshot = deepClone(_persistedData);
+    const syncState = normalizeAppState(deepClone(saveSnapshot));
+    const preserveRemoteLessons = _preserveRemoteLessonsDuringNextSync;
+
     try {
-      _data = normalizeAppState(_data);
-      const hasDiff = !jsonEqual(_data, _persistedData) || hasUnsyncedPackageCurrentCredits(_data);
-      _hasPendingLocalChanges = hasDiff;
+      const hasDiff = !jsonEqual(syncState, persistedSnapshot) || hasUnsyncedPackageCurrentCredits(syncState);
+      _hasPendingLocalChanges = isLatestSaveRevision() ? hasDiff : true;
       persistLocalState({ pending: _hasPendingLocalChanges });
 
       if (!hasDiff) {
-        _preserveRemoteLessonsDuringNextSync = false;
-        if (_needsRemoteRefresh) {
+        if (isLatestSaveRevision()) {
+          _preserveRemoteLessonsDuringNextSync = false;
+        }
+        if (isLatestSaveRevision() && _needsRemoteRefresh) {
           _needsRemoteRefresh = false;
           await refreshFromRemote();
         }
@@ -1310,16 +1484,26 @@ export function saveData({ throwOnError = false } = {}) {
       }
 
       try {
-        await syncToSupabase();
-        _data = normalizeAppState(_data);
-        _persistedData = deepClone(_data);
-        _hasPendingLocalChanges = false;
-        persistLocalState({ pending: false });
-        if (_preserveRemoteLessonsDuringNextSync) {
+        _cloudSaveDeadlineMs = Date.now() + CLOUD_SAVE_TIMEOUT_MS;
+        const mutations = await syncToSupabase(syncState, persistedSnapshot, { preserveRemoteLessons });
+        await confirmSupabaseMutations(mutations);
+        const persistedSyncState = normalizeAppState(syncState);
+        _persistedData = deepClone(persistedSyncState);
+
+        if (isLatestSaveRevision()) {
+          _data = persistedSyncState;
+          _hasPendingLocalChanges = false;
+          persistLocalState({ pending: false });
+        } else {
+          _hasPendingLocalChanges = true;
+          persistLocalState({ pending: true });
+        }
+
+        if (isLatestSaveRevision() && _preserveRemoteLessonsDuringNextSync) {
           _preserveRemoteLessonsDuringNextSync = false;
           await refreshFromRemote();
         }
-        if (_needsRemoteRefresh) {
+        if (isLatestSaveRevision() && _needsRemoteRefresh) {
           _needsRemoteRefresh = false;
           await refreshFromRemote();
         }
@@ -1327,13 +1511,16 @@ export function saveData({ throwOnError = false } = {}) {
         console.error('[store] Failed to save to Supabase', error);
         _hasPendingLocalChanges = true;
         persistLocalState({ pending: true });
-        dispatchStoreError(error?.message ? t('syncFailed', { error: error.message }) : t('syncConnectionError'));
+        dispatchStoreError(getSyncFailureMessage(error));
         if (throwOnError) {
           throw error;
         }
+      } finally {
+        _cloudSaveDeadlineMs = null;
       }
     } finally {
-      _isSaving = false;
+      _pendingSaveJobs = Math.max(0, _pendingSaveJobs - 1);
+      _isSaving = _pendingSaveJobs > 0;
       notifyListeners();
     }
   });

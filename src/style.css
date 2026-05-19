@@ -106,6 +106,8 @@ input, select, textarea { font-family: inherit; }
   border-bottom: 1px solid var(--border);
 }
 .app-header h1 {
+  flex: 1;
+  min-width: 0;
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -129,6 +131,7 @@ input, select, textarea { font-family: inherit; }
 .header-btn:hover { background: var(--bg-card); }
 .header-actions { display: flex; gap: 4px; }
 .sync-indicator {
+  flex: 0 0 32px;
   width: 32px;
   height: 32px;
   display: flex;
@@ -368,6 +371,7 @@ input, select, textarea { font-family: inherit; }
   padding: 4px 4px 12px;
 }
 .day-header-main {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1063,41 +1067,65 @@ select.form-input {
 
 /* Day Status Specific Toggle */
 .toggle-day-status {
-  width: 100px;
-  background: #5a8273; /* Subdued green */
-  border-color: #5a8273;
-  box-shadow: 0 0 8px rgba(90, 130, 115, 0.2);
+  width: 112px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border-color: var(--border);
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
 }
 
 .toggle-day-status.active {
-  background: #b36b6b; /* Subdued red */
-  border-color: #b36b6b;
-  box-shadow: 0 0 8px rgba(179, 107, 107, 0.2);
+  background: var(--red-soft);
+  border-color: rgba(248, 113, 113, 0.22);
+}
+
+.toggle-day-status:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-hover);
+}
+
+.toggle-day-status.active:hover {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: rgba(248, 113, 113, 0.34);
 }
 
 .toggle-day-status .toggle-text {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  transform: none;
   font-size: 0.65rem;
   font-weight: 800;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.95);
+  color: var(--green);
   pointer-events: none;
-  transition: all var(--transition);
+  transition: color var(--transition);
   white-space: nowrap;
 }
 
-.toggle-day-status:not(.active) .toggle-text {
-  right: 10px;
+.toggle-day-status.active .toggle-text {
+  color: #fecaca;
 }
 
-.toggle-day-status.active .toggle-text {
-  left: 10px;
+.toggle-day-status::after,
+.toggle-day-status.active::after {
+  position: static;
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--green-soft);
+  transform: none;
 }
 
 .toggle-day-status.active::after {
-  transform: translateX(78px);
+  background: var(--red);
+  box-shadow: 0 0 0 3px var(--red-soft);
 }
 
 /* ── Buttons ────────────────────────────────────────────────────────── */

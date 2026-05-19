@@ -5,6 +5,7 @@ import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getLessonParticipants, getLessonDisplayName } from '../services/LessonService.js';
 import { openLessonModal } from '../modals/LessonModal.js';
 import { getDayScheduleHours } from './SettingsView.js';
+import { buildSyncIndicator } from '../components/SyncIndicator.js';
 
 // ── Constants ──────────────────────────────────────────────────────────
 const DAY_SCHEDULE_SLOT_HEIGHT = 120;
@@ -140,11 +141,15 @@ export function buildDayView(dateStr) {
 
   const headerActions = el('div', { className: 'day-header-actions' });
   if (isAdmin()) {
-    headerActions.appendChild(el('div', {
+    headerActions.appendChild(el('button', {
+      type: 'button',
       className: `toggle toggle-day-status ${closed ? 'active' : ''}`,
+      'aria-pressed': closed ? 'true' : 'false',
+      'aria-label': closed ? t('markDayOpen') : t('markDayClosed'),
       title: closed ? t('markDayOpen') : t('markDayClosed'),
       onClick: () => { toggleClosedDate(dateStr); render(); }
     }, el('span', { className: 'toggle-text' }, closed ? t('closed') : t('open'))));
+    headerActions.appendChild(buildSyncIndicator());
   } else if (closed) {
     headerActions.appendChild(el('span', { className: `closed-badge active` }, t('closed')));
   } else {

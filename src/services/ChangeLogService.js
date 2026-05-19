@@ -15,6 +15,8 @@ export const CHANGE_LOG_TABLES = [
 
 export const CHANGE_LOG_ACTIONS = ['INSERT', 'UPDATE', 'DELETE'];
 
+const HIDDEN_UPDATE_ONLY_FIELDS = new Set(['updated_at']);
+
 export async function fetchChangeLogEntries({
   tableName = '',
   action = '',
@@ -40,8 +42,9 @@ export async function fetchChangeLogEntries({
   const { data, error } = await query;
   if (error) return { entries: [], error };
 
-  const profilesByUserId = await fetchAdminProfilesByUserIds((data || []).map(entry => entry.changed_by_user_id));
-  const entries = (data || []).map(entry => {
+  const visibleData = (data || []).filter(shouldShowChangeLogEntry);
+  const profilesByUserId = await fetchAdminProfilesByUserIds(visibleData.map(entry => entry.changed_by_user_id));
+  const entries = visibleData.map(entry => {
     const profile = profilesByUserId.get(entry.changed_by_user_id);
     return {
       ...entry,
@@ -51,6 +54,13 @@ export async function fetchChangeLogEntries({
   });
 
   return { entries, error: null };
+}
+
+function shouldShowChangeLogEntry(entry) {
+  if (String(entry?.action || '').toUpperCase() !== 'UPDATE') return true;
+  const fields = Array.isArray(entry?.changed_fields) ? entry.changed_fields : [];
+  if (fields.length === 0) return true;
+  return fields.some(field => !HIDDEN_UPDATE_ONLY_FIELDS.has(field));
 }
 
 function compactList(values) {

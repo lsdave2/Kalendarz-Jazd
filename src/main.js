@@ -2,9 +2,9 @@ import './style.css';
 import { t } from './i18n.js';
 import { el, icon, formatDate } from './utils.js';
 import {
-  loadData, subscribe, isAdmin, logout, processPastLessonsForCredits,
-  isSaving, hasPendingChanges
+  loadData, subscribe, isAdmin, logout, processPastLessonsForCredits
 } from './store.js';
+import { buildSyncIndicator } from './components/SyncIndicator.js';
 import { buildPackagesView } from './views/PackagesView.js';
 import { buildSettingsView } from './views/SettingsView.js';
 import { buildFinancesView } from './views/FinancesView.js';
@@ -155,7 +155,7 @@ function buildHeader() {
       icon(titleIcon),
       titleText
     ),
-    currentTab === 'settings' ? buildSyncIndicator() : null
+    isAdmin() ? buildSyncIndicator() : null
   );
 
   if (calendarState.selectedDate) {
@@ -174,32 +174,6 @@ function buildHeader() {
   return header;
 }
 
-
-function buildSyncIndicator() {
-  if (!isAdmin()) return el('div');
-
-  const saving = isSaving();
-  const pending = hasPendingChanges();
-  
-  let stateIcon = 'cloud_done';
-  let stateClass = 'sync-done';
-  let tooltip = t('allSaved') || 'All changes saved';
-
-  if (saving) {
-    stateIcon = 'cloud_upload';
-    stateClass = 'sync-saving';
-    tooltip = t('saving') || 'Saving to cloud...';
-  } else if (pending) {
-    stateIcon = 'cloud_off';
-    stateClass = 'sync-pending';
-    tooltip = t('pendingSync') || 'Changes pending (offline)';
-  }
-
-  return el('div', { 
-    className: `sync-indicator ${stateClass}`,
-    title: tooltip
-  }, icon(stateIcon));
-}
 
 // ── Bottom Nav ─────────────────────────────────────────────────────────
 function buildBottomNav() {
