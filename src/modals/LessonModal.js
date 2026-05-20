@@ -3,7 +3,7 @@ import { el, icon, minutesToTime, openConfirmModal, setupModalSwipeToClose } fro
 import { 
   getData, addLesson, updateLesson, deleteLesson,
   ensurePackageEntry, getPackageByName, toggleCancelLessonInstance,
-  saveData, processPastLessonsForCredits 
+  saveData
 } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getKnownClientNames } from '../services/LessonService.js';
@@ -572,7 +572,6 @@ export function openLessonModal(dateStr, lesson = null) {
       className: 'btn btn-secondary btn-sm',
       onClick: () => {
         toggleCancelLessonInstance(lesson.id, dateStr);
-        processPastLessonsForCredits();
         closeModal();
         showToast(isCancelled ? t('lessonRestored') : t('lessonCancelled'), isCancelled ? 'restore' : 'cancel');
         render();

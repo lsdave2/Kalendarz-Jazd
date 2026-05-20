@@ -15,11 +15,11 @@ export function buildSyncIndicator() {
   if (saving) {
     stateIcon = 'cloud_upload';
     stateClass = 'sync-saving';
-    tooltip = t('saving') || 'Saving to cloud...';
+    tooltip = t('saving') || 'Saving to database...';
   } else if (pending) {
-    stateIcon = 'cloud_off';
+    stateIcon = 'sync_problem';
     stateClass = 'sync-pending';
-    tooltip = t('pendingSync') || 'Changes pending cloud sync';
+    tooltip = t('pendingSync') || 'Unsaved changes - last database save failed';
   }
 
   return el('div', {

@@ -2,7 +2,7 @@ import './style.css';
 import { t } from './i18n.js';
 import { el, icon, formatDate } from './utils.js';
 import {
-  loadData, subscribe, isAdmin, logout, processPastLessonsForCredits
+  loadData, subscribe, isAdmin, logout
 } from './store.js';
 import { buildSyncIndicator } from './components/SyncIndicator.js';
 import { buildPackagesView } from './views/PackagesView.js';
@@ -263,9 +263,6 @@ window.addEventListener('store-error', (e) => {
 });
 
 setInterval(() => {
-  if (isAdmin()) {
-    processPastLessonsForCredits();
-  }
   const today = formatDate(new Date());
   if (today !== lastRenderedDay) {
     lastRenderedDay = today;

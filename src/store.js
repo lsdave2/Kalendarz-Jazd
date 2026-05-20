@@ -2305,12 +2305,6 @@ export function addLesson(lesson, { save = true } = {}) {
     ...lesson
   });
   d.lessons.push(newLesson);
-  if (newLesson.date <= formatDate(new Date())) {
-    syncDirectRecurringChild(d, newLesson);
-  }
-  materializeDueRecurringLessons(d);
-  reconcileMigratedPackageCredits(d);
-  reconcileSavedLessonPackageCredits(d, null, newLesson);
   if (save) saveData({ syncScope: SYNC_SCOPE_LESSONS });
   return newLesson;
 }
@@ -2319,14 +2313,7 @@ export function updateLesson(id, updates, { save = true } = {}) {
   const d = getData();
   const idx = d.lessons.findIndex(lesson => lesson.id === id);
   if (idx >= 0) {
-    const previousLesson = d.lessons[idx];
     d.lessons[idx] = normalizeLesson({ ...d.lessons[idx], ...updates });
-    if (d.lessons[idx].date <= formatDate(new Date())) {
-      syncDirectRecurringChild(d, d.lessons[idx]);
-    }
-    materializeDueRecurringLessons(d);
-    reconcileMigratedPackageCredits(d);
-    reconcileSavedLessonPackageCredits(d, previousLesson, d.lessons[idx]);
     if (save) saveData({ syncScope: SYNC_SCOPE_LESSONS });
   }
 }
@@ -2348,7 +2335,6 @@ export function deleteLesson(id) {
     }
   }
   d.lessons = d.lessons.filter(entry => entry.id !== id);
-  reconcileMigratedPackageCredits(d);
   for (const tx of d.packageTransactions || []) {
     if (tx.lessonId === id) {
       tx.lessonId = null;
@@ -2374,23 +2360,12 @@ export function toggleCancelLessonInstance(id, dateStr) {
   } else {
     lesson.cancelledDates.push(dateStr);
   }
-  reconcileMigratedPackageCredits(d);
   saveData({ syncScope: SYNC_SCOPE_LESSONS });
 }
 
 export function processPastLessonsForCredits() {
   if (!_data) return;
-  if (!_isAdmin) {
-    recomputePackageCreditState(_data);
-    return;
-  }
-  const recurringChainChanged = materializeDueRecurringLessons(_data);
-  const archiveChanged = autoArchiveDormantClients();
   recomputePackageCreditState(_data);
-  const transactionChanged = reconcileMigratedPackageCredits(_data);
-  if (recurringChainChanged || archiveChanged || transactionChanged) {
-    saveData();
-  }
 }
 
 export function ensurePackageEntry(name, { save = true, hasPackageLessons = false } = {}) {

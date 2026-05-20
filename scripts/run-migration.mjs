@@ -18,6 +18,7 @@ const migrationFiles = [
   './supabase/migrations/20260512_package_transaction_source_keys.sql',
   './supabase/migrations/20260512_fix_package_transaction_source_key_conflict.sql',
   './supabase/migrations/20260520_transactional_snapshot_and_ledger_guards.sql',
+  './supabase/migrations/20260520_server_side_recurring_and_lesson_credits.sql',
 ];
 
 for (const migrationFile of migrationFiles) {
