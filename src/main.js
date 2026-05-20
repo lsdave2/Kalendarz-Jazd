@@ -2,9 +2,9 @@ import './style.css';
 import { t } from './i18n.js';
 import { el, icon, formatDate } from './utils.js';
 import {
-  loadData, subscribe, isAdmin, logout
+  loadData, subscribe, isAdmin, logout, getDataRevision
 } from './store.js';
-import { buildSyncIndicator } from './components/SyncIndicator.js';
+import { buildSyncIndicator, refreshSyncIndicators } from './components/SyncIndicator.js';
 import { buildPackagesView } from './views/PackagesView.js';
 import { buildSettingsView } from './views/SettingsView.js';
 import { buildFinancesView } from './views/FinancesView.js';
@@ -14,6 +14,7 @@ import { addSyncErrorLogEntry } from './services/SyncErrorLogService.js';
 // ── State ──────────────────────────────────────────────────────────────
 let currentTab = 'calendar';
 let lastRenderKey = null;
+let lastObservedDataRevision = getDataRevision();
 let lastRenderedDay = formatDate(new Date());
 let pendingScrollRestoreY = null;
 let pendingScrollRestoreFrame = null;
@@ -130,6 +131,7 @@ export function render() {
   app.appendChild(page);
   app.appendChild(buildBottomNav());
   lastRenderKey = renderKey;
+  lastObservedDataRevision = getDataRevision();
 
   if (shouldRestoreScroll) {
     pendingScrollRestoreY = previousScrollY;
@@ -249,7 +251,15 @@ export function showToast(message, iconName = 'info') {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────
-subscribe(render);
+subscribe(() => {
+  const nextDataRevision = getDataRevision();
+  const nextRenderKey = getRenderKey();
+  if (nextDataRevision !== lastObservedDataRevision || nextRenderKey !== lastRenderKey) {
+    render();
+    return;
+  }
+  refreshSyncIndicators();
+});
 render();
 
 window.addEventListener('store-error', (e) => {

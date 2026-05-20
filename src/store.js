@@ -61,6 +61,8 @@ let _pendingSaveJobs = 0;
 let _realtimeChannel = null;
 let _realtimeInitialized = false;
 let _needsRemoteRefresh = false;
+let _remoteRefreshTimer = null;
+let _remoteRefreshInFlight = null;
 const _listeners = new Set();
 
 const _meta = {
@@ -104,6 +106,10 @@ export function isSaving() {
 
 export function hasPendingChanges() {
   return _hasPendingLocalChanges;
+}
+
+export function getDataRevision() {
+  return _dataRevision;
 }
 
 export function subscribe(fn) {
@@ -604,12 +610,18 @@ function syncReferenceEntriesFromLessons(state) {
 }
 
 function setDataState(nextState, { persisted = false, pending = _hasPendingLocalChanges } = {}) {
-  _data = normalizeAppState(nextState);
+  const normalizedState = normalizeAppState(nextState);
+  const stateChanged = !jsonEqual(normalizedState, _data);
+  _data = normalizedState;
+  if (stateChanged) {
+    _dataRevision += 1;
+  }
   if (persisted) {
     _persistedData = deepClone(_data);
   }
   _hasPendingLocalChanges = pending;
   persistLocalState();
+  return stateChanged;
 }
 
 function getAutoInstructorColor(state) {
@@ -786,7 +798,7 @@ function setupRealtime() {
           _needsRemoteRefresh = true;
           return;
         }
-        refreshFromRemote();
+        scheduleRemoteRefresh();
       }
     );
   }
@@ -795,25 +807,51 @@ function setupRealtime() {
 
 async function refreshFromRemote() {
   if (!supabase) return;
-  try {
-    const snapshot = await fetchRemoteSnapshot();
-    if (!snapshot.hasData && !_hasPendingLocalChanges) return;
-    if (_hasPendingLocalChanges) {
-      _needsRemoteRefresh = true;
-      return;
-    }
-    setDataState(snapshot.state, { persisted: true, pending: false });
-    notifyListeners();
-  } catch (error) {
-    console.error('[store] Realtime refresh failed', error);
+  if (_remoteRefreshInFlight) {
+    _needsRemoteRefresh = true;
+    return _remoteRefreshInFlight;
   }
+
+  _remoteRefreshInFlight = (async () => {
+    try {
+      const snapshot = await fetchRemoteSnapshot();
+      if (!snapshot.hasData && !_hasPendingLocalChanges) return;
+      if (_hasPendingLocalChanges) {
+        _needsRemoteRefresh = true;
+        return;
+      }
+      const remoteState = normalizeAppState(snapshot.state);
+      const hadPendingChanges = _hasPendingLocalChanges;
+      if (jsonEqual(remoteState, _data)) {
+        _persistedData = deepClone(remoteState);
+        _hasPendingLocalChanges = false;
+        persistLocalState();
+        if (hadPendingChanges) notifyListeners();
+        return;
+      }
+      setDataState(remoteState, { persisted: true, pending: false });
+      notifyListeners();
+    } catch (error) {
+      console.error('[store] Realtime refresh failed', error);
+    } finally {
+      _remoteRefreshInFlight = null;
+      if (_needsRemoteRefresh && !_hasPendingLocalChanges) {
+        _needsRemoteRefresh = false;
+        scheduleRemoteRefresh();
+      }
+    }
+  })();
+
+  return _remoteRefreshInFlight;
 }
 
 function scheduleRemoteRefresh() {
   if (!supabase) return;
-  setTimeout(() => {
+  if (_remoteRefreshTimer !== null) return;
+  _remoteRefreshTimer = setTimeout(() => {
+    _remoteRefreshTimer = null;
     refreshFromRemote();
-  }, 0);
+  }, 100);
 }
 
 export async function login(identifier, password) {
@@ -1693,7 +1731,11 @@ export function saveData({ throwOnError = false, syncScope = SYNC_SCOPE_FULL } =
         _persistedData = deepClone(persistedSyncState);
 
         if (isLatestSaveRevision()) {
+          const savedStateChanged = !jsonEqual(persistedSyncState, _data);
           _data = persistedSyncState;
+          if (savedStateChanged) {
+            _dataRevision += 1;
+          }
           _hasPendingLocalChanges = false;
           persistLocalState();
         } else {

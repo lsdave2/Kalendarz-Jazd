@@ -28,3 +28,14 @@ export function buildSyncIndicator() {
     'aria-label': tooltip,
   }, icon(stateIcon));
 }
+
+export function refreshSyncIndicators(root = document) {
+  if (!isAdmin()) {
+    root.querySelectorAll('.sync-indicator').forEach(indicator => indicator.remove());
+    return;
+  }
+
+  root.querySelectorAll('.sync-indicator').forEach(indicator => {
+    indicator.replaceWith(buildSyncIndicator());
+  });
+}

@@ -19,11 +19,7 @@ language sql
 stable
 set search_path = public, pg_temp
 as $$
-  select (
-    date_trunc('month', anchor_date::timestamp)
-    + interval '2 months'
-    - interval '1 day'
-  )::date;
+  select anchor_date + 28;
 $$;
 
 create or replace function public.horsebook_credit_tracking_cutoff()
@@ -376,9 +372,21 @@ begin
   perform set_config('horsebook.filling_recurring_lessons', 'on', true);
   perform pg_advisory_xact_lock(hashtext('horsebook_fill_recurring_lessons'));
 
-  select greatest(count(*) * 8, 64)
+  select greatest(
+    coalesce(
+      (
+        ceil(
+          greatest(horizon_date - min(date), 0)::numeric / 7
+        )::integer + 2
+      ) * greatest(count(*), 1),
+      0
+    ),
+    256
+  )
   into max_iterations
-  from public.lessons;
+  from public.lessons
+  where recurring is true
+    and date + 7 <= horizon_date;
 
   for iteration in 1..max_iterations loop
     select *
@@ -390,6 +398,7 @@ begin
         select 1
         from public.lessons child
         where child.recurring_parent_id = parent.id
+          and child.date = parent.date + 7
       )
     order by parent.date, parent.start_minute, parent.created_at, parent.id
     limit 1
@@ -401,6 +410,11 @@ begin
 
     next_date := parent_row.date + 7;
     attached_id := null;
+
+    update public.lessons orphaned_child
+    set recurring_parent_id = null
+    where orphaned_child.recurring_parent_id = parent_row.id
+      and orphaned_child.date <> next_date;
 
     update public.lessons existing
     set recurring = true,
@@ -619,28 +633,11 @@ set search_path = public, pg_temp
 as $$
 declare
   local_date date := public.horsebook_local_today(anchor);
-  month_key text := to_char(public.horsebook_local_today(anchor), 'YYYY-MM');
-  last_recurring_fill_month text;
   filled_count integer := 0;
   credit_count integer := 0;
 begin
   credit_count := public.horsebook_reconcile_completed_lesson_credits(anchor);
-
-  if extract(day from local_date) = 1 then
-    select value #>> '{}'
-    into last_recurring_fill_month
-    from public.settings
-    where key = 'recurring_lessons_filled_month';
-
-    if last_recurring_fill_month is distinct from month_key then
-      filled_count := public.horsebook_fill_recurring_lessons(local_date);
-
-      insert into public.settings(key, value)
-      values ('recurring_lessons_filled_month', to_jsonb(month_key))
-      on conflict (key) do update set
-        value = excluded.value;
-    end if;
-  end if;
+  filled_count := public.horsebook_fill_recurring_lessons(local_date);
 
   return jsonb_build_object(
     'recurringLessonsCreatedOrLinked', filled_count,
@@ -664,8 +661,8 @@ create trigger horsebook_lessons_after_delete_fill_recurring
 after delete on public.lessons
 for each statement execute function public.horsebook_after_lessons_delete_fill_recurring();
 
--- Immediate deployment fill: on 2026-05-20 this creates recurring chain
--- occurrences through 2026-06-30 and does not create July occurrences.
+-- Immediate deployment fill keeps active recurring chains copied weekly for
+-- a rolling 28-day buffer.
 select public.horsebook_fill_recurring_lessons();
 select public.horsebook_reconcile_completed_lesson_credits();
 
