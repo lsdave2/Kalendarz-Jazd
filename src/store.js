@@ -8,6 +8,9 @@ const LOCAL_PENDING_KEY = 'horsebook_pending_sync';
 const REMOTE_TABLES = ['lessons', 'packages', 'package_transactions', 'instructors', 'horses', 'groups', 'settings', 'expenses', 'incomes'];
 const DEFAULT_CREDIT_TRACKING_MIGRATED_AT = '2026-05-12T00:00:00.000Z';
 const CLOUD_SAVE_TIMEOUT_MS = 10000;
+const SYNC_SCOPE_FULL = 'full';
+const SYNC_SCOPE_LESSONS = 'lessons';
+const LESSON_SYNC_KEYS = new Set(['lessons', 'packages', 'packageTransactions']);
 
 const defaultData = () => ({
   horses: ['Rubin', 'Czempion', 'Cera', 'Muminek', 'Kadet', 'Sakwa', 'Fason', 'Carewicz', 'Grot', 'Siwa', 'Figa'],
@@ -799,11 +802,22 @@ async function refreshFromRemote() {
   try {
     const snapshot = await fetchRemoteSnapshot();
     if (!snapshot.hasData && !_hasPendingLocalChanges) return;
+    if (_hasPendingLocalChanges) {
+      _needsRemoteRefresh = true;
+      return;
+    }
     setDataState(snapshot.state, { persisted: true, pending: false });
     notifyListeners();
   } catch (error) {
     console.error('[store] Realtime refresh failed', error);
   }
+}
+
+function scheduleRemoteRefresh() {
+  if (!supabase) return;
+  setTimeout(() => {
+    refreshFromRemote();
+  }, 0);
 }
 
 export async function login(identifier, password) {
@@ -1041,6 +1055,80 @@ function dbRowMatchesExpected(row, expected) {
   return Object.entries(expected || {}).every(([key, value]) => dbValueEqual(row?.[key], value));
 }
 
+function resolveSyncScope(requestedScope, current, persisted) {
+  if (requestedScope !== SYNC_SCOPE_LESSONS) return SYNC_SCOPE_FULL;
+  const keys = new Set([...Object.keys(current || {}), ...Object.keys(persisted || {})]);
+  for (const key of keys) {
+    if (LESSON_SYNC_KEYS.has(key)) continue;
+    if (!jsonEqual(current?.[key], persisted?.[key])) {
+      return SYNC_SCOPE_FULL;
+    }
+  }
+  return SYNC_SCOPE_LESSONS;
+}
+
+async function getLessonForeignKeyMaps(lessons = [], { preferCached = false } = {}) {
+  if (!preferCached) {
+    const [
+      { data: horseRows, error: horseError },
+      { data: instructorRows, error: instructorError },
+    ] = await Promise.all([
+      withCloudTimeout(supabase.from('horses').select('id,name')),
+      withCloudTimeout(supabase.from('instructors').select('id,name')),
+    ]);
+    if (horseError) throw horseError;
+    if (instructorError) throw instructorError;
+    const horseIdByName = new Map();
+    const instructorIdByName = new Map();
+    for (const row of horseRows || []) {
+      horseIdByName.set(row.name, row.id);
+      _meta.horses.set(row.name, { id: row.id });
+    }
+    for (const row of instructorRows || []) {
+      instructorIdByName.set(row.name, row.id);
+      _meta.instructors.set(row.name, { id: row.id });
+    }
+    return { horseIdByName, instructorIdByName };
+  }
+
+  const horseIdByName = new Map(Array.from(_meta.horses.entries()).map(([name, meta]) => [name, meta.id]));
+  const instructorIdByName = new Map(Array.from(_meta.instructors.entries()).map(([name, meta]) => [name, meta.id]));
+  const missingHorseNames = [...new Set(
+    lessons
+      .map(lesson => lesson?.horse)
+      .filter(name => name && !horseIdByName.has(name))
+  )];
+  const missingInstructorNames = [...new Set(
+    lessons
+      .map(lesson => lesson?.instructor)
+      .filter(name => name && !instructorIdByName.has(name))
+  )];
+
+  if (missingHorseNames.length > 0) {
+    const { data, error } = await withCloudTimeout(
+      supabase.from('horses').select('id,name').in('name', missingHorseNames)
+    );
+    if (error) throw error;
+    for (const row of data || []) {
+      horseIdByName.set(row.name, row.id);
+      _meta.horses.set(row.name, { id: row.id });
+    }
+  }
+
+  if (missingInstructorNames.length > 0) {
+    const { data, error } = await withCloudTimeout(
+      supabase.from('instructors').select('id,name').in('name', missingInstructorNames)
+    );
+    if (error) throw error;
+    for (const row of data || []) {
+      instructorIdByName.set(row.name, row.id);
+      _meta.instructors.set(row.name, { id: row.id });
+    }
+  }
+
+  return { horseIdByName, instructorIdByName };
+}
+
 async function fetchVerificationRow(table, match) {
   let query = supabase.from(table).select('*');
   for (const [column, value] of Object.entries(match || {})) {
@@ -1265,18 +1353,21 @@ async function syncPackages(current, persisted, mutations) {
   }
 }
 
-async function syncLessons(current, persisted, mutations, { preserveRemoteLessons = false } = {}) {
-  const horseIdByName = new Map();
-  const instructorIdByName = new Map();
-  const { data: horseRows, error: horseError } = await withCloudTimeout(supabase.from('horses').select('id,name'));
-  if (horseError) throw horseError;
-  for (const row of horseRows || []) horseIdByName.set(row.name, row.id);
-  const { data: instructorRows, error: instructorError } = await withCloudTimeout(supabase.from('instructors').select('id,name'));
-  if (instructorError) throw instructorError;
-  for (const row of instructorRows || []) instructorIdByName.set(row.name, row.id);
-
+async function syncLessons(current, persisted, mutations, { preserveRemoteLessons = false, preferCachedForeignKeys = false } = {}) {
   const currentById = new Map((current.lessons || []).map(lesson => [lesson.id, lesson]));
   const persistedById = new Map((persisted.lessons || []).map(lesson => [lesson.id, lesson]));
+  const changedLessons = [];
+
+  for (const [id, lesson] of currentById.entries()) {
+    const previous = persistedById.get(id);
+    if (previous && jsonEqual(lesson, previous)) continue;
+    if (preserveRemoteLessons && previous) continue;
+    changedLessons.push(lesson);
+  }
+
+  const { horseIdByName, instructorIdByName } = await getLessonForeignKeyMaps(changedLessons, {
+    preferCached: preferCachedForeignKeys,
+  });
 
   for (const [id, lesson] of currentById.entries()) {
     const previous = persistedById.get(id);
@@ -1430,8 +1521,17 @@ async function syncIncomes(current, persisted, mutations) {
   }
 }
 
-async function syncToSupabase(current, persisted, { preserveRemoteLessons = false } = {}) {
+async function syncToSupabase(current, persisted, { preserveRemoteLessons = false, syncScope = SYNC_SCOPE_FULL } = {}) {
   const mutations = createSyncMutationLog();
+  const resolvedSyncScope = resolveSyncScope(syncScope, current, persisted);
+
+  if (resolvedSyncScope === SYNC_SCOPE_LESSONS) {
+    await syncPackages(current, persisted, mutations);
+    await syncLessons(current, persisted, mutations, { preserveRemoteLessons, preferCachedForeignKeys: true });
+    await syncPackageTransactions(current, persisted, mutations);
+    return mutations;
+  }
+
   await syncHorses(current, persisted, mutations);
   await syncInstructors(current, persisted, mutations);
   await syncGroups(current, persisted, mutations);
@@ -1444,7 +1544,7 @@ async function syncToSupabase(current, persisted, { preserveRemoteLessons = fals
   return mutations;
 }
 
-export function saveData({ throwOnError = false } = {}) {
+export function saveData({ throwOnError = false, syncScope = SYNC_SCOPE_FULL } = {}) {
   _data = normalizeAppState(_data);
   const saveRevision = ++_dataRevision;
   const saveSnapshot = deepClone(_data);
@@ -1473,7 +1573,7 @@ export function saveData({ throwOnError = false } = {}) {
         }
         if (isLatestSaveRevision() && _needsRemoteRefresh) {
           _needsRemoteRefresh = false;
-          await refreshFromRemote();
+          scheduleRemoteRefresh();
         }
         return;
       }
@@ -1492,7 +1592,7 @@ export function saveData({ throwOnError = false } = {}) {
       }
 
       try {
-        const mutations = await syncToSupabase(syncState, persistedSnapshot, { preserveRemoteLessons });
+        const mutations = await syncToSupabase(syncState, persistedSnapshot, { preserveRemoteLessons, syncScope });
         await confirmSupabaseMutations(mutations);
         const persistedSyncState = normalizeAppState(syncState);
         _persistedData = deepClone(persistedSyncState);
@@ -1506,13 +1606,13 @@ export function saveData({ throwOnError = false } = {}) {
           persistLocalState({ pending: true });
         }
 
-        if (isLatestSaveRevision() && _preserveRemoteLessonsDuringNextSync) {
+        if (isLatestSaveRevision()) {
+          const shouldRefreshAfterSave = _preserveRemoteLessonsDuringNextSync || _needsRemoteRefresh;
           _preserveRemoteLessonsDuringNextSync = false;
-          await refreshFromRemote();
-        }
-        if (isLatestSaveRevision() && _needsRemoteRefresh) {
           _needsRemoteRefresh = false;
-          await refreshFromRemote();
+          if (shouldRefreshAfterSave) {
+            scheduleRemoteRefresh();
+          }
         }
       } catch (error) {
         console.error('[store] Failed to save to Supabase', error);
@@ -1706,6 +1806,59 @@ function appendPackageTransactionState(state, tx, { recompute = true } = {}) {
   return true;
 }
 
+function getPackageNamesForLessonCreditUse(lesson) {
+  if (!lesson || lesson.lessonType === 'custom') return [];
+  const names = Array.isArray(lesson.participants) && lesson.participants.length > 0
+    ? lesson.participants
+        .filter(participant => participant?.packageMode !== false)
+        .map(participant => (participant?.packageName || participant?.name || '').trim())
+        .filter(Boolean)
+    : ((lesson.packageMode === false)
+        ? []
+        : [String(lesson.title || '').trim()].filter(Boolean));
+  return [...new Set(names)];
+}
+
+function lessonHasEnded(lesson, now = new Date()) {
+  if (!lesson?.date) return false;
+  const start = parseDate(lesson.date);
+  start.setMinutes(start.getMinutes() + (Number(lesson.startMinute) || 0));
+  const end = new Date(start);
+  end.setMinutes(end.getMinutes() + (Number(lesson.durationMinutes) || 0));
+  return end < now;
+}
+
+function reconcileSavedLessonPackageCredits(state, previousLesson, nextLesson) {
+  if (!nextLesson || nextLesson.lessonType === 'custom' || !lessonHasEnded(nextLesson)) return false;
+
+  const previousNames = new Set(getPackageNamesForLessonCreditUse(previousLesson).map(name => name.toLowerCase()));
+  const packageByName = new Map(
+    (state.packages || []).map(pkg => [String(pkg.name || '').trim().toLowerCase(), pkg]).filter(([key]) => key)
+  );
+  const desiredNet = Array.isArray(nextLesson.cancelledDates) && nextLesson.cancelledDates.includes(nextLesson.date) ? 0 : -1;
+  let changed = false;
+
+  for (const packageName of getPackageNamesForLessonCreditUse(nextLesson)) {
+    if (previousNames.has(packageName.toLowerCase())) continue;
+    const pkg = packageByName.get(packageName.toLowerCase());
+    if (!pkg) continue;
+    const occurrence = {
+      packageId: pkg.id,
+      lessonId: nextLesson.id,
+      lessonDate: nextLesson.date,
+      lessonStartMinute: Number(nextLesson.startMinute) || 0,
+    };
+    if (ensureOccurrenceNet(state, occurrence, desiredNet)) {
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    recomputePackageCreditState(state);
+  }
+  return changed;
+}
+
 function buildPastPackageOccurrenceMap(state, now = new Date()) {
   const cutoff = new Date(state.creditTrackingMigratedAt || DEFAULT_CREDIT_TRACKING_MIGRATED_AT);
   const packageByName = new Map(
@@ -1716,16 +1869,7 @@ function buildPastPackageOccurrenceMap(state, now = new Date()) {
   const pushOccurrence = ({ lesson, dateStr, instanceLesson, desiredNet }) => {
     if (instanceLesson?.lessonType === 'custom' || lesson?.lessonType === 'custom') return;
     const startMinute = Number(instanceLesson?.startMinute ?? lesson?.startMinute) || 0;
-    const packageNames = Array.isArray(instanceLesson?.participants) && instanceLesson.participants.length > 0
-      ? [...new Set(
-          instanceLesson.participants
-            .filter(participant => participant?.packageMode !== false)
-            .map(participant => (participant?.packageName || participant?.name || '').trim())
-            .filter(Boolean)
-        )]
-      : ((instanceLesson?.packageMode === false)
-          ? []
-          : [String(instanceLesson?.title || lesson?.title || '').trim()].filter(Boolean));
+    const packageNames = getPackageNamesForLessonCreditUse(instanceLesson || lesson);
 
     for (const packageName of packageNames) {
       const pkg = packageByName.get(packageName.toLowerCase());
@@ -2072,7 +2216,8 @@ export function addLesson(lesson, { save = true } = {}) {
   }
   materializeDueRecurringLessons(d);
   reconcileMigratedPackageCredits(d);
-  if (save) saveData();
+  reconcileSavedLessonPackageCredits(d, null, newLesson);
+  if (save) saveData({ syncScope: SYNC_SCOPE_LESSONS });
   return newLesson;
 }
 
@@ -2080,13 +2225,15 @@ export function updateLesson(id, updates, { save = true } = {}) {
   const d = getData();
   const idx = d.lessons.findIndex(lesson => lesson.id === id);
   if (idx >= 0) {
+    const previousLesson = d.lessons[idx];
     d.lessons[idx] = normalizeLesson({ ...d.lessons[idx], ...updates });
     if (d.lessons[idx].date <= formatDate(new Date())) {
       syncDirectRecurringChild(d, d.lessons[idx]);
     }
     materializeDueRecurringLessons(d);
     reconcileMigratedPackageCredits(d);
-    if (save) saveData();
+    reconcileSavedLessonPackageCredits(d, previousLesson, d.lessons[idx]);
+    if (save) saveData({ syncScope: SYNC_SCOPE_LESSONS });
   }
 }
 
@@ -2113,7 +2260,7 @@ export function deleteLesson(id) {
       tx.lessonId = null;
     }
   }
-  saveData();
+  saveData({ syncScope: SYNC_SCOPE_LESSONS });
 }
 
 export function getLessonsForDate(dateStr) {
@@ -2134,7 +2281,7 @@ export function toggleCancelLessonInstance(id, dateStr) {
     lesson.cancelledDates.push(dateStr);
   }
   reconcileMigratedPackageCredits(d);
-  saveData();
+  saveData({ syncScope: SYNC_SCOPE_LESSONS });
 }
 
 export function processPastLessonsForCredits() {

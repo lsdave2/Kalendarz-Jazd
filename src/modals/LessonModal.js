@@ -487,13 +487,6 @@ export function openLessonModal(dateStr, lesson = null) {
     let mutated = false;
 
     if (currentType === 'individual') {
-      if (isEdit) {
-        updateLesson(lesson.id, lessonData, { save: false });
-      } else {
-        addLesson(lessonData, { save: false });
-      }
-      mutated = true;
-
       if (lessonData.title) {
         ensurePackageEntry(lessonData.title, {
           save: false,
@@ -501,7 +494,15 @@ export function openLessonModal(dateStr, lesson = null) {
         });
         mutated = true;
       }
-      if (mutated) await saveData({ throwOnError: true });
+
+      if (isEdit) {
+        updateLesson(lesson.id, lessonData, { save: false });
+      } else {
+        addLesson(lessonData, { save: false });
+      }
+      mutated = true;
+
+      if (mutated) await saveData({ throwOnError: true, syncScope: 'lessons' });
       return isEdit ? 'updated' : 'created';
     }
 
@@ -511,7 +512,7 @@ export function openLessonModal(dateStr, lesson = null) {
       } else {
         addLesson(lessonData, { save: false });
       }
-      await saveData({ throwOnError: true });
+      await saveData({ throwOnError: true, syncScope: 'lessons' });
       return isEdit ? 'updated' : 'created';
     }
 
@@ -524,13 +525,6 @@ export function openLessonModal(dateStr, lesson = null) {
       recurring: lessonData.recurring,
     };
 
-    if (isEdit) {
-      updateLesson(lesson.id, seriesLessonData, { save: false });
-    } else {
-      addLesson(seriesLessonData, { save: false });
-    }
-    mutated = true;
-
     for (const participant of payload.participants || []) {
       ensurePackageEntry(participant.name, {
         save: false,
@@ -539,7 +533,14 @@ export function openLessonModal(dateStr, lesson = null) {
       mutated = true;
     }
 
-    if (mutated) await saveData({ throwOnError: true });
+    if (isEdit) {
+      updateLesson(lesson.id, seriesLessonData, { save: false });
+    } else {
+      addLesson(seriesLessonData, { save: false });
+    }
+    mutated = true;
+
+    if (mutated) await saveData({ throwOnError: true, syncScope: 'lessons' });
 
     return isEdit ? 'updated' : 'created';
   };
