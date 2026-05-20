@@ -61,7 +61,6 @@ let _pendingSaveJobs = 0;
 let _realtimeChannel = null;
 let _realtimeInitialized = false;
 let _needsRemoteRefresh = false;
-let _preserveRemoteLessonsDuringNextSync = false;
 const _listeners = new Set();
 
 const _meta = {
@@ -72,9 +71,7 @@ const _meta = {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
-    if (_hasPendingLocalChanges) {
-      saveData();
-    } else if (supabase) {
+    if (supabase) {
       refreshFromRemote();
     }
   });
@@ -84,8 +81,8 @@ if (supabase) {
   supabase.auth.onAuthStateChange((event, session) => {
     const wasAdmin = _isAdmin;
     _isAdmin = !!session;
-    if (_isAdmin && _hasPendingLocalChanges) {
-      saveData();
+    if (_isAdmin) {
+      refreshFromRemote();
     }
     if (wasAdmin !== _isAdmin) {
       notifyListeners();
@@ -232,21 +229,20 @@ function readLocalState() {
   }
 }
 
-function persistLocalState({ pending = _hasPendingLocalChanges } = {}) {
+function persistLocalState() {
   try {
     localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify(_data));
-    localStorage.setItem(LOCAL_PENDING_KEY, pending ? '1' : '0');
+    localStorage.removeItem(LOCAL_PENDING_KEY);
   } catch (e) {
     console.error('[store] LocalStorage save failed', e);
   }
 }
 
 function readPendingFlag() {
-  try {
-    return localStorage.getItem(LOCAL_PENDING_KEY) === '1';
-  } catch {
-    return false;
-  }
+  // Offline edits are intentionally unsupported now. Older builds may have
+  // left this flag behind, but it must never cause a future automatic upload.
+  try { localStorage.removeItem(LOCAL_PENDING_KEY); } catch {}
+  return false;
 }
 
 function normalizeHorseList(horses) {
@@ -613,7 +609,7 @@ function setDataState(nextState, { persisted = false, pending = _hasPendingLocal
     _persistedData = deepClone(_data);
   }
   _hasPendingLocalChanges = pending;
-  persistLocalState({ pending });
+  persistLocalState();
 }
 
 function getAutoInstructorColor(state) {
@@ -826,9 +822,7 @@ export async function login(identifier, password) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (!error && data.session) {
     _isAdmin = true;
-    if (_hasPendingLocalChanges) {
-      saveData();
-    }
+    await refreshFromRemote();
     notifyListeners();
     return true;
   }
@@ -845,13 +839,13 @@ export async function loadData() {
   _isLoading = true;
 
   const cachedLocalState = readLocalState();
-  const hasPendingLocalCache = readPendingFlag();
+  readPendingFlag();
 
   // Instantly populate the store from local cache if it exists.
   // This ensures the UI is populated instantly upon refresh while the 
   // fresh data is being fetched from Supabase in the background.
   if (cachedLocalState) {
-    setDataState(cachedLocalState, { pending: hasPendingLocalCache });
+    setDataState(cachedLocalState, { pending: false });
   }
   
   // First notification to trigger a render with cached data (or empty state if first load)
@@ -876,22 +870,10 @@ export async function loadData() {
     _isAdmin = !!sessionResponse.data?.session;
     setupRealtime();
 
-    // Reconcile remote data with local state
-    const remoteRecurringMigration = snapshot.state?.recurringChainMigratedAt || null;
-    const cachedRecurringMigration = cachedLocalState?.recurringChainMigratedAt || null;
-    const cachePredatesRecurringMigration = !!remoteRecurringMigration && cachedRecurringMigration !== remoteRecurringMigration;
-
-    if (hasPendingLocalCache && cachedLocalState && !cachePredatesRecurringMigration) {
-      _persistedData = deepClone(snapshot.state);
-      _preserveRemoteLessonsDuringNextSync = true;
-      setDataState(mergeRemoteOnlyLessonsIntoLocal(cachedLocalState, snapshot.state), { pending: true });
-      if (!_isAdmin) {
-        dispatchStoreWarning(t('syncLoginRequired'));
-      }
-    } else if (snapshot.hasData) {
+    if (snapshot.hasData) {
       setDataState(snapshot.state, { persisted: true, pending: false });
     } else if (cachedLocalState) {
-      setDataState(cachedLocalState, { pending: !!_isAdmin });
+      setDataState(cachedLocalState, { pending: false });
       _persistedData = deepClone(createEmptyPersistedState());
     } else {
       setDataState(defaultData(), { persisted: true, pending: false });
@@ -901,17 +883,13 @@ export async function loadData() {
     // Fallback logic consistent with original implementation
     setDataState(cachedLocalState || defaultData(), {
       persisted: !cachedLocalState,
-      pending: _isAdmin && !!cachedLocalState,
+      pending: false,
     });
   }
 
   _isLoading = false;
   processPastLessonsForCredits();
   notifyListeners();
-
-  if (_isAdmin && (_hasPendingLocalChanges || hasUnsyncedPackageCurrentCredits(_data))) {
-    saveData();
-  }
 
   return _data;
 }
@@ -960,6 +938,108 @@ function mergeRemoteOnlyLessonsIntoLocal(localState, remoteState) {
   }
 
   return mergedState;
+}
+
+function getPackageTransactionMergeKey(tx) {
+  return getPackageTransactionIdentity(tx);
+}
+
+function mergeEntityArrayByKey(current = [], base = [], remote = [], keyFn, { appendOnly = false } = {}) {
+  const currentByKey = new Map(current.map(entry => [keyFn(entry), entry]).filter(([key]) => key));
+  const baseByKey = new Map(base.map(entry => [keyFn(entry), entry]).filter(([key]) => key));
+  const remoteByKey = new Map(remote.map(entry => [keyFn(entry), entry]).filter(([key]) => key));
+  const keys = new Set([...currentByKey.keys(), ...remoteByKey.keys()]);
+  const merged = [];
+
+  for (const key of keys) {
+    const currentEntry = currentByKey.get(key);
+    const baseEntry = baseByKey.get(key);
+    const remoteEntry = remoteByKey.get(key);
+
+    if (appendOnly) {
+      merged.push(currentEntry || remoteEntry);
+      continue;
+    }
+
+    if (!baseEntry) {
+      merged.push(currentEntry || remoteEntry);
+      continue;
+    }
+
+    if (!currentEntry) {
+      if (remoteEntry && !jsonEqual(remoteEntry, baseEntry)) {
+        merged.push(remoteEntry);
+      }
+      continue;
+    }
+
+    if (jsonEqual(currentEntry, baseEntry)) {
+      if (remoteEntry) merged.push(remoteEntry);
+      continue;
+    }
+
+    merged.push(currentEntry);
+  }
+
+  return merged.filter(Boolean);
+}
+
+function mergeScalarArrayByValue(current = [], base = [], remote = []) {
+  const currentSet = new Set(current);
+  const baseSet = new Set(base);
+  const remoteSet = new Set(remote);
+  const values = new Set([...currentSet, ...remoteSet]);
+  const merged = [];
+
+  for (const value of values) {
+    const inCurrent = currentSet.has(value);
+    const inBase = baseSet.has(value);
+    const inRemote = remoteSet.has(value);
+
+    if (!inBase) {
+      if (inCurrent || inRemote) merged.push(value);
+      continue;
+    }
+
+    if (!inCurrent) {
+      if (inRemote) continue;
+      continue;
+    }
+
+    merged.push(value);
+  }
+
+  return merged;
+}
+
+function mergeRemoteChangesBeforeSave(current, base, remote) {
+  const merged = {
+    ...current,
+    horses: mergeScalarArrayByValue(current.horses || [], base.horses || [], remote.horses || []),
+    instructors: mergeEntityArrayByKey(
+      current.instructors || [],
+      base.instructors || [],
+      remote.instructors || [],
+      instr => instr?.name?.toLowerCase()
+    ),
+    groups: mergeEntityArrayByKey(current.groups || [], base.groups || [], remote.groups || [], group => group?.id),
+    packages: mergeEntityArrayByKey(current.packages || [], base.packages || [], remote.packages || [], pkg => pkg?.id),
+    lessons: mergeEntityArrayByKey(current.lessons || [], base.lessons || [], remote.lessons || [], lesson => lesson?.id),
+    packageTransactions: mergeEntityArrayByKey(
+      current.packageTransactions || [],
+      base.packageTransactions || [],
+      remote.packageTransactions || [],
+      getPackageTransactionMergeKey,
+      { appendOnly: true }
+    ),
+    expenses: mergeEntityArrayByKey(current.expenses || [], base.expenses || [], remote.expenses || [], expense => expense?.id),
+    incomes: mergeEntityArrayByKey(current.incomes || [], base.incomes || [], remote.incomes || [], income => income?.id),
+    closedDates: jsonEqual(current.closedDates, base.closedDates) ? remote.closedDates : current.closedDates,
+    creditTrackingMigratedAt: current.creditTrackingMigratedAt || remote.creditTrackingMigratedAt,
+    recurringChainMigratedAt: current.recurringChainMigratedAt || remote.recurringChainMigratedAt,
+  };
+
+  return normalizeAppState(merged);
 }
 
 function buildLessonRow(lesson, horseIdByName, instructorIdByName) {
@@ -1544,6 +1624,16 @@ async function syncToSupabase(current, persisted, { preserveRemoteLessons = fals
   return mutations;
 }
 
+async function applySnapshotToSupabase(snapshot) {
+  const { error } = await withCloudTimeout(
+    supabase.rpc('horsebook_apply_snapshot', { snapshot })
+  );
+  if (error) throw error;
+
+  const remoteSnapshot = await fetchRemoteSnapshot();
+  return remoteSnapshot.hasData ? remoteSnapshot.state : snapshot;
+}
+
 export function saveData({ throwOnError = false, syncScope = SYNC_SCOPE_FULL } = {}) {
   _data = normalizeAppState(_data);
   const saveRevision = ++_dataRevision;
@@ -1555,22 +1645,18 @@ export function saveData({ throwOnError = false, syncScope = SYNC_SCOPE_FULL } =
     const isLatestSaveRevision = () => saveRevision === _dataRevision;
     if (!isLatestSaveRevision()) {
       _hasPendingLocalChanges = true;
-      persistLocalState({ pending: true });
+      persistLocalState();
       return;
     }
-    const persistedSnapshot = deepClone(_persistedData);
     const syncState = normalizeAppState(deepClone(saveSnapshot));
-    const preserveRemoteLessons = _preserveRemoteLessonsDuringNextSync;
+    const persistedSnapshot = deepClone(_persistedData);
 
     try {
       const hasDiff = !jsonEqual(syncState, persistedSnapshot) || hasUnsyncedPackageCurrentCredits(syncState);
       _hasPendingLocalChanges = isLatestSaveRevision() ? hasDiff : true;
-      persistLocalState({ pending: _hasPendingLocalChanges });
+      persistLocalState();
 
       if (!hasDiff) {
-        if (isLatestSaveRevision()) {
-          _preserveRemoteLessonsDuringNextSync = false;
-        }
         if (isLatestSaveRevision() && _needsRemoteRefresh) {
           _needsRemoteRefresh = false;
           scheduleRemoteRefresh();
@@ -1580,6 +1666,9 @@ export function saveData({ throwOnError = false, syncScope = SYNC_SCOPE_FULL } =
 
       if (!supabase) {
         dispatchStoreWarning(t('syncUnavailableLocalOnly'));
+        if (throwOnError) {
+          throw new Error(t('syncUnavailableLocalOnly'));
+        }
         return;
       }
 
@@ -1588,27 +1677,32 @@ export function saveData({ throwOnError = false, syncScope = SYNC_SCOPE_FULL } =
         if (!_isAdmin) {
           console.warn('[store] saveData skipped Supabase sync - no active admin session.');
         }
+        if (throwOnError) {
+          throw new Error(t('syncLoginRequired'));
+        }
         return;
       }
 
       try {
-        const mutations = await syncToSupabase(syncState, persistedSnapshot, { preserveRemoteLessons, syncScope });
-        await confirmSupabaseMutations(mutations);
-        const persistedSyncState = normalizeAppState(syncState);
+        const latestRemoteSnapshot = await fetchRemoteSnapshot();
+        const latestRemoteState = latestRemoteSnapshot.hasData
+          ? latestRemoteSnapshot.state
+          : createEmptyPersistedState();
+        const mergedSyncState = mergeRemoteChangesBeforeSave(syncState, persistedSnapshot, latestRemoteState);
+        const persistedSyncState = normalizeAppState(await applySnapshotToSupabase(mergedSyncState));
         _persistedData = deepClone(persistedSyncState);
 
         if (isLatestSaveRevision()) {
           _data = persistedSyncState;
           _hasPendingLocalChanges = false;
-          persistLocalState({ pending: false });
+          persistLocalState();
         } else {
           _hasPendingLocalChanges = true;
-          persistLocalState({ pending: true });
+          persistLocalState();
         }
 
         if (isLatestSaveRevision()) {
-          const shouldRefreshAfterSave = _preserveRemoteLessonsDuringNextSync || _needsRemoteRefresh;
-          _preserveRemoteLessonsDuringNextSync = false;
+          const shouldRefreshAfterSave = _needsRemoteRefresh;
           _needsRemoteRefresh = false;
           if (shouldRefreshAfterSave) {
             scheduleRemoteRefresh();
@@ -1617,7 +1711,7 @@ export function saveData({ throwOnError = false, syncScope = SYNC_SCOPE_FULL } =
       } catch (error) {
         console.error('[store] Failed to save to Supabase', error);
         _hasPendingLocalChanges = true;
-        persistLocalState({ pending: true });
+        persistLocalState();
         dispatchStoreError(getSyncFailureMessage(error));
         if (throwOnError) {
           throw error;

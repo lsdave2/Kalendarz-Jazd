@@ -17,6 +17,7 @@ const migrationFiles = [
   './supabase/migrations/20260508_ledger_credit_system.sql',
   './supabase/migrations/20260512_package_transaction_source_keys.sql',
   './supabase/migrations/20260512_fix_package_transaction_source_key_conflict.sql',
+  './supabase/migrations/20260520_transactional_snapshot_and_ledger_guards.sql',
 ];
 
 for (const migrationFile of migrationFiles) {
