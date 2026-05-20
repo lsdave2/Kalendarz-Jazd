@@ -456,6 +456,9 @@ input, select, textarea { font-family: inherit; }
 .lesson-column {
   min-width: 0;
 }
+.lesson-column-collapsed {
+  max-width: 28px;
+}
 
 /* Quarter line markers */
 .hour-line,
@@ -562,6 +565,27 @@ input, select, textarea { font-family: inherit; }
 .lesson-tile.past {
   opacity: 0.6;
   filter: grayscale(0.5);
+}
+.lesson-tile.collapsed {
+  padding: 6px 4px;
+  min-width: 100%;
+  cursor: pointer;
+  text-align: center;
+}
+.lesson-tile.collapsed:hover {
+  transform: scale(1.03);
+}
+.lesson-tile.collapsed .tile-title {
+  justify-content: center;
+  margin-bottom: 0;
+}
+.lesson-tile.collapsed .tile-title-text {
+  flex: 0 0 auto;
+  max-width: 1ch;
+  text-overflow: clip;
+}
+.lesson-tile.collapsed .tile-meta {
+  display: none;
 }
 .lesson-tile.dragging {
   opacity: 0.7;

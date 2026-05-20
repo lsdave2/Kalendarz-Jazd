@@ -479,7 +479,19 @@ export function openLessonModal(dateStr, lesson = null) {
     };
   };
 
-  const saveLesson = async () => {
+  const persistLessonChangesInBackground = () => {
+    setTimeout(() => {
+      try {
+        saveData({ syncScope: 'lessons' }).catch(error => {
+          console.error('[LessonModal] Background save failed', error);
+        });
+      } catch (error) {
+        console.error('[LessonModal] Background save failed', error);
+      }
+    }, 0);
+  };
+
+  const saveLesson = () => {
     const payload = getLessonPayload();
     if (!payload) return null;
 
@@ -502,7 +514,7 @@ export function openLessonModal(dateStr, lesson = null) {
       }
       mutated = true;
 
-      if (mutated) await saveData({ throwOnError: true, syncScope: 'lessons' });
+      if (mutated) persistLessonChangesInBackground();
       return isEdit ? 'updated' : 'created';
     }
 
@@ -512,7 +524,7 @@ export function openLessonModal(dateStr, lesson = null) {
       } else {
         addLesson(lessonData, { save: false });
       }
-      await saveData({ throwOnError: true, syncScope: 'lessons' });
+      persistLessonChangesInBackground();
       return isEdit ? 'updated' : 'created';
     }
 
@@ -540,7 +552,7 @@ export function openLessonModal(dateStr, lesson = null) {
     }
     mutated = true;
 
-    if (mutated) await saveData({ throwOnError: true, syncScope: 'lessons' });
+    if (mutated) persistLessonChangesInBackground();
 
     return isEdit ? 'updated' : 'created';
   };
@@ -590,16 +602,10 @@ export function openLessonModal(dateStr, lesson = null) {
   btnGroup.appendChild(el('button', {
     className: 'btn btn-primary btn-sm',
     style: { marginLeft: 'auto' },
-    onClick: async (event) => {
+    onClick: (event) => {
       const button = event.currentTarget;
       button.disabled = true;
-      const result = await saveLesson().catch(error => {
-        console.error('[LessonModal] Save failed', error);
-        showToast(t('syncConnectionError'), 'cloud_off');
-        closeModal();
-        render();
-        return null;
-      });
+      const result = saveLesson();
       button.disabled = false;
       if (!result) return;
       showToast(result === 'created' ? t('lessonCreated') : t('lessonUpdated'), 'check_circle');

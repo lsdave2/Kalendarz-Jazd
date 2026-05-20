@@ -215,7 +215,7 @@ export function buildDayView(dateStr) {
   endLabel.style.top = `${(scheduleEndHour - START_HOUR) * slotH}px`;
   schedule.appendChild(endLabel);
 
-  const clusters = computeOverlapLayout(visibleLessons);
+  const clusters = computeOverlapLayout(visibleLessons, dateStr);
   for (const cluster of clusters) {
     const slotH = DAY_SCHEDULE_SLOT_HEIGHT * dayScale;
     const top = ((cluster.minStart / 60) - START_HOUR) * slotH;
@@ -234,11 +234,11 @@ export function buildDayView(dateStr) {
       }
     });
 
-    for (const colLessons of cluster.cols) {
+    for (const col of cluster.cols) {
       const colEl = el('div', { 
-        className: 'lesson-column',
+        className: `lesson-column ${col.collapsed ? 'lesson-column-collapsed' : ''}`.trim(),
         style: {
-          flex: '1 1 auto',
+          flex: col.collapsed ? '0 0 28px' : '1 1 auto',
           minWidth: '0',
           position: 'relative',
           height: '100%'
@@ -246,8 +246,8 @@ export function buildDayView(dateStr) {
       });
       
       let lastEnd = cluster.minStart;
-      for (const l of colLessons) {
-        const tile = buildLessonTile(l, dateStr, START_HOUR, dayScale, lastEnd);
+      for (const l of col.lessons) {
+        const tile = buildLessonTile(l, dateStr, START_HOUR, dayScale, lastEnd, { collapsed: col.collapsed });
         colEl.appendChild(tile);
         lastEnd = l.startMinute + l.durationMinutes;
       }
@@ -320,7 +320,7 @@ function buildInstructorLegend(lessons) {
   return legend;
 }
 
-function computeOverlapLayout(lessons) {
+function computeOverlapLayout(lessons, dateStr) {
   if (lessons.length === 0) return [];
   const sorted = [...lessons].sort((a, b) => (a.startMinute !== b.startMinute) ? a.startMinute - b.startMinute : b.durationMinutes - a.durationMinutes);
   const clusters = [];
@@ -341,35 +341,59 @@ function computeOverlapLayout(lessons) {
 
   const result = [];
   for (const cluster of clusters) {
-    const cols = [];
     let minStart = Infinity;
     let maxEnd = -Infinity;
     for (const l of cluster) {
       minStart = Math.min(minStart, l.startMinute);
       maxEnd = Math.max(maxEnd, l.startMinute + l.durationMinutes);
-      let placed = false;
-      for (let c = 0; c < cols.length; c++) {
-        const last = cols[c][cols[c].length - 1];
-        if (l.startMinute >= (last.startMinute + last.durationMinutes)) {
-          cols[c].push(l);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) cols.push([l]);
     }
+
+    const activeLessons = cluster.filter(l => !isLessonCancelledOnDate(l, dateStr));
+    const cancelledLessons = cluster.filter(l => isLessonCancelledOnDate(l, dateStr));
+    const shouldCollapseCancelled = cancelledLessons.length > 0 && cluster.length > 1;
+    const cols = [
+      ...layoutLessonColumns(activeLessons).map(lessons => ({ lessons, collapsed: false })),
+      ...layoutLessonColumns(cancelledLessons).map(lessons => ({ lessons, collapsed: shouldCollapseCancelled }))
+    ].filter(col => col.lessons.length > 0);
+
     result.push({ cols, minStart, maxEnd });
   }
   return result;
 }
 
-function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute) {
+function layoutLessonColumns(lessons) {
+  const cols = [];
+  for (const l of lessons) {
+    let placed = false;
+    for (let c = 0; c < cols.length; c++) {
+      const last = cols[c][cols[c].length - 1];
+      if (l.startMinute >= (last.startMinute + last.durationMinutes)) {
+        cols[c].push(l);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) cols.push([l]);
+  }
+  return cols;
+}
+
+function isLessonCancelledOnDate(lesson, dateStr) {
+  return Array.isArray(lesson?.cancelledDates) && lesson.cancelledDates.includes(dateStr);
+}
+
+function getCollapsedLessonLabel(lesson) {
+  return getLessonDisplayName(lesson).trim().charAt(0).toUpperCase() || ' ';
+}
+
+function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute, options = {}) {
   const isGroup = isGroupLessonRecord(lesson);
   const isCustom = isCustomLessonRecord(lesson);
   const data = getData();
   const pkg = (isGroup || isCustom) ? null : (data.packages || []).find(p => p.name.toLowerCase() === (lesson.title || '').toLowerCase());
   const ps = getLessonParticipants(lesson);
-  const cancelled = lesson.cancelledDates && lesson.cancelledDates.includes(dateStr);
+  const cancelled = isLessonCancelledOnDate(lesson, dateStr);
+  const collapsed = cancelled && options.collapsed;
   const instr = (data.instructors || []).find(i => i.name === lesson.instructor);
   const color = !cancelled && !isCustom && instr?.color ? instr.color : null;
   const lEnd = parseDate(dateStr);
@@ -382,9 +406,10 @@ function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute) {
   const h = Math.max((lesson.durationMinutes / 60) * slotH, 24);
 
   const tile = el('div', {
-    className: `lesson-tile ${cancelled || (pkg && !pkg.active) ? 'status-inactive' : 'status-neutral'} ${isGroup || isCustom ? 'group-session' : ''} ${past ? 'past' : ''} ${cancelled ? 'cancelled' : ''}`.trim(),
+    className: `lesson-tile ${cancelled || (pkg && !pkg.active) ? 'status-inactive' : 'status-neutral'} ${isGroup || isCustom ? 'group-session' : ''} ${past ? 'past' : ''} ${cancelled ? 'cancelled' : ''} ${collapsed ? 'collapsed' : ''}`.trim(),
     'data-date': dateStr,
     'data-end-minute': String(lesson.startMinute + lesson.durationMinutes),
+    title: getLessonDisplayName(lesson),
     style: {
       marginTop: `${marginTop}px`, 
       height: `${h}px`,
@@ -400,7 +425,7 @@ function buildLessonTile(lesson, dateStr, startHour, dayScale, prevEndMinute) {
 
   const titleRow = el('div', { className: 'tile-title' });
   if (color) titleRow.appendChild(el('span', { className: 'tile-group-dot', style: { background: color } }));
-  titleRow.appendChild(el('span', { className: 'tile-title-text' }, getLessonDisplayName(lesson)));
+  titleRow.appendChild(el('span', { className: 'tile-title-text' }, collapsed ? getCollapsedLessonLabel(lesson) : getLessonDisplayName(lesson)));
   tile.appendChild(titleRow);
 
   const meta = el('div', { className: 'tile-meta' });
