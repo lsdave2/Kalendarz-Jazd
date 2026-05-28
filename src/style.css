@@ -1089,6 +1089,16 @@ select.form-input {
   transform: translateX(20px);
 }
 
+.lesson-creation-meta {
+  margin-top: 14px;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: right;
+}
+
 /* Day Status Specific Toggle */
 .toggle-day-status {
   width: 112px;

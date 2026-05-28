@@ -56,6 +56,53 @@ export async function fetchChangeLogEntries({
   return { entries, error: null };
 }
 
+export async function fetchLessonCreationInfo(lessonId) {
+  if (!lessonId || !supabase) return { info: null, error: null };
+
+  const { data, error } = await supabase
+    .from('change_log')
+    .select('id,occurred_at,changed_by_user_id')
+    .eq('table_name', 'lessons')
+    .eq('row_id', lessonId)
+    .eq('action', 'INSERT')
+    .order('occurred_at', { ascending: true })
+    .limit(1);
+
+  if (error) return { info: null, error };
+
+  const entry = (data || [])[0] || null;
+  if (!entry) {
+    const { data: lessonRow, error: lessonError } = await supabase
+      .from('lessons')
+      .select('created_at')
+      .eq('id', lessonId)
+      .maybeSingle();
+
+    if (lessonError) return { info: null, error: lessonError };
+
+    return {
+      info: lessonRow?.created_at ? {
+        createdAt: lessonRow.created_at,
+        createdBy: null,
+      } : null,
+      error: null,
+    };
+  }
+
+  const profilesByUserId = await fetchAdminProfilesByUserIds([entry.changed_by_user_id]);
+  const profile = profilesByUserId.get(entry.changed_by_user_id);
+
+  return {
+    info: {
+      createdAt: entry.occurred_at,
+      createdBy: entry.changed_by_user_id
+        ? getAdminDisplayName(profile, entry.changed_by_user_id)
+        : null,
+    },
+    error: null,
+  };
+}
+
 function shouldShowChangeLogEntry(entry) {
   if (String(entry?.action || '').toUpperCase() !== 'UPDATE') return true;
   const fields = Array.isArray(entry?.changed_fields) ? entry.changed_fields : [];

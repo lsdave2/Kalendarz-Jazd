@@ -147,6 +147,14 @@ async function syncNormalizedTables(sourceSupabase, targetSupabase) {
 
   for (const table of TABLES) {
     const rows = sortRowsForInsert(table, snapshot[table.name] || []);
+    if (table.name === 'package_transactions') {
+      // Lesson insert/delete triggers can create reconciliation transactions
+      // while the target is being rebuilt. Drop those transient rows before
+      // copying the authoritative source ledger so current_credits recomputes
+      // from the same transactions as production.
+      console.log('- Clearing target table again before ledger copy: package_transactions');
+      await clearTable(targetSupabase, table);
+    }
     console.log(`- Writing ${rows.length} row(s) to ${table.name}`);
     await upsertRows(targetSupabase, table, rows);
   }

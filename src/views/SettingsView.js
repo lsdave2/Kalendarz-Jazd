@@ -724,7 +724,7 @@ function formatSyncLogTimestamp(value) {
 }
 
 function formatChangeLogUser(userId) {
-  if (!userId) return t('unknownUser');
+  if (!userId) return t('automaticUser');
   return userId;
 }
 

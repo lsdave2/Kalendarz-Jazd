@@ -19,6 +19,8 @@ const migrationFiles = [
   './supabase/migrations/20260512_fix_package_transaction_source_key_conflict.sql',
   './supabase/migrations/20260520_transactional_snapshot_and_ledger_guards.sql',
   './supabase/migrations/20260520_server_side_recurring_and_lesson_credits.sql',
+  './supabase/migrations/20260521_reconcile_edited_pre_cutoff_lesson_credits.sql',
+  './supabase/migrations/20260521_cleanup_duplicate_pre_cutoff_lesson_uses.sql',
 ];
 
 for (const migrationFile of migrationFiles) {

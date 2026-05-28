@@ -1,15 +1,39 @@
-import { t } from '../i18n.js';
+import { getLang, t } from '../i18n.js';
 import { el, icon, minutesToTime, openConfirmModal, setupModalSwipeToClose } from '../utils.js';
 import { 
-  getData, addLesson, updateLesson, deleteLesson,
+  getData, addLesson, updateLesson, deleteLesson, moveLesson,
   ensurePackageEntry, getPackageByName, toggleCancelLessonInstance,
   saveData
 } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord, getKnownClientNames } from '../services/LessonService.js';
+import { fetchLessonCreationInfo } from '../services/ChangeLogService.js';
 import { getDayScheduleHours } from '../views/SettingsView.js';
 
 let editingLesson = null;
+
+function formatLessonCreatedAt(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return t('unknownDate');
+  return new Intl.DateTimeFormat(getLang() === 'pl' ? 'pl-PL' : 'en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function formatLessonCreationText(createdAt, createdBy) {
+  const formattedDate = formatLessonCreatedAt(createdAt);
+  if (!createdBy) {
+    return t('createdAtAutomatically', { date: formattedDate });
+  }
+  return t('createdAtBy', {
+    date: formattedDate,
+    name: createdBy,
+  });
+}
 
 export function openLessonModal(dateStr, lesson = null) {
   editingLesson = lesson;
@@ -599,6 +623,29 @@ export function openLessonModal(dateStr, lesson = null) {
     }, icon('calendar_month'), t('move')));
   }
 
+  if (isEdit) {
+    const creationMeta = el('div', { className: 'lesson-creation-meta' }, t('createdAtBy', {
+      date: t('loading'),
+      name: t('loading'),
+    }));
+    modal.appendChild(creationMeta);
+
+    fetchLessonCreationInfo(lesson.id)
+      .then(({ info, error }) => {
+        if (!creationMeta.isConnected) return;
+        if (error) {
+          console.warn('[LessonModal] Failed to load lesson creation info', error);
+        }
+        const createdAt = info?.createdAt || lesson.createdAt || lesson.created_at || null;
+        creationMeta.textContent = formatLessonCreationText(createdAt, info?.createdBy || null);
+      })
+      .catch(error => {
+        if (!creationMeta.isConnected) return;
+        console.warn('[LessonModal] Failed to load lesson creation info', error);
+        creationMeta.textContent = formatLessonCreationText(lesson.createdAt || lesson.created_at, null);
+      });
+  }
+
   btnGroup.appendChild(el('button', {
     className: 'btn btn-primary btn-sm',
     style: { marginLeft: 'auto' },
@@ -654,8 +701,8 @@ function openMoveLessonModal(lesson, dateStr, closeParentModal) {
         closeModal();
         return;
       }
-      
-      updateLesson(lesson.id, { date: newDateStr }, { save: true });
+
+      moveLesson(lesson.id, newDateStr, { save: true });
       
       closeModal();
       closeParentModal();
