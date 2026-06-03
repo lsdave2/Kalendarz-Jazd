@@ -2360,16 +2360,23 @@ export function updateLesson(id, updates, { save = true } = {}) {
   }
 }
 
-export function moveLesson(id, newDateStr, { save = true } = {}) {
+export function moveLesson(id, newDateStr, { save = true, startMinute } = {}) {
   const d = getData();
   const lesson = d.lessons.find(entry => entry.id === id);
-  if (!lesson || !newDateStr || lesson.date === newDateStr) return false;
+  if (!lesson || !newDateStr) return false;
+
+  const parsedStartMinute = Number(startMinute);
+  const hasStartMinute = Number.isFinite(parsedStartMinute);
+  const dateChanged = lesson.date !== newDateStr;
+  const timeChanged = hasStartMinute && Number(lesson.startMinute) !== parsedStartMinute;
+  if (!dateChanged && !timeChanged) return false;
 
   const directChild = getDirectRecurringChild(d, lesson.id);
   const isRecurringChainLesson = lesson.recurring === true || !!lesson.recurringParentId || !!directChild;
 
   if (!isRecurringChainLesson) {
     lesson.date = newDateStr;
+    if (hasStartMinute) lesson.startMinute = parsedStartMinute;
     if (save) saveData({ syncScope: SYNC_SCOPE_LESSONS });
     return true;
   }
@@ -2384,6 +2391,7 @@ export function moveLesson(id, newDateStr, { save = true } = {}) {
   }
 
   lesson.date = newDateStr;
+  if (hasStartMinute) lesson.startMinute = parsedStartMinute;
   lesson.recurring = false;
   lesson.recurringParentId = null;
 

@@ -1,5 +1,5 @@
 import { t } from '../i18n.js';
-import { el, icon, formatDate, minutesToTime, setupModalSwipeToClose } from '../utils.js';
+import { el, icon, formatDate, minutesToTime, parseDate, setupModalSwipeToClose } from '../utils.js';
 import { updatePackageName, addPackageCredits, getLessonsForDate, setPackageActive, updatePackageCustomPaymentRate } from '../store.js';
 import { render, showToast } from '../main.js';
 import { isGroupLessonRecord, isCustomLessonRecord } from '../services/LessonService.js';
@@ -136,6 +136,12 @@ function getHistoryLessonContext(record) {
   return ` (${t('lessonOn')} ${formatDateNice(record.lessonDate)}${timeStr})`;
 }
 
+function hasLessonStarted(dateStr, lesson, now = new Date()) {
+  const lessonStart = parseDate(dateStr);
+  lessonStart.setMinutes(lessonStart.getMinutes() + (Number(lesson.startMinute) || 0));
+  return lessonStart < now;
+}
+
 export function openCreditHistoryModal(pkg) {
   const overlay = el('div', { className: 'modal-overlay' });
   overlay.onclick = (e) => {
@@ -210,6 +216,7 @@ export function openCreditHistoryModal(pkg) {
 
     for (const l of lessons) {
       if (isCustomLessonRecord(l)) continue;
+      if (hasLessonStarted(dateStr, l, today)) continue;
 
       let isForClient = false;
       if (!isGroupLessonRecord(l)) {

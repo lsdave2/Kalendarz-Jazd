@@ -685,6 +685,29 @@ function openMoveLessonModal(lesson, dateStr, closeParentModal) {
   dateGroup.appendChild(dateInput);
   modal.appendChild(dateGroup);
 
+  const timeGroup = el('div', { className: 'form-group' });
+  timeGroup.appendChild(el('label', {}, t('startTime')));
+  const timeSelect = el('select', { className: 'form-input' });
+  const currentStartMinute = Number(lesson.startMinute) || 0;
+  const { startHour, endHour } = getDayScheduleHours();
+  const scheduleStartMinute = startHour * 60;
+  const scheduleEndMinute = endHour * 60;
+  const hasCurrentTimeOption = currentStartMinute >= scheduleStartMinute
+    && currentStartMinute < scheduleEndMinute
+    && (currentStartMinute - scheduleStartMinute) % 15 === 0;
+
+  if (!hasCurrentTimeOption) {
+    timeSelect.appendChild(el('option', { value: String(currentStartMinute), selected: true }, minutesToTime(currentStartMinute)));
+  }
+
+  for (let m = scheduleStartMinute; m < scheduleEndMinute; m += 15) {
+    const opt = el('option', { value: String(m) }, minutesToTime(m));
+    if (currentStartMinute === m) opt.selected = true;
+    timeSelect.appendChild(opt);
+  }
+  timeGroup.appendChild(timeSelect);
+  modal.appendChild(timeGroup);
+
   const btnRow = el('div', { className: 'btn-group modal-actions', style: { marginTop: '16px' } });
   
   btnRow.appendChild(el('button', {
@@ -697,12 +720,17 @@ function openMoveLessonModal(lesson, dateStr, closeParentModal) {
     style: { marginLeft: 'auto' },
     onClick: () => {
       const newDateStr = dateInput.value;
-      if (!newDateStr || newDateStr === dateStr) {
+      const newStartMinute = parseInt(timeSelect.value, 10);
+      if (!newDateStr) {
         closeModal();
         return;
       }
 
-      moveLesson(lesson.id, newDateStr, { save: true });
+      const moved = moveLesson(lesson.id, newDateStr, { save: true, startMinute: newStartMinute });
+      if (!moved) {
+        closeModal();
+        return;
+      }
       
       closeModal();
       closeParentModal();
