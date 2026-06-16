@@ -486,6 +486,8 @@ function renderInstructorSection(body, instrStates, recalc) {
       details.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(s.customPay)));
       details.appendChild(el('div', { className: 'report-summary-label' }, t('groupPay')));
       details.appendChild(el('div', { className: 'report-summary-value' }, formatCurrency(s.grpPay)));
+      details.appendChild(el('div', { className: 'report-summary-label total' }, t('totalPay')));
+      details.appendChild(el('div', { className: 'report-summary-value total' }, formatCurrency(s.amount)));
       list.appendChild(details);
 
       const detailedBtn = el('button', {
