@@ -1,5 +1,5 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+# Publish v2 to the existing repository's GitHub Pages site.
+name: Deploy HorseBook v2 to Pages
 
 on:
   # Runs on pushes targeting the default branch
@@ -28,28 +28,39 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rebuild
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
+          cache-dependency-path: rebuild/package-lock.json
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+      - name: Database behavior checks
+        run: npm test
+      - name: Install browser for checks
+        run: npx playwright install --with-deps chromium
+      - name: Browser checks
+        run: npm run test:ui
       - name: Build
         run: npm run build
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Public browser configuration only, explicitly targeting the v2 DB.
+          VITE_SUPABASE_URL: https://kdnhvunmtfqfkhcxtlqp.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable__0qsAS8dUo3Pq56gOzNtGw_3-lZGCBt
+          VITE_LOCAL_TEST_MODE: 'false'
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: './dist'
+          path: './rebuild/dist'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

@@ -1,0 +1,36 @@
+name: Rebuild checks
+on:
+  pull_request:
+    paths: ['rebuild/**', '.github/workflows/rebuild-checks.yml']
+  push:
+    paths: ['rebuild/**', '.github/workflows/rebuild-checks.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rebuild
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: rebuild/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://kdnhvunmtfqfkhcxtlqp.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable__0qsAS8dUo3Pq56gOzNtGw_3-lZGCBt
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: rebuild-browser-failure
+          path: rebuild/test-results
+          retention-days: 7
