@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {fresh,asUser,rpc,admin,owner,migration} from './harness.mjs';
+import {readFile} from 'node:fs/promises';
+import {fresh,asUser,rpc,admin,owner} from './harness.mjs';
 
 test('instructor rates default to 60, persist independently, and reject invalid or stale updates',async()=>{
   const db=await fresh();
@@ -31,7 +32,7 @@ test('migration defaults existing instructors to one hourly rate of 60',async()=
     await rpc(db,'hb_save_setting',{p_operation_id:randomUUID(),p_key:'report_rates',p_expected_revision:null,p_value:{instructor_individual:72,instructor_group:30,package_individual:110,package_group:90}});
     await owner(db);
     await db.exec('alter table horsebook.instructors drop column lesson_rate; delete from horsebook.schema_version where version=15;');
-    await db.exec(migration.slice(migration.indexOf('-- One hourly payment rate per instructor')));
+    await db.exec(await readFile(new URL('../database/015_instructor_rates.sql',import.meta.url),'utf8'));
     const {rows}=await db.query('select lesson_rate from horsebook.instructors where id=$1',[i.id]);
     assert.equal(Number(rows[0].lesson_rate),60);
   }finally{await db.close();}

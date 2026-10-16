@@ -3,19 +3,17 @@ import {useEffect,useId,useRef,useState} from 'react';
 import type {Booking,Lesson,References} from './types';
 import {Field,Icon,Modal,type Run} from './components';
 import {minuteTime,timeMinute} from './dates';
-function newBooking(clientId=''):Booking{return {id:crypto.randomUUID(),client_id:clientId,horse_id:null,instructor_id:null,billing_mode:'cash',units:1,cash_amount:140,attendance:'unknown',removed:false,review_status:'pending',revision:1};}
-function ClientInput({id,label,className,clients,clientId,onSelect}:{id?:string;label:string;className:string;clients:References['clients'];clientId:string;onSelect:(id:string)=>void}){
+type DraftBooking=Booking&{rowId:string};
+type DraftLesson=Omit<Lesson,'bookings'>&{bookings:DraftBooking[]};
+const clientKey=(name:string)=>name.trim().toLocaleLowerCase('pl');
+function newBooking(clientId=''):DraftBooking{const id=crypto.randomUUID();return {id,rowId:id,client_id:clientId,horse_id:null,instructor_id:null,billing_mode:'cash',units:1,cash_amount:140,attendance:'unknown',removed:false,review_status:'pending',revision:1};}
+function ClientInput({id,label,className,clients,name,duplicate,onSelect}:{id?:string;label:string;className:string;clients:References['clients'];name:string;duplicate:boolean;onSelect:(id:string,name:string)=>void}){
   const listId=useId(),input=useRef<HTMLInputElement>(null);
-  const [name,setName]=useState(()=>clients.find(c=>c.id===clientId)?.name??'');
-  const match=clients.find(c=>c.name===name);
-  useEffect(()=>{input.current?.setCustomValidity(name&&!match?t("Wybierz klienta..."):'');},[name,match]);
-  return <><input ref={input} id={id} type="text" className={className} required aria-label={label}
+  useEffect(()=>{input.current?.setCustomValidity(duplicate?t("Ten klient jest już uczestnikiem lekcji."):name&&!name.trim()?t("Wpisz imię klienta..."):'');},[name,duplicate]);
+  return <><input ref={input} id={id} type="text" className={className} required maxLength={200} aria-label={label}
     placeholder={t("Wpisz imię klienta...")} autoComplete="off" list={listId} value={name} onChange={e=>{
-      const value=e.target.value,client=clients.find(c=>c.name===value);
-      setName(value);
-      e.target.setCustomValidity(value&&!client?t("Wybierz klienta..."):'');
-      if(client&&client.id!==clientId)onSelect(client.id);
-      else if(!value&&clientId)onSelect('');
+      const value=e.target.value,client=clients.find(c=>clientKey(c.name)===clientKey(value));
+      onSelect(client?.id??'',value);
     }}/><datalist id={listId}>{clients.map(c=><option key={c.id} value={c.name}/>)}</datalist></>;
 }
 function Switch({label,checked,disabled=false,onChange,title}:{label:string;checked:boolean;disabled?:boolean;onChange:()=>void;title?:string}){
@@ -25,7 +23,7 @@ function Switch({label,checked,disabled=false,onChange,title}:{label:string;chec
 export function LessonEditor({date,lesson,refs,run,busy,onClose,embedded=false}:{date:string;lesson:Lesson|null;refs:References;run:Run;busy:boolean;onClose:()=>void;embedded?:boolean}){
   const hours=refs.settings.find(s=>s.key==='schedule_hours')?.value??{start:8,end:21};
   const startMinute=hours.start*60,endMinute=hours.end*60;
-  const [draft,setDraft]=useState<Lesson>(()=>lesson?structuredClone(lesson):{
+  const [draft,setDraft]=useState<DraftLesson>(()=>lesson?{...structuredClone(lesson),bookings:lesson.bookings.map(b=>({...b,rowId:b.id}))}:{
     id:crypto.randomUUID(),date,start_minute:Math.max(startMinute,Math.min(600,endMinute-15)),duration_minutes:60,title:'',kind:'individual',instructor_id:null,
     status:'scheduled',notes:'',revision:1,series_id:null,occurrence_date:null,bookings:[newBooking()]});
   const [repeat,setRepeat]=useState(false),[weeks,setWeeks]=useState('8'),[moving,setMoving]=useState(false);
@@ -39,11 +37,20 @@ export function LessonEditor({date,lesson,refs,run,busy,onClose,embedded=false}:
   const durations=[...new Set([30,45,60,90,120,draft.duration_minutes])].sort((a,b)=>a-b);
   function change(key:keyof Lesson,value:unknown){setDraft(d=>({...d,[key]:value}));}
   function booking(id:string,key:keyof Booking,value:unknown){setDraft(d=>({...d,bookings:d.bookings.map(b=>b.id===id?{...b,[key]:value}:b)}));}
-  function clientSelect(b:Booking,label:string){return <ClientInput key={b.id} className={`form-input ${individual?'':'participant-name-input'}`.trim()} label={label} clientId={b.client_id}
-    clients={refs.clients.filter(x=>(!x.archived||x.id===b.client_id)&&!active.some(other=>other.id!==b.id&&other.client_id===x.id))} onSelect={cid=>{
+  function clientSelect(b:DraftBooking,label:string){const name=b.client_name??refs.clients.find(c=>c.id===b.client_id)?.name??'';
+    if(custom)return <input className="form-input participant-name-input" aria-label={label} required maxLength={200}
+      placeholder={t("Wpisz imię klienta...")} autoComplete="off" value={name} onChange={e=>{
+        const value=e.target.value;
+        setDraft(d=>({...d,bookings:d.bookings.map(x=>x.rowId===b.rowId?{...x,client_name:value}:x)}));
+        e.target.setCustomValidity(value&&!value.trim()?t("Wpisz imię klienta..."):'');
+      }}/>;
+    return <ClientInput key={b.rowId} className={`form-input ${individual?'':'participant-name-input'}`.trim()} label={label} name={name}
+    duplicate={Boolean(name.trim())&&active.some(other=>other.rowId!==b.rowId&&clientKey(other.client_name??refs.clients.find(c=>c.id===other.client_id)?.name??'')===clientKey(name))}
+    clients={refs.clients.filter(x=>(!x.archived||x.id===b.client_id)&&!active.some(other=>other.rowId!==b.rowId&&other.client_id===x.id))} onSelect={(cid,name)=>{
     const original=lesson?.bookings.find(x=>x.client_id===cid);
     const billingMode=original?.billing_mode??(refs.clients.find(c=>c.id===cid)?.has_credit_deduction?'package':'cash');
-    setDraft(d=>({...d,bookings:d.bookings.map(x=>x.id===b.id?{...x,id:original?.id??(x.client_id&&x.client_id!==cid?crypto.randomUUID():x.id),client_id:cid,billing_mode:billingMode,review_status:'pending',revision:1}:x)}));
+    setDraft(d=>({...d,bookings:d.bookings.map(x=>x.rowId===b.rowId?{...x,id:original?.id??(x.client_id&&x.client_id!==cid?crypto.randomUUID():x.id),client_id:cid,client_name:name,
+      billing_mode:x.client_id===cid?x.billing_mode:billingMode,review_status:'pending',revision:1}:x)}));
   }}/>;}
   function horseSelect(b:Booking){return <select className="form-input participant-horse-select" aria-label={t("Koń")} value={b.horse_id??''} onChange={e=>booking(b.id,'horse_id',e.target.value||null)}>
     <option value="">{individual?t("Wybierz konia..."):t("Brak konia")}</option>{refs.horses.filter(x=>!x.archived||x.id===b.horse_id).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>;}
@@ -61,7 +68,7 @@ export function LessonEditor({date,lesson,refs,run,busy,onClose,embedded=false}:
   </div>;
   async function submit(e:React.FormEvent){
     e.preventDefault();
-    const payload={...draft,instructor_id:custom?null:draft.instructor_id,bookings:active.map(b=>({id:b.id,client_id:b.client_id,horse_id:b.horse_id,instructor_id:custom?b.instructor_id:null,
+    const payload={...draft,instructor_id:custom?null:draft.instructor_id,bookings:active.map(b=>({id:b.id,client_id:custom?null:b.client_id||null,...(custom||!b.client_id?{client_name:(b.client_name??refs.clients.find(c=>c.id===b.client_id)?.name)?.trim()}:{}),horse_id:b.horse_id,instructor_id:custom?b.instructor_id:null,
       billing_mode:custom?'cash':b.billing_mode,units:1,cash_amount:b.cash_amount,attendance:b.attendance}))};
     const ok=repeat&&!moving?await run('hb_duplicate_lesson',{p_lesson:payload,p_expected_revision:lesson?.revision??null,p_weeks:Number(weeks)})
       :await run('hb_save_lesson',{p_expected_revision:lesson?.revision??null,p_lesson:payload});
@@ -106,7 +113,7 @@ export function LessonEditor({date,lesson,refs,run,busy,onClose,embedded=false}:
       </>:<>
         {repeatControl}
         {custom&&<Field label={t("Opis")}><textarea ref={description} className="form-input lesson-description" rows={1} value={draft.notes} onChange={e=>change('notes',e.target.value)}/></Field>}
-        <div className="form-group"><label>{t("Klienci w grupie")}</label><div className="group-participants">{active.map(b=><div className="participant-row" key={b.id}>
+        <div className="form-group"><label>{t("Klienci w grupie")}</label><div className="group-participants">{active.map(b=><div className="participant-row" key={b.rowId}>
           <div className={`participant-row-top ${custom?'custom-participant-top':''}`.trim()}>{clientSelect(b,t('Klient'))}
             {custom&&<div className="participant-cost"><input className="form-input" aria-label={t("Cena (zł)")} type="number" min="0" step="0.01" required value={b.cash_amount} onChange={e=>booking(b.id,'cash_amount',Number(e.target.value))}/><span>{t("zł")}</span></div>}
           </div><div className="participant-row-bottom">

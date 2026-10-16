@@ -197,6 +197,48 @@ test.describe('native touch calendar gestures',()=>{
   });
 });
 
+for(const input of ['mouse','touch'] as const)test(`${input} lesson drag scrolls at both edges while held and stops away from the edges or on release`,async({page})=>{
+  await page.setViewportSize({width:390,height:600});
+  const state=fixture();state.lessons=state.lessons.slice(0,1);await mockCalendar(page,state);
+  await page.clock.pauseAt(new Date(fixedNow.getTime()+60000));
+  const tile=page.locator('.lesson-tile'),rect=(await tile.boundingBox())!;
+  const slotHeight=await page.locator('.hour-line:not(.half-hour)').nth(1).evaluate(n=>parseFloat((n as HTMLElement).style.top));
+  const x=rect.x+rect.width/2,y=rect.y+20;
+  const session=input==='touch'?await page.context().newCDPSession(page):null;
+  const move=async(targetY:number)=>{
+    if(session)await session.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:targetY}]});
+    else await page.mouse.move(x,targetY,{steps:12});
+  };
+  try{
+    if(session){
+      await session.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
+      await page.clock.runFor(550);await expect(tile).toHaveClass(/long-press-ready/);
+    }else{await page.mouse.move(x,y);await page.mouse.down();}
+    const bottom=(await page.locator('.bottom-nav').boundingBox())!.y-12;
+    await move(bottom);await expect(tile).toHaveClass(/dragging/);
+    const before=await page.evaluate(()=>window.scrollY);
+    await page.clock.runFor(650);
+    const after=await page.evaluate(()=>window.scrollY);
+    expect(after-before).toBeGreaterThan(150);
+    // Scrolling must update the preview even with no further pointer events.
+    expect(Math.abs((await tile.boundingBox())!.y+20-bottom)).toBeLessThan(slotHeight/8+5);
+    expect(state.moves).toHaveLength(0);
+    await move(300);const middle=await page.evaluate(()=>window.scrollY);
+    await page.clock.runFor(250);expect(await page.evaluate(()=>window.scrollY)).toBe(middle);
+    await move(20);const beforeUp=await page.evaluate(()=>window.scrollY);
+    await page.clock.runFor(350);
+    const finalScroll=await page.evaluate(()=>window.scrollY);expect(finalScroll).toBeLessThan(beforeUp-60);
+    const expected=Math.max(480,Math.round((540+(20-y+finalScroll)*60/slotHeight)/15)*15);
+    if(session)await session.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    else await page.mouse.up();
+    await expect.poll(()=>state.moves.length).toBe(1);expect(state.moves[0].p_start_minute).toBe(expected);
+    await expect(page.locator('.lesson-tile.dragging')).toHaveCount(0);
+    const stopped=await page.evaluate(()=>window.scrollY);await page.clock.runFor(250);
+    expect(await page.evaluate(()=>window.scrollY)).toBe(stopped);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }finally{await session?.detach();}
+});
+
 test('mouse lesson drag previews and snaps time, sends only its identity/revision/time, and rolls back rejected moves',async({page})=>{
   const state=fixture();await mockCalendar(page,state);
   const tile=page.getByRole('button',{name:'Edytuj lekcję Anna Test o 09:00',exact:true}),rect=(await tile.boundingBox())!;

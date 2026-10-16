@@ -45,6 +45,7 @@ for(const width of [390,916])test(`calendar events create, edit, drag, swipe and
   await tile.click();await expect(page.getByRole('dialog',{name:'Edytuj wydarzenie'})).toBeVisible();
   await page.getByLabel('Opis').fill(description+' — poprawione');await page.getByRole('button',{name:'Aktualizuj'}).click();
   const changed=page.getByRole('button',{name:`Edytuj wydarzenie ${description} — poprawione o 10:15`,exact:true});await expect(changed).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);await expect(page.locator('.toggle-day-status')).toBeEnabled();
   const height=await page.locator('.hour-line:not(.half-hour)').nth(1).evaluate(n=>parseFloat((n as HTMLElement).style.top));
   const rect=(await changed.boundingBox())!;await mouseDrag(page,rect.x+rect.width/2,rect.y+20,0,height/2);
   const moved=page.getByRole('button',{name:`Edytuj wydarzenie ${description} — poprawione o 10:45`,exact:true});

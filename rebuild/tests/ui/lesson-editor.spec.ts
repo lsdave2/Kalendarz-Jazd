@@ -48,7 +48,7 @@ test('switching lesson types discards entered details in every direction',async(
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(saved).toMatchObject({id:state.lesson.id,date,kind:target,title:'',notes:'',instructor_id:null,start_minute:600,duration_minutes:60});
     expect(saved.bookings).toHaveLength(1);
-    expect(saved.bookings[0]).toMatchObject({client_id:'jan',horse_id:null,instructor_id:null,cash_amount:140,attendance:'unknown'});
+    expect(saved.bookings[0]).toMatchObject({client_id:target==='custom'?null:'jan',...(target==='custom'?{client_name:'Jan Test'}:{}),horse_id:null,instructor_id:null,cash_amount:140,attendance:'unknown'});
   }
 });
 async function openEditor(page:Page,state:ReturnType<typeof fixture>,animate=false){
@@ -155,9 +155,7 @@ test('new lesson billing follows selected client deduction history and remains o
   await expect(client).toHaveAttribute('list',/.+/);
   await client.fill('Ann');
   await expect(client).toHaveValue('Ann');
-  await page.getByRole('button',{name:'Utwórz',exact:true}).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  expect(await client.evaluate((input:HTMLInputElement)=>input.validity.valid)).toBe(false);
+  expect(await client.evaluate((input:HTMLInputElement)=>input.validity.valid)).toBe(true);
   await client.fill('Jan Test');await expect(toggle).toHaveAttribute('aria-checked','false');
   await client.fill('Anna Test');await expect(toggle).toHaveAttribute('aria-checked','true');
   await toggle.click();await expect(toggle).toHaveAttribute('aria-checked','false');
@@ -278,7 +276,7 @@ test('compact custom participant controls and move dialog save the intended iden
   await move.getByRole('button',{name:'Przenieś',exact:true}).click();
   await expect(move).toHaveCount(0);
   expect(payload.date).toBe('2026-10-09');expect(payload.start_minute).toBe(1050);
-  expect(payload.notes).toBe('Nowy opis');expect(payload.bookings[0]).toMatchObject({client_id:'anna',horse_id:'rubin',instructor_id:null,cash_amount:175,billing_mode:'cash'});
+  expect(payload.notes).toBe('Nowy opis');expect(payload.bookings[0]).toMatchObject({client_id:null,client_name:'Anna Test',horse_id:'rubin',instructor_id:null,cash_amount:175,billing_mode:'cash'});
 });
 
 test('popup handle follows mouse drags, snaps back on short pulls and dismisses editors and review without writes',async({page})=>{

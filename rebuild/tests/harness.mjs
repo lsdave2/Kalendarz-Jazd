@@ -6,7 +6,7 @@ export const admin='10000000-0000-4000-8000-000000000001';
 export const otherAdmin='10000000-0000-4000-8000-000000000002';
 export const outsider='10000000-0000-4000-8000-000000000003';
 export const migration=(await Promise.all(['001_foundation.sql','002_validation.sql','003_backup_access.sql','004_review_count.sql','005_delete_lesson.sql','006_move_lesson_time.sql','007_review_lesson_kind.sql','008_one_credit_per_lesson.sql','009_calendar_events.sql','010_extend_series.sql','011_client_billing_default.sql','012_narrow_time_review.sql'].map(name=>
-  readFile(new URL('../database/'+name,import.meta.url),'utf8')))).join('\n')+'\n'+await readFile(new URL('../database/013_admin_login_aliases.sql',import.meta.url),'utf8')+'\n'+await readFile(new URL('../database/014_client_phone_number.sql',import.meta.url),'utf8')+'\n'+await readFile(new URL('../database/015_instructor_rates.sql',import.meta.url),'utf8');
+  readFile(new URL('../database/'+name,import.meta.url),'utf8')))).join('\n')+'\n'+await readFile(new URL('../database/013_admin_login_aliases.sql',import.meta.url),'utf8')+'\n'+await readFile(new URL('../database/014_client_phone_number.sql',import.meta.url),'utf8')+'\n'+await readFile(new URL('../database/015_instructor_rates.sql',import.meta.url),'utf8')+'\n'+await readFile(new URL('../database/016_inline_lesson_clients.sql',import.meta.url),'utf8')+'\n'+await readFile(new URL('../database/017_custom_lesson_guests.sql',import.meta.url),'utf8');
 export const bootstrap=`create role anon; create role authenticated; create schema auth;
 create table auth.users (id uuid primary key,email text);
 create function auth.uid() returns uuid language sql stable as $$

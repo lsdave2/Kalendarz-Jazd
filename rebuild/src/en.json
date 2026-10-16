@@ -265,5 +265,6 @@
   "Kopia została zapisana na urządzeniu.": "The snapshot was saved to your device.",
   "Zapisz kopię na urządzeniu": "Save snapshot to device",
   "Pomiń": "Skip",
-  "Gotowe": "Done"
+  "Gotowe": "Done",
+  "Ten klient jest już uczestnikiem lekcji.": "This client is already a participant in this lesson."
 }

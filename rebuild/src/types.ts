@@ -3,7 +3,7 @@ export type Account = {client_id:string;balance:number;revision:number};
 export type Client = Reference & {account:Account;has_credit_deduction?:boolean};
 export type Setting = {key:string;value:any;revision:number};
 export type References = {clients:Client[];horses:Reference[];instructors:Reference[];settings:Setting[]};
-export type Booking = {id:string;client_id:string;horse_id:string|null;instructor_id:string|null;
+export type Booking = {id:string;client_id:string|null;horse_id:string|null;instructor_id:string|null;
   billing_mode:'package'|'cash';units:number;cash_amount:number;attendance:'unknown'|'attended'|'no_show'|'cancelled';
   removed:boolean;review_status:'pending'|'charged'|'waived'|'needs_review';revision:number;
   client_name?:string;horse_name?:string;instructor_name?:string;last_decision_id?:string|null};
@@ -11,7 +11,7 @@ export type Lesson = {id:string;date:string;start_minute:number;duration_minutes
   kind:'individual'|'group'|'custom';instructor_id:string|null;instructor_name?:string;instructor_color?:string;
   status:'scheduled'|'cancelled';notes:string;revision:number;bookings:Booking[];
   series_id:string|null;series_revision?:number;is_last_in_series?:boolean;occurrence_date:string|null;created_at?:string};
-export type ReviewItem = Booking & {lesson_id:string;date:string;start_minute:number;duration_minutes:number;
+export type ReviewItem = Omit<Booking,'client_id'> & {client_id:string;lesson_id:string;date:string;start_minute:number;duration_minutes:number;
   lesson_status:string;lesson_kind:Lesson['kind'];title:string;balance:number;posted_net:number;proposed_net:number};
 export type CalendarEvent={id:string;date:string;start_minute:number;end_minute:number;description:string;revision:number;created_at?:string};
 export type Finance = {id:string;kind:'income'|'expense';title:string;amount:number;date:string;notes:string;archived:boolean;revision:number};

@@ -20,7 +20,7 @@ export function ReferenceEditor({record,kind,run,busy,onClose}:{record:Reference
   </Modal>;
 }
 function CreditEditor({client,run,busy,onClose}:{client:Client;run:Run;busy:boolean;onClose:()=>void}){
-  const [delta,setDelta]=useState(10),[reason,setReason]=useState(t("Zakup karnetu"));
+  const [delta,setDelta]=useState(4),[reason,setReason]=useState(t("Zakup karnetu"));
   return <Modal title={t("Kredyty · {0}",client.name)} onClose={onClose} busy={busy}>
     <form onSubmit={async e=>{e.preventDefault();if(await run('hb_adjust_credits',{p_client_id:client.id,p_expected_revision:client.account.revision,p_delta:delta,p_reason:reason}))onClose();}}><fieldset disabled={busy}>
       <Field label={t("Zmiana kredytów (ujemna wartość odejmuje)")}><input className="form-input" type="number" step="1" min="-100000" max="100000" required value={delta} onChange={e=>setDelta(Number(e.target.value))}/></Field>
