@@ -1,3 +1,4 @@
+import {chooseTime} from './time-picker';
 import {test,expect} from '@playwright/test';
 import {mouseDrag,touchDrag} from './gestures';
 
@@ -29,10 +30,13 @@ for(const width of [390,916])test(`calendar events create, edit, drag, swipe and
   }
   await sheet.dispose();await openingAnimation.dispose();
   const modal=page.getByRole('dialog',{name:'Nowe wydarzenie'});
-  await expect(modal).toBeVisible();await expect(modal.locator('input')).toHaveCount(0);
+  await expect(modal).toBeVisible();await expect(modal.locator('input:not([aria-hidden="true"])')).toHaveCount(0);
   await expect(modal.getByLabel('Opis')).toHaveAttribute('required','');
-  expect(await modal.getByLabel('Czas rozpoczęcia').locator('option').allTextContents()).toEqual(Array.from({length:52},(_,i)=>`${String(8+Math.floor(i/4)).padStart(2,'0')}:${String(i%4*15).padStart(2,'0')}`));
-  await modal.getByLabel('Czas rozpoczęcia').selectOption('10:15');await modal.getByLabel('Czas zakończenia').selectOption('11:30');
+  await modal.getByLabel('Czas rozpoczęcia').click();
+  expect(await modal.getByRole('listbox',{name:'Godziny'}).getByRole('option').allTextContents()).toEqual(Array.from({length:13},(_,i)=>String(8+i).padStart(2,'0')));
+  expect(await modal.getByRole('listbox',{name:'Minuty'}).getByRole('option').allTextContents()).toEqual(['00','15','30','45']);
+  await modal.getByRole('button',{name:'Gotowe',exact:true}).click();
+  await chooseTime(modal,'Czas rozpoczęcia','10:15');await chooseTime(modal,'Czas zakończenia','11:30');
   await modal.getByLabel('Opis').fill(description);await modal.getByRole('button',{name:'Utwórz'}).click();
   await expect(modal).toHaveCount(0);
   const tile=page.getByRole('button',{name:`Edytuj wydarzenie ${description} o 10:15`,exact:true});

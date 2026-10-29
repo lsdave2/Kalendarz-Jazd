@@ -1,3 +1,4 @@
+import {chooseTime} from './time-picker';
 import {test,expect} from '@playwright/test';
 const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Warsaw'}).format(new Date());
 
@@ -62,12 +63,12 @@ test('language changes in another tab preserve an open lesson draft',async({page
   await page.goto(`/#calendar/${today}`);
   await expect(page.getByRole('button',{name:'Dodaj lekcję'})).toBeEnabled();
   await page.getByRole('button',{name:'Dodaj lekcję'}).click();
-  await page.getByLabel('Czas rozpoczęcia',{exact:true}).selectOption('17:30');
+  await chooseTime(page,'Czas rozpoczęcia','17:30');
   await page.getByLabel('Imię klienta',{exact:true}).fill('Anna Test');
   const second=await context.newPage();await second.goto('/#settings');
   await second.getByLabel('Język',{exact:true}).selectOption('en');
   await expect(page.getByRole('dialog',{name:'New Lesson',exact:true})).toBeVisible();
-  await expect(page.getByLabel('Start Time',{exact:true})).toHaveValue('17:30');
+  await expect(page.getByLabel('Start Time',{exact:true})).toContainText('17:30');
   await expect(page.getByLabel('Client Name',{exact:true})).toHaveValue('Anna Test');
   await page.getByLabel('Entry type',{exact:true}).selectOption('event');
   await expect(page.getByRole('dialog',{name:'New event',exact:true})).toBeVisible();

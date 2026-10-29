@@ -32,7 +32,7 @@ test('auth membership, private tables, internal helpers, and snapshot export are
 test('unattended backup role can export but cannot read tables or perform app writes',async()=>{
   await asUser(db,null,'horsebook_backup');
   const snapshot=await rpc(db,'hb_backup_snapshot',{});
-  assert.equal(snapshot.format,'horsebook.snapshot');assert.equal(snapshot.schema_version,17);
+  assert.equal(snapshot.format,'horsebook.snapshot');assert.equal(snapshot.schema_version,18);
   await assert.rejects(client(db),/permission denied/);
   await assert.rejects(db.query('select * from horsebook.clients'),/permission denied/);
   await assert.rejects(db.query('delete from horsebook.accounts'),/permission denied/);

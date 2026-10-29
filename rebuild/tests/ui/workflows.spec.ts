@@ -1,3 +1,4 @@
+import {chooseTime} from './time-picker';
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 const current=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Warsaw'}).format(new Date());
@@ -76,19 +77,19 @@ test('an interrupted response keeps the draft and retries the same operation wit
   await expect(page.getByRole('button',{name:'Dodaj lekcję'})).toBeEnabled();
   await page.getByRole('button',{name:'Dodaj lekcję'}).click();
   const modal=page.getByRole('dialog');
-  await modal.getByLabel('Czas rozpoczęcia',{exact:true}).selectOption('17:30');
+  await chooseTime(modal,'Czas rozpoczęcia','17:30');
   await modal.getByLabel('Imię klienta', {exact:true}).fill('Anna Test');
   await modal.getByRole('button',{name:'Utwórz',exact:true}).click();
   await expect(page.getByRole('status')).toContainText(/fetch|Network/i);
   await expect(modal.getByLabel('Imię klienta',{exact:true})).toHaveValue(/.+/);
-  await expect(modal.getByLabel('Czas rozpoczęcia',{exact:true})).toHaveValue('17:30');
+  await expect(modal.getByLabel('Czas rozpoczęcia',{exact:true})).toContainText('17:30');
   await modal.getByRole('button',{name:'Utwórz',exact:true}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const savedLesson=page.getByRole('button',{name:'Edytuj lekcję Anna Test o 17:30',exact:true});
   await expect(savedLesson).toHaveCount(1);
   expect(operations).toHaveLength(2);expect(operations[0]).toBe(operations[1]);
   await savedLesson.click();
-  await expect(page.getByRole('dialog').getByLabel('Czas rozpoczęcia',{exact:true})).toHaveValue('17:30');
+  await expect(page.getByRole('dialog').getByLabel('Czas rozpoczęcia',{exact:true})).toContainText('17:30');
   await page.getByRole('dialog').getByRole('button',{name:'Zamknij',exact:true}).first().click();
   await page.screenshot({path:'test-results/calendar-mobile.png',fullPage:true});
 });

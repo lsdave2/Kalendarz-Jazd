@@ -2,7 +2,7 @@ export type Reference = {id:string;name:string;archived:boolean;revision:number;
 export type Account = {client_id:string;balance:number;revision:number};
 export type Client = Reference & {account:Account;has_credit_deduction?:boolean};
 export type Setting = {key:string;value:any;revision:number};
-export type References = {clients:Client[];horses:Reference[];instructors:Reference[];settings:Setting[]};
+export type References = {clients:Client[];horses:Reference[];instructors:Reference[];settings:Setting[];last_lesson_start_minute?:number|null};
 export type Booking = {id:string;client_id:string|null;horse_id:string|null;instructor_id:string|null;
   billing_mode:'package'|'cash';units:number;cash_amount:number;attendance:'unknown'|'attended'|'no_show'|'cancelled';
   removed:boolean;review_status:'pending'|'charged'|'waived'|'needs_review';revision:number;

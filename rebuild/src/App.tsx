@@ -27,6 +27,7 @@ export function App(){
   const [events,setEvents]=useState<CalendarEvent[]>([]),[eventEditor,setEventEditor]=useState<CalendarEvent>();
   const [editor,setEditor]=useState<Lesson|null|undefined>(),[review,setReview]=useState(false),[authTick,setAuthTick]=useState(0);
   const generation=useRef(0),writeLock=useRef(false),activePage=useRef(page);activePage.current=page;
+  const monthSwipe=useRef<{id:number;x:number;y:number;month:string}|null>(null),suppressMonthClick=useRef(false);
   const navigate=(tab:Page['tab'],value?:string)=>{location.hash=tab+(value?'/'+value:'');};
   useEffect(()=>{const change=()=>{setPage(locationPage());setEditor(undefined);setEventEditor(undefined);setReview(false);};window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change);},[]);
   const refresh=useCallback(async()=>{
@@ -77,7 +78,31 @@ export function App(){
           onMove={(lesson,startMinute)=>run('hb_move_lesson_time',{p_lesson_id:lesson.id,p_expected_revision:lesson.revision,p_start_minute:startMinute})}
           onToggle={()=>void run('hb_save_setting',{p_key:'closed_dates',p_expected_revision:closed?.revision??null,p_value:closedDates.includes(selectedDate)?closedDates.filter(d=>d!==selectedDate):[...closedDates,selectedDate]})}/>
         {admin&&<button className="fab" id="fab-add-lesson" aria-label={t("Dodaj lekcję")} disabled={busy||loading} onClick={()=>setEditor(null)}><Icon name="add"/></button>}
-      </>:<>
+      </>:<div className="monthly-calendar" aria-busy={loading}
+        onPointerDown={e=>{
+          monthSwipe.current=null;suppressMonthClick.current=false;
+          if(!e.isPrimary||e.button!==0||busy||loading||(e.target as HTMLElement).closest('.month-nav'))return;
+          monthSwipe.current={id:e.pointerId,x:e.clientX,y:e.clientY,month:page.month};
+        }}
+        onPointerMove={e=>{
+          const current=monthSwipe.current;if(!current||current.id!==e.pointerId)return;
+          const dx=Math.abs(e.clientX-current.x),dy=Math.abs(e.clientY-current.y);
+          if(dy>10&&dy>=dx){monthSwipe.current=null;return;}
+          if(dx>10&&dx>dy){
+            suppressMonthClick.current=true;e.currentTarget.setPointerCapture(e.pointerId);
+          }
+        }}
+        onPointerUp={e=>{
+          const current=monthSwipe.current;if(!current||current.id!==e.pointerId)return;
+          monthSwipe.current=null;
+          const dx=current.x-e.clientX,dy=Math.abs(current.y-e.clientY);
+          if(current.month===page.month&&!busy&&!loading&&Math.abs(dx)>50&&dy<50){
+            suppressMonthClick.current=true;navigate('calendar',shiftMonth(page.month,dx>0?1:-1));
+          }
+        }}
+        onPointerCancel={()=>{monthSwipe.current=null;}}
+        onLostPointerCapture={e=>{if(e.target===e.currentTarget)monthSwipe.current=null;}}
+        onClickCapture={e=>{if(suppressMonthClick.current&&e.detail>0){e.preventDefault();e.stopPropagation();suppressMonthClick.current=false;}}}>
         <div className="month-header"><h2>{new Intl.DateTimeFormat(getLocale(),{month:'long',year:'numeric',timeZone:'Europe/Warsaw'}).format(new Date(month.from+'T12:00:00Z'))}</h2><div className="month-nav">
           <button aria-label={t("Poprzedni miesiąc")} onClick={()=>navigate('calendar',shiftMonth(page.month,-1))}><Icon name="chevron_left"/></button>
           <button aria-label={t("Dzisiaj")} onClick={()=>navigate('calendar',today())}><Icon name="today"/></button>
@@ -86,7 +111,7 @@ export function App(){
           {Array.from({length:weekday},(_,i)=><div className="calendar-day empty" key={'blank'+i}/>)}
           {Array.from({length:days},(_,i)=>{const d=`${page.month}-${String(i+1).padStart(2,'0')}`,count=lessons.filter(l=>l.date===d&&l.status!=='cancelled').length+events.filter(e=>e.date===d).length;return <button key={d} aria-label={d} className={`calendar-day ${d===today()?'today':''} ${d<today()?'past':''} ${count?'has-lessons':''} ${closedDates.includes(d)?'closed':''}`} onClick={()=>navigate('calendar',d)}>{i+1}{count>0&&<span className="lesson-count-badge">{count}</span>}</button>;})}
         </div>
-      </>)}
+      </div>)}
       {safeTab==='clients'&&<Accounts refs={refs} run={run} busy={busy||loading}/>}
       {safeTab==='finances'&&<Finances refs={refs} run={run} busy={busy||loading} revision={revision}/>}
       {safeTab==='settings'&&<Settings admin={admin} loggedInEmail={loggedInEmail} refs={refs} run={run} busy={busy||loading} refresh={refresh} notify={setNotice}/>}

@@ -2,7 +2,8 @@ import {t,getLocale} from './i18n';
 import {useEffect,useId,useRef,useState} from 'react';
 import type {Booking,Lesson,References} from './types';
 import {Field,Icon,Modal,type Run} from './components';
-import {minuteTime,timeMinute} from './dates';
+import {minuteTime} from './dates';
+import {TimePicker} from './TimePicker';
 type DraftBooking=Booking&{rowId:string};
 type DraftLesson=Omit<Lesson,'bookings'>&{bookings:DraftBooking[]};
 const clientKey=(name:string)=>name.trim().toLocaleLowerCase('pl');
@@ -23,8 +24,9 @@ function Switch({label,checked,disabled=false,onChange,title}:{label:string;chec
 export function LessonEditor({date,lesson,refs,run,busy,onClose,embedded=false}:{date:string;lesson:Lesson|null;refs:References;run:Run;busy:boolean;onClose:()=>void;embedded?:boolean}){
   const hours=refs.settings.find(s=>s.key==='schedule_hours')?.value??{start:8,end:21};
   const startMinute=hours.start*60,endMinute=hours.end*60;
+  const defaultStart=Math.max(startMinute,Math.min(refs.last_lesson_start_minute??600,endMinute-15));
   const [draft,setDraft]=useState<DraftLesson>(()=>lesson?{...structuredClone(lesson),bookings:lesson.bookings.map(b=>({...b,rowId:b.id}))}:{
-    id:crypto.randomUUID(),date,start_minute:Math.max(startMinute,Math.min(600,endMinute-15)),duration_minutes:60,title:'',kind:'individual',instructor_id:null,
+    id:crypto.randomUUID(),date,start_minute:defaultStart,duration_minutes:60,title:'',kind:'individual',instructor_id:null,
     status:'scheduled',notes:'',revision:1,series_id:null,occurrence_date:null,bookings:[newBooking()]});
   const [repeat,setRepeat]=useState(false),[weeks,setWeeks]=useState('8'),[moving,setMoving]=useState(false);
   const description=useRef<HTMLTextAreaElement>(null);
@@ -56,9 +58,8 @@ export function LessonEditor({date,lesson,refs,run,busy,onClose,embedded=false}:
     <option value="">{individual?t("Wybierz konia..."):t("Brak konia")}</option>{refs.horses.filter(x=>!x.archived||x.id===b.horse_id).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>;}
   function instructorSelect(value:string|null,onChange:(id:string|null)=>void,label=t("Instruktor"),participant=false){return <select aria-label={label} className={`form-input ${participant?'participant-horse-select':''}`.trim()} value={value??''} onChange={e=>onChange(e.target.value||null)}>
     <option value="">{t("Brak instruktora")}</option>{refs.instructors.filter(x=>!x.archived||x.id===value).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>;}
-  function startSelect(){return <select className="form-input" required value={currentInRange?minuteTime(draft.start_minute):''} onChange={e=>change('start_minute',timeMinute(e.target.value))}>
-    {!currentInRange&&<option value="" disabled>{t("Wybierz godzinę...")}</option>}
-    {startTimes.map(minute=><option key={minute} value={minuteTime(minute)}>{minuteTime(minute)}</option>)}</select>;}
+  function startSelect(){return <TimePicker label={t('Czas rozpoczęcia')} value={draft.start_minute} times={startTimes}
+    disabled={busy} onChange={minute=>change('start_minute',minute)}/>;}
   const repeatControl=<div className="lesson-repeat-control">
     <div className="toggle-row lesson-repeat-row"><span>{t("Powielaj")}</span>
       {repeat&&<label className="lesson-repeat-count"><input aria-label={lesson?t("Dodatkowe tygodnie"):t("Liczba tygodni")} type="number" inputMode="numeric" className="form-input lesson-repeat-weeks" required min="1" max={lesson?'52':'53'} step="1" value={weeks} onChange={e=>setWeeks(e.target.value)}/><span>{t("tyg.")}</span></label>}
@@ -95,7 +96,7 @@ export function LessonEditor({date,lesson,refs,run,busy,onClose,embedded=false}:
       </div>}
       <div className="lesson-type-switch">{(['individual','group','custom'] as const).map(kind=><button key={kind} className={`lesson-type-btn ${draft.kind===kind?'active':''}`} type="button" onClick={()=>{
         if(kind===draft.kind)return;
-        setDraft(d=>({...d,kind,start_minute:Math.max(startMinute,Math.min(600,endMinute-15)),duration_minutes:60,
+        setDraft(d=>({...d,kind,start_minute:defaultStart,duration_minutes:60,
           title:'',notes:'',instructor_id:null,instructor_name:undefined,instructor_color:undefined,bookings:[newBooking()]}));
         setRepeat(false);setWeeks('8');
       }}>{kind==='individual'?t("Indywidualna"):kind==='group'?t("Grupowa"):t("Niestandardowa")}</button>)}</div>

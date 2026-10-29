@@ -1,3 +1,4 @@
+import {chooseTime} from './time-picker';
 import {test,expect,type Page} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {mouseDrag,touchDrag} from './gestures';
@@ -27,7 +28,7 @@ test('switching lesson types discards entered details in every direction',async(
     const client=page.getByLabel(target==='individual'?'Imię klienta':'Klient',{exact:true});
     await expect(client).toHaveCount(1);await expect(client).toHaveValue('');
     await expect(page.getByLabel('Koń',{exact:true})).toHaveValue('');
-    await expect(page.getByLabel('Czas rozpoczęcia',{exact:true})).toHaveValue('10:00');
+    await expect(page.getByLabel('Czas rozpoczęcia',{exact:true})).toContainText('10:00');
     await expect(page.getByLabel('Czas trwania',{exact:true})).toHaveValue('60');
     await expect(page.getByRole('switch',{name:'Powielaj',exact:true})).toHaveAttribute('aria-checked','false');
     const instructor=page.getByLabel(target==='custom'?'Instruktor uczestnika':'Instruktor',{exact:true});
@@ -238,7 +239,7 @@ test('last series lesson shows an amber flag and extends with the typed addition
   const weeks=page.getByLabel('Dodatkowe tygodnie',{exact:true});await expect(weeks).toHaveValue('8');
   await weeks.fill('0');await page.getByRole('button',{name:'Zapisz i powiel',exact:true}).click();
   await expect(notice).toBeVisible();
-  await weeks.fill('4');await page.getByLabel('Czas rozpoczęcia',{exact:true}).selectOption('11:00');
+  await weeks.fill('4');await chooseTime(page,'Czas rozpoczęcia','11:00');
   let args:any;
   await page.route('**/test-api/rpc',route=>{
     const request=route.request().postDataJSON();
@@ -263,16 +264,20 @@ test('compact custom participant controls and move dialog save the intended iden
     return route.fallback();
   });
   const modal=page.getByRole('dialog');
-  const times=modal.getByLabel('Czas rozpoczęcia',{exact:true}).locator('option');
-  await expect(times).toHaveCount(36);await expect(times.first()).toHaveText('09:00');await expect(times.last()).toHaveText('17:45');
+  await modal.getByLabel('Czas rozpoczęcia',{exact:true}).click();
+  const times=modal.getByRole('listbox',{name:'Godziny'}).getByRole('option');
+  await expect(times).toHaveCount(9);await expect(times.first()).toHaveText('09');await expect(times.last()).toHaveText('17');
+  await modal.getByRole('button',{name:'Gotowe',exact:true}).click();
   await modal.getByLabel('Cena (zł)',{exact:true}).first().fill('175');
   await modal.getByLabel('Instruktor uczestnika',{exact:true}).first().selectOption('');
   await modal.getByLabel('Opis',{exact:true}).fill('Nowy opis');
   await modal.getByRole('button',{name:'Przenieś',exact:true}).click();
   const move=page.getByRole('dialog',{name:'Przenieś lekcję'});
-  await expect(move.getByLabel('Czas rozpoczęcia',{exact:true}).locator('option')).toHaveCount(36);
+  await move.getByLabel('Czas rozpoczęcia',{exact:true}).click();
+  await expect(move.getByRole('listbox',{name:'Godziny'}).getByRole('option')).toHaveCount(9);
+  await move.getByRole('button',{name:'Gotowe',exact:true}).click();
   await move.getByLabel('Data',{exact:true}).fill('2026-10-09');
-  await move.getByLabel('Czas rozpoczęcia',{exact:true}).selectOption('17:30');
+  await chooseTime(move,'Czas rozpoczęcia','17:30');
   await move.getByRole('button',{name:'Przenieś',exact:true}).click();
   await expect(move).toHaveCount(0);
   expect(payload.date).toBe('2026-10-09');expect(payload.start_minute).toBe(1050);

@@ -1,7 +1,7 @@
 import {t} from './i18n';
 import {useState} from 'react';
 import {Field,Icon,Modal,type Run} from './components';
-import {minuteTime,timeMinute} from './dates';
+import {TimePicker} from './TimePicker';
 import type {CalendarEvent,References} from './types';
 
 export function EventEditor({date,event,refs,run,busy,onClose,embedded=false}:{date:string;event:CalendarEvent|null;refs:References;run:Run;busy:boolean;onClose:()=>void;embedded?:boolean}){
@@ -21,15 +21,10 @@ export function EventEditor({date,event,refs,run,busy,onClose,embedded=false}:{d
         start_minute:draft.start_minute,end_minute:draft.end_minute,description:draft.description}}))onClose();
     }}><fieldset disabled={busy}>
       {moving&&<Field label={t("Data")}><input className="form-input" type="date" required value={draft.date} onChange={e=>setDraft(d=>({...d,date:e.target.value}))}/></Field>}
-      <div className="form-row"><Field label={t("Czas rozpoczęcia")}><select className="form-input" required value={starts.includes(draft.start_minute)?minuteTime(draft.start_minute):''} onChange={e=>{
-        const start=timeMinute(e.target.value);setDraft(d=>({...d,start_minute:start,end_minute:d.end_minute>start?d.end_minute:Math.min(start+15,last)}));
-      }}>
-        {!starts.includes(draft.start_minute)&&<option value="" disabled>{t("Wybierz godzinę...")}</option>}
-        {starts.map(m=><option key={m} value={minuteTime(m)}>{minuteTime(m)}</option>)}
-      </select></Field><Field label={t("Czas zakończenia")}><select className="form-input" required value={ends.includes(draft.end_minute)?minuteTime(draft.end_minute):''} onChange={e=>setDraft(d=>({...d,end_minute:timeMinute(e.target.value)}))}>
-        {!ends.includes(draft.end_minute)&&<option value="" disabled>{t("Wybierz godzinę...")}</option>}
-        {ends.map(m=><option key={m} value={minuteTime(m)}>{minuteTime(m)}</option>)}
-      </select></Field></div>
+      <div className="form-row"><Field label={t("Czas rozpoczęcia")}><TimePicker label={t('Czas rozpoczęcia')} value={draft.start_minute} times={starts} disabled={busy}
+        onChange={start=>setDraft(d=>({...d,start_minute:start,end_minute:d.end_minute>start?d.end_minute:Math.min(start+15,last)}))}/></Field>
+        <Field label={t("Czas zakończenia")}><TimePicker label={t('Czas zakończenia')} value={draft.end_minute} times={ends} disabled={busy} alignEnd
+          onChange={end=>setDraft(d=>({...d,end_minute:end}))}/></Field></div>
       <Field label={t("Opis")}><textarea className="form-input" rows={3} required maxLength={2000} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))}/></Field>
       <div className="btn-group modal-actions">
         {event&&<><button type="button" className="btn btn-danger btn-sm" aria-label={t("Usuń wydarzenie")} onClick={async()=>{
