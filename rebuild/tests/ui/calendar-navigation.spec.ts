@@ -44,12 +44,14 @@ for(const touch of [false,true])test.describe(touch?'touch month swipes':'mouse 
       await (touch?touchDrag:mouseDrag)(page,rect.x+rect.width*.6,rect.y+rect.height*.45,dx,dy);
     };
     await swipe(-110);await expect(page).toHaveURL(/#calendar\/2027-01$/);
+    // The hash changes before React starts the asynchronous calendar refresh.
+    // Observe the new request before accepting aria-busy=false from that refresh.
+    await expect.poll(()=>ranges.at(-1)).toEqual({p_from:'2027-01-01',p_to:'2027-01-31'});
     await expect(calendar).toHaveAttribute('aria-busy','false');
-    expect(ranges.at(-1)).toEqual({p_from:'2027-01-01',p_to:'2027-01-31'});
     await expect(page.locator('.daily-calendar')).toHaveCount(0);
     await swipe(110);await expect(page).toHaveURL(/#calendar\/2026-12$/);
+    await expect.poll(()=>ranges.at(-1)).toEqual({p_from:'2026-12-01',p_to:'2026-12-31'});
     await expect(calendar).toHaveAttribute('aria-busy','false');
-    expect(ranges.at(-1)).toEqual({p_from:'2026-12-01',p_to:'2026-12-31'});
     await swipe(-35);await expect(page).toHaveURL(/#calendar\/2026-12$/);
     await expect(page.locator('.daily-calendar')).toHaveCount(0);
     if(touch)await page.getByRole('button',{name:'2026-12-17',exact:true}).tap();
