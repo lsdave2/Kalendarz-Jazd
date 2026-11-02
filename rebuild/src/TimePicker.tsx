@@ -57,12 +57,20 @@ function Wheel({label,options,value,onChange}:{label:string;options:number[];val
 }
 
 export function TimePicker({id,label,value,times,onChange,disabled=false,alignEnd=false}:{id?:string;label:string;value:number;times:number[];onChange:(minute:number)=>void;disabled?:boolean;alignEnd?:boolean}){
-  const root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null);
+  const root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null);
   const [open,setOpen]=useState(false);
   const valid=times.includes(value),selected=valid?value:times[0]??0;
   const hour=Math.floor(selected/60),minute=selected%60;
   const hours=[...new Set(times.map(time=>Math.floor(time/60)))];
   const minutes=times.filter(time=>Math.floor(time/60)===hour).map(time=>time%60);
+  useLayoutEffect(()=>{
+    if(!open||!panel.current)return;
+    const sheet=panel.current.closest<HTMLElement>('.modal');if(!sheet)return;
+    const picker=panel.current.getBoundingClientRect(),bounds=sheet.getBoundingClientRect();
+    // Keep the expanded picker inside the sheet's visible scroll area.
+    if(picker.bottom>bounds.bottom-12)sheet.scrollTop+=picker.bottom-bounds.bottom+12;
+    else if(picker.top<bounds.top+12)sheet.scrollTop-=bounds.top+12-picker.top;
+  },[open]);
   useEffect(()=>{
     if(!open)return;
     const outside=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node))setOpen(false);};
@@ -76,7 +84,7 @@ export function TimePicker({id,label,value,times,onChange,disabled=false,alignEn
       onClick={()=>setOpen(v=>!v)}><span>{valid?minuteTime(value):t('Wybierz godzinę...')}</span><Icon name="schedule"/></button>
     <input className="time-picker-validation" tabIndex={-1} aria-hidden="true" required value={valid?minuteTime(value):''}
       onChange={()=>{}} onInvalid={e=>{e.preventDefault();setOpen(true);trigger.current?.focus();}}/>
-    {open&&<div className={`time-picker-panel ${alignEnd?'align-end':''}`.trim()} role="group" aria-label={label}>
+    {open&&<div ref={panel} className={`time-picker-panel ${alignEnd?'align-end':''}`.trim()} role="group" aria-label={label}>
       <div className="time-picker-wheels">
         <Wheel label={t('Godziny')} options={hours} value={hour} onChange={next=>{
           const available=times.filter(time=>Math.floor(time/60)===next);

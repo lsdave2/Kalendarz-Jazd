@@ -62,3 +62,47 @@ test('event time wheels limit end times and allow midnight as a day endpoint',as
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(writes[0].p_event).toMatchObject({start_minute:1425,end_minute:1440});
 });
+
+for(const viewport of [{width:360,height:800},{width:390,height:430},{width:916,height:700}])test.describe(`move time picker at ${viewport.width}x${viewport.height}`,()=>{
+  test.use({viewport,hasTouch:viewport.width<500});
+  test('expands the move sheet, keeps both wheels and Done visible, and saves the selected time',async({page},testInfo)=>{
+    let saved:any;
+    const date='2026-11-12';
+    const lesson={id:'move-lesson',date,start_minute:960,duration_minutes:60,kind:'individual',title:'Clipping lesson',
+      status:'scheduled',revision:1,instructor_id:null,notes:'',bookings:[{id:'booking',client_id:'guest',client_name:'Guest',
+        horse_id:null,instructor_id:null,billing_mode:'cash',cash_amount:140,attendance:'unknown',removed:false,review_status:'pending',revision:1}]};
+    await page.route('**/test-api/rpc',async route=>{
+      const {name,args}=route.request().postDataJSON();
+      if(name==='hb_save_lesson')saved=args.p_lesson;
+      const result=name==='hb_health'?{admin:true,schema_version:1}:name==='hb_references'?{
+        clients:[{id:'guest',name:'Guest',archived:false,account:{balance:0}}],horses:[],instructors:[],settings:[]}:
+        name==='hb_calendar'?{lessons:[lesson],events:[],settings:[]}:name==='hb_review_count'?0:{};
+      await route.fulfill({json:{result}});
+    });
+    await page.goto('/#calendar/'+date);
+    await page.getByRole('button',{name:'Edytuj lekcję Clipping lesson o 16:00',exact:true}).click();
+    await page.getByRole('button',{name:'Przenieś',exact:true}).click();
+    const move=page.getByRole('dialog',{name:'Przenieś lekcję'});
+    await expect(move).toHaveCSS('transform','none');
+    const collapsed=(await move.boundingBox())!.height;
+    await move.getByLabel('Czas rozpoczęcia',{exact:true}).click();
+    const panel=move.locator('.time-picker-panel'),hours=move.getByRole('listbox',{name:'Godziny'});
+    await expect(panel).toBeInViewport({ratio:1});
+    await expect(hours).toBeInViewport({ratio:1});
+    await expect(move.getByRole('listbox',{name:'Minuty'})).toBeInViewport({ratio:1});
+    await expect(move.getByRole('button',{name:'Gotowe',exact:true})).toBeInViewport({ratio:1});
+    expect((await move.boundingBox())!.height).toBeGreaterThanOrEqual(collapsed);
+    expect((await move.getByRole('button',{name:'Przenieś',exact:true}).boundingBox())!.y).toBeGreaterThanOrEqual((await panel.boundingBox())!.y+(await panel.boundingBox())!.height);
+    await page.screenshot({path:testInfo.outputPath('move-time-picker.png')});
+    const box=(await hours.boundingBox())!;
+    if(viewport.width<500)await touchDrag(page,box.x+box.width/2,box.y+box.height/2,0,-45);
+    else{await hours.hover();await page.mouse.wheel(0,40);}
+    await expect(hours.getByRole('option',{selected:true})).not.toHaveText('16');
+    await move.getByRole('button',{name:'Gotowe',exact:true}).click();
+    await chooseTime(move,'Czas rozpoczęcia','17:30');
+    await move.getByLabel('Data',{exact:true}).fill('2026-11-13');
+    await move.getByRole('button',{name:'Przenieś',exact:true}).click();
+    await expect(move).toHaveCount(0);
+    expect(saved).toMatchObject({id:lesson.id,date:'2026-11-13',start_minute:1050});
+  });
+});
